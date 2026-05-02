@@ -10,6 +10,11 @@ const String apiBaseUrl = String.fromEnvironment(
   defaultValue: 'https://zephyr-api-wr1s.onrender.com',
 );
 
+const String googleServerClientId = String.fromEnvironment(
+  'GOOGLE_SERVER_CLIENT_ID',
+  defaultValue: '',
+);
+
 const double tabletBreakpoint = 700;
 const double maxContentWidth = 820;
 
@@ -77,7 +82,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final TextEditingController _nameController = TextEditingController();
-  final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: <String>['email']);
+  late final GoogleSignIn _googleSignIn;
   bool _loading = false;
   bool _googleLoading = false;
   bool _appleLoading = false;
@@ -88,6 +93,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    _googleSignIn = GoogleSignIn(
+      scopes: <String>['email'],
+      serverClientId: googleServerClientId.isEmpty
+          ? null
+          : googleServerClientId,
+    );
     _refreshApiStatus();
   }
 
@@ -168,7 +179,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       final String? idToken = auth.idToken;
       if (idToken == null || idToken.isEmpty) {
         throw Exception(
-          'Google ID token not available. Configure iOS/Android OAuth client.',
+          'Google ID token not available. Set GOOGLE_SERVER_CLIENT_ID '
+          '(Web OAuth client ID) via --dart-define and retry.',
         );
       }
 
@@ -327,9 +339,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 const SizedBox(height: 8),
                 SizedBox(
                   width: isTablet ? 320 : double.infinity,
-                  child: OutlinedButton.icon(
+                  child: ElevatedButton.icon(
                     onPressed: _googleLoading ? null : _continueWithGoogle,
-                    icon: const Icon(Icons.login),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4285F4),
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Text(
+                      'G',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     label: Text(
                       _googleLoading ? 'Signing in...' : 'Continue with Google',
                     ),
@@ -338,9 +360,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 const SizedBox(height: 8),
                 SizedBox(
                   width: isTablet ? 320 : double.infinity,
-                  child: OutlinedButton.icon(
+                  child: ElevatedButton.icon(
                     onPressed: _appleLoading ? null : _continueWithApple,
-                    icon: const Icon(Icons.phone_iphone),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.apple),
                     label: Text(
                       _appleLoading ? 'Signing in...' : 'Continue with Apple',
                     ),
