@@ -18,6 +18,16 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 
 ## Current status (as of 2 May 2026, latest update)
 
+### Staging deployment status (newest)
+
+- Render staging API is live at: `https://zephyr-api-wr1s.onrender.com`
+- Verified health endpoints:
+   - `GET /v1/health/live` → `HTTP 200`
+   - `GET /v1/health/ready` → `HTTP 200`
+- Mobile app is wired to live staging API:
+   - `apps/zephyr-mobile/lib/main.dart` default `API_BASE_URL` now points to `https://zephyr-api-wr1s.onrender.com`
+- iOS simulator run against staging is validated (API badge green, feed/room flow visible)
+
 ### Auth rollout decision (latest)
 
 - **Launch auth now**: `Guest + Google`
@@ -152,11 +162,18 @@ Required env vars (backend):
 - `GOOGLE_CLIENT_IDS` (comma-separated Google audiences for iOS + Android)
 - `APPLE_CLIENT_ID` (for Apple ID token verification)
 
+Staging env vars currently required on Render (`zephyr-api`):
+
+- `JWT_SECRET`
+- `DATABASE_URL`
+- `CORS_ORIGINS`
+- `GOOGLE_CLIENT_IDS` (required for Google login on staging)
+
 ## Resume plan (next session)
 
 1. Keep shipping with `Guest + Google` auth while Apple enrollment is pending
-2. Deploy staging API (Render blueprint already prepared)
-3. Point Flutter app to deployed API and re-run smoke
+2. Confirm `GOOGLE_CLIENT_IDS` is set on Render and validate Google login on staging end-to-end
+3. Keep Flutter pointed to staging API and run smoke checks
 4. Add next MVP features after staging is stable (realtime room events/chat + moderation baseline)
 5. After Apple Developer payment: enable Sign in with Apple capability + validate end-to-end
 
@@ -213,6 +230,14 @@ Flutter run (iOS simulator):
 cd /Users/wolf/dev/zephyr/apps/zephyr-mobile
 flutter emulators --launch apple_ios_simulator
 flutter run --dart-define=API_BASE_URL=http://localhost:3000
+```
+
+Flutter run (iOS simulator against staging):
+
+```bash
+cd /Users/wolf/dev/zephyr/apps/zephyr-mobile
+flutter emulators --launch apple_ios_simulator
+flutter run --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
 ```
 
 ## Quick prompt to continue tomorrow

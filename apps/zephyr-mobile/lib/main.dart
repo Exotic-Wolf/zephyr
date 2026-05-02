@@ -7,7 +7,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://localhost:3000',
+  defaultValue: 'https://zephyr-api-wr1s.onrender.com',
 );
 
 const double tabletBreakpoint = 700;
