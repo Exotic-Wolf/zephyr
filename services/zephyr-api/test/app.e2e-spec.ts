@@ -6,8 +6,11 @@ import { AppModule } from './../src/app.module';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
+  const previousGoogleClientIds = process.env.GOOGLE_CLIENT_IDS;
 
   beforeEach(async () => {
+    process.env.GOOGLE_CLIENT_IDS = 'test-client-id.apps.googleusercontent.com';
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -70,7 +73,20 @@ describe('AppController (e2e)', () => {
     );
   });
 
+  it('/v1/auth/google-login (POST) rejects invalid idToken', () => {
+    return request(app.getHttpServer())
+      .post('/v1/auth/google-login')
+      .send({ idToken: 'bogus-token' })
+      .expect(401);
+  });
+
   afterEach(async () => {
     await app.close();
+
+    if (previousGoogleClientIds === undefined) {
+      delete process.env.GOOGLE_CLIENT_IDS;
+    } else {
+      process.env.GOOGLE_CLIENT_IDS = previousGoogleClientIds;
+    }
   });
 });

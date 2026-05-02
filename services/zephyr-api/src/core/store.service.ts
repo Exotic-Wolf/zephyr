@@ -101,10 +101,19 @@ export class StoreService {
   }
 
   async issueGoogleSession(idToken: string): Promise<{ accessToken: string; user: UserProfile }> {
-    const ticket = await this.googleClient.verifyIdToken({
-      idToken,
-      audience: this.getGoogleAudiences(),
-    });
+    let ticket;
+    try {
+      ticket = await this.googleClient.verifyIdToken({
+        idToken,
+        audience: this.getGoogleAudiences(),
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+
+      throw new UnauthorizedException('Invalid Google token');
+    }
 
     const payload = ticket.getPayload();
     if (!payload || !payload.sub) {
