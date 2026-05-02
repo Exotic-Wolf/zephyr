@@ -1,0 +1,288 @@
+openapi: 3.1.0
+info:
+  title: Zephyr Platform API
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+paths:
+  /v1/auth/guest-login:
+    post:
+      operationId: guestLogin
+      tags: [Auth]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type: string
+      responses:
+        '201':
+          description: Guest session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthLoginResponse'
+
+  /v1/auth/google-login:
+    post:
+      operationId: googleLogin
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleLoginRequest'
+      responses:
+        '201':
+          description: Google session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthLoginResponse'
+
+  /v1/auth/apple-login:
+    post:
+      operationId: appleLogin
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppleLoginRequest'
+      responses:
+        '201':
+          description: Apple session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthLoginResponse'
+
+  /v1/users/me:
+    get:
+      operationId: getMyProfile
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Authenticated user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    patch:
+      operationId: updateMyProfile
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMyProfileRequest'
+      responses:
+        '200':
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /v1/rooms:
+    get:
+      operationId: listLiveRooms
+      tags: [Rooms]
+      responses:
+        '200':
+          description: List of current live rooms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Room'
+    post:
+      operationId: createRoom
+      tags: [Rooms]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoomRequest'
+      responses:
+        '201':
+          description: Room created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+
+  /v1/rooms/{roomId}/join:
+    post:
+      operationId: joinRoom
+      tags: [Rooms]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: roomId
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Joined room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+
+  /v1/feed/live:
+    get:
+      operationId: listLiveFeed
+      tags: [Feed]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Swipe-ready list of live room cards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LiveFeedCard'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      required: [id, displayName, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        avatarUrl:
+          type: [string, 'null']
+        bio:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+
+    Room:
+      type: object
+      required: [id, hostUserId, title, audienceCount, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        hostUserId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        audienceCount:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [live]
+        createdAt:
+          type: string
+          format: date-time
+
+    LiveFeedCard:
+      type: object
+      required:
+        [roomId, title, audienceCount, hostUserId, hostDisplayName, startedAt]
+      properties:
+        roomId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        audienceCount:
+          type: integer
+          minimum: 0
+        hostUserId:
+          type: string
+          format: uuid
+        hostDisplayName:
+          type: string
+        hostAvatarUrl:
+          type: [string, 'null']
+        startedAt:
+          type: string
+          format: date-time
+
+    AuthLoginResponse:
+      type: object
+      required: [accessToken, user]
+      properties:
+        accessToken:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+
+    GoogleLoginRequest:
+      type: object
+      required: [idToken]
+      properties:
+        idToken:
+          type: string
+
+    AppleLoginRequest:
+      type: object
+      required: [idToken]
+      properties:
+        idToken:
+          type: string
+        givenName:
+          type: string
+        familyName:
+          type: string
+        email:
+          type: string
+
+    UpdateMyProfileRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+        avatarUrl:
+          type: [string, 'null']
+        bio:
+          type: [string, 'null']
+
+    CreateRoomRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string

@@ -1,0 +1,21 @@
+services:
+  zephyr-postgres:
+    image: postgres:16-alpine
+    container_name: zephyr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zephyr
+    ports:
+      - "5432:5432"
+    volumes:
+      - zephyr-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d zephyr"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  zephyr-postgres-data:

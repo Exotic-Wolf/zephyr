@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: zephyr-api
+    runtime: node
+    plan: starter
+    rootDir: .
+    autoDeploy: true
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter zephyr-api build
+    startCommand: pnpm --filter zephyr-api start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: JWT_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: DB_SSL
+        value: true

@@ -1,0 +1,22 @@
+{
+  "name": "zephyr",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:api:db:up": "pnpm --dir services/zephyr-api db:up",
+    "dev:api:db:down": "pnpm --dir services/zephyr-api db:down",
+    "dev:api": "pnpm --dir services/zephyr-api start:dev:localdb",
+    "dev:api:health": "curl -fsS http://localhost:3000/v1/health/ready | cat",
+    "dev:status": "bash scripts/dev-status.sh",
+    "dev:doctor": "bash scripts/dev-doctor.sh",
+    "dev:all:android": "bash scripts/dev-all-android.sh",
+    "dev:all:ios": "bash scripts/dev-all-ios.sh",
+    "dev:mobile:pods": "env -u npm_config_prefix zsh -lc 'export PATH=\"$HOME/.gem/ruby/2.6.0/bin:$PATH\" && cd apps/zephyr-mobile/ios && pod install'",
+    "dev:mobile:android": "env -u npm_config_prefix zsh -lc 'cd apps/zephyr-mobile && flutter run --dart-define=API_BASE_URL=http://localhost:3000'",
+    "dev:mobile:ios": "env -u npm_config_prefix zsh -lc 'cd apps/zephyr-mobile && flutter run --dart-define=API_BASE_URL=http://localhost:3000'",
+    "dev:up": "pnpm dev:api:db:up && pnpm dev:api",
+    "check": "pnpm -r --if-present run check",
+    "build": "pnpm -r --if-present run build",
+    "test": "pnpm -r --if-present run test"
+  }
+}
