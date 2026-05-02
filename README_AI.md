@@ -16,7 +16,25 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 - API contract: `packages/zephyr-contracts/openapi.yaml`
 - Deploy prep: `render.yaml`, `docs/api/deploy-checklist.md`
 
-## Current status (as of 2 May 2026, latest update)
+## Current status (as of 3 May 2026, latest update)
+
+### Auth milestone completed (3 May 2026)
+
+- ✅ Google login now works end-to-end on both Android emulator and iOS simulator against staging.
+- ✅ iOS flow still works after Android auth fixes (no regression).
+- ✅ Backend Google audience allowlist now includes iOS + Android + Web OAuth client IDs.
+- ✅ Mobile app now requests Google ID tokens with `GOOGLE_SERVER_CLIENT_ID` (Web client ID) via `--dart-define`.
+- ✅ Latest auth fix commit is on `main`: `de008ac4`.
+
+Key OAuth IDs used in this session:
+
+- iOS Google client ID: `724639603736-n8v2kjqfg40l7bqkt26kov8cmofhn2db.apps.googleusercontent.com`
+- Android Google client ID: `724639603736-08tovsj719dsb6atip932tqo1jg0gtl2.apps.googleusercontent.com`
+- Web Google client ID (used as `GOOGLE_SERVER_CLIENT_ID`): `724639603736-f7v5k8112bjpfaq2igjm0b5fndlm8vc8.apps.googleusercontent.com`
+
+Security note:
+
+- A Web OAuth client secret was exposed during interactive setup. Rotate/regenerate that secret in Google Cloud before production rollout.
 
 ### Staging deployment status (newest)
 
@@ -117,7 +135,7 @@ Implemented onboarding/auth options:
 
 Current validated runtime:
 
-- Google login is confirmed working end-to-end on iOS simulator (login succeeds and lands in app)
+- Google login is confirmed working end-to-end on iOS simulator and Android emulator (login succeeds and lands in app)
 
 Implemented app flow:
 
@@ -151,14 +169,15 @@ Tablet responsiveness status:
 - Use package-scoped commands for backend
 - Frequent local issue seen during iteration: app shows `SocketException ... Connection refused` when API process is not running/listening on `:3000`
 - `pnpm db:up` only starts Postgres; it does **not** start Nest API (must run API command separately or use `dev:all:ios`)
-- Google and Apple login code is implemented, but real sign-in requires provider config
+- Google provider config is completed for staging (iOS + Android + Web audience alignment)
+- Mobile Google sign-in requires `GOOGLE_SERVER_CLIENT_ID` (Web OAuth client ID) when launching Flutter app
 - Apple Sign-In production setup requires paid Apple Developer enrollment
 
 Required env vars (backend):
 
 - `JWT_SECRET`
 - `DATABASE_URL` (for persistence)
-- `GOOGLE_CLIENT_ID` (single Google audience)
+- `GOOGLE_CLIENT_ID` (legacy/single audience, optional when `GOOGLE_CLIENT_IDS` is used)
 - `GOOGLE_CLIENT_IDS` (comma-separated Google audiences for iOS + Android)
 - `APPLE_CLIENT_ID` (for Apple ID token verification)
 
@@ -167,15 +186,15 @@ Staging env vars currently required on Render (`zephyr-api`):
 - `JWT_SECRET`
 - `DATABASE_URL`
 - `CORS_ORIGINS`
-- `GOOGLE_CLIENT_IDS` (required for Google login on staging)
+- `GOOGLE_CLIENT_IDS` (required for Google login on staging; currently iOS + Android + Web IDs)
 
 ## Resume plan (next session)
 
-1. Keep shipping with `Guest + Google` auth while Apple enrollment is pending
-2. Confirm `GOOGLE_CLIENT_IDS` is set on Render and validate Google login on staging end-to-end
-3. Keep Flutter pointed to staging API and run smoke checks
-4. Add next MVP features after staging is stable (realtime room events/chat + moderation baseline)
-5. After Apple Developer payment: enable Sign in with Apple capability + validate end-to-end
+1. Start from current stable auth baseline (Guest + Google verified on iOS/Android)
+2. Keep Flutter pointed to staging API and run quick smoke checks
+3. Begin next MVP feature: realtime room/feed updates
+4. Add moderation baseline after realtime path is stable
+5. Rotate exposed Web OAuth client secret in Google Cloud as security cleanup
 
 ## Verified command patterns
 
@@ -242,4 +261,4 @@ flutter run --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
 
 ## Quick prompt to continue tomorrow
 
-"Continue Zephyr from `README_AI.md`. First re-verify backend + Flutter health, then complete auth provider setup and persistent DB validation."
+"Continue Zephyr from `README_AI.md`. Keep current auth baseline, re-run quick staging smoke, then implement realtime room/feed updates."
