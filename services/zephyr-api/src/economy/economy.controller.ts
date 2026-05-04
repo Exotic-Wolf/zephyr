@@ -5,6 +5,7 @@ import {
   DefaultValuePipe,
   Get,
   Headers,
+  Param,
   ParseIntPipe,
   Post,
   Query,
@@ -16,9 +17,14 @@ import type {
   CoinPack,
   EconomyConfig,
   GiftCatalogItem,
+  CallSession,
+  CallSessionTickResult,
   WalletSummary,
 } from '../core/store.service';
+import { EndCallSessionDto } from './dto/end-call-session.dto';
 import { PurchaseCoinsDto } from './dto/purchase-coins.dto';
+import { StartCallSessionDto } from './dto/start-call-session.dto';
+import { TickCallSessionDto } from './dto/tick-call-session.dto';
 
 @Controller('v1/economy')
 export class EconomyController {
@@ -89,5 +95,46 @@ export class EconomyController {
   @Get('gifts/catalog')
   getGiftCatalog(): GiftCatalogItem[] {
     return this.storeService.listGiftCatalog();
+  }
+
+  @Post('calls/start')
+  async startCallSession(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: StartCallSessionDto,
+  ): Promise<CallSession> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    return this.storeService.startCallSession(user.id, {
+      mode: body.mode,
+      receiverUserId: body.receiverUserId,
+      directRateCoinsPerMinute: body.directRateCoinsPerMinute,
+    });
+  }
+
+  @Post('calls/:sessionId/tick')
+  async tickCallSession(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('sessionId') sessionId: string,
+    @Body() body: TickCallSessionDto,
+  ): Promise<CallSessionTickResult> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    return this.storeService.tickCallSession(
+      user.id,
+      sessionId,
+      body.elapsedSeconds,
+    );
+  }
+
+  @Post('calls/:sessionId/end')
+  async endCallSession(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('sessionId') sessionId: string,
+    @Body() body: EndCallSessionDto,
+  ): Promise<CallSession> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    return this.storeService.endCallSession(
+      user.id,
+      sessionId,
+      body.reason ?? 'caller_ended',
+    );
   }
 }

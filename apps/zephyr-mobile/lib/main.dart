@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -423,6 +424,12 @@ class _HomeScreenState extends State<HomeScreen> {
   String _callMode = 'direct';
   int _selectedDirectRate = 2100;
   CallQuote? _callQuote;
+  CallSession? _activeCallSession;
+  Timer? _callTickTimer;
+  bool _callActionLoading = false;
+  bool _tickInFlight = false;
+  String? _callActionError;
+  static const int _callTickIntervalSeconds = 10;
   bool _quoteLoading = false;
   String? _quoteError;
   int _activeFeedIndex = 0;
@@ -442,6 +449,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _callTickTimer?.cancel();
     _roomTitleController.dispose();
     _feedController.dispose();
     super.dispose();
@@ -554,6 +562,176 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _quoteLoading = false;
+        });
+      }
+    }
+  }
+
+  String? _resolveDirectReceiverUserId() {
+    if (_feedCards.isNotEmpty) {
+      final int safeIndex = _activeFeedIndex.clamp(0, _feedCards.length - 1);
+      return _feedCards[safeIndex].hostUserId;
+    }
+    return null;
+  }
+
+  Future<void> _startCallSession() async {
+    if (_callQuote == null) {
+      return;
+    }
+
+    final String? receiverUserId = _callMode == 'direct'
+        ? _resolveDirectReceiverUserId()
+        : null;
+    if (_callMode == 'direct' && receiverUserId == null) {
+      setState(() {
+        _callActionError =
+            'No receiver available for direct call. Try Random mode.';
+      });
+      return;
+    }
+
+    setState(() {
+      _callActionLoading = true;
+      _callActionError = null;
+    });
+
+    try {
+      final CallSession session = await widget.apiClient.startCallSession(
+        accessToken: widget.accessToken,
+        mode: _callMode,
+        receiverUserId: receiverUserId,
+        directRateCoinsPerMinute: _callMode == 'direct'
+            ? _selectedDirectRate
+            : null,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _activeCallSession = session;
+      });
+
+      _callTickTimer?.cancel();
+      _callTickTimer = Timer.periodic(
+        const Duration(seconds: _callTickIntervalSeconds),
+        (_) {
+          _runCallTick();
+        },
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Call session started. Billing is live.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _callActionError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _callActionLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _runCallTick() async {
+    final CallSession? session = _activeCallSession;
+    if (session == null || _tickInFlight) {
+      return;
+    }
+
+    _tickInFlight = true;
+    try {
+      final CallSessionTickResult result = await widget.apiClient.tickCallSession(
+        accessToken: widget.accessToken,
+        sessionId: session.id,
+        elapsedSeconds: _callTickIntervalSeconds,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _activeCallSession = result.session;
+        _coinBalance = result.callerCoinBalanceAfter;
+      });
+
+      if (result.stoppedForInsufficientBalance || result.session.status == 'ended') {
+        _callTickTimer?.cancel();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.stoppedForInsufficientBalance
+                  ? 'Call ended: insufficient balance.'
+                  : 'Call ended.',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _callActionError = error.toString();
+      });
+      _callTickTimer?.cancel();
+    } finally {
+      _tickInFlight = false;
+    }
+  }
+
+  Future<void> _endCallSession() async {
+    final CallSession? session = _activeCallSession;
+    if (session == null) {
+      return;
+    }
+
+    setState(() {
+      _callActionLoading = true;
+      _callActionError = null;
+    });
+
+    try {
+      final CallSession ended = await widget.apiClient.endCallSession(
+        accessToken: widget.accessToken,
+        sessionId: session.id,
+        reason: 'caller_ended',
+      );
+
+      _callTickTimer?.cancel();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _activeCallSession = ended;
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Call ended.')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _callActionError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _callActionLoading = false;
         });
       }
     }
@@ -843,6 +1021,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final List<int> minuteOptions = <int>[1, 2, 3, 5, 10, 15];
     final List<int> directRateOptions =
         _callQuote?.directCallAllowedRatesCoinsPerMinute ?? <int>[2100, 4200, 8400];
+    final String? directReceiverUserId = _resolveDirectReceiverUserId();
+    final bool canStartDirectCall =
+      _callMode != 'direct' || directReceiverUserId != null;
+    final bool hasLiveSession =
+      _activeCallSession != null && _activeCallSession!.status == 'live';
     final int quoteRequiredCoins = _callQuote?.requiredCoins ?? 0;
     final bool hasEnoughBalance = _coinBalance >= quoteRequiredCoins;
 
@@ -952,6 +1135,14 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
                         }).toList(),
                       ),
+                      if (!canStartDirectCall)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text(
+                            'No receiver available from live feed yet. Use Random mode or join a live room first.',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
                     ],
                   ],
                 ),
@@ -1018,6 +1209,21 @@ class _HomeScreenState extends State<HomeScreen> {
                           style: TextStyle(color: Colors.red),
                         ),
                       ),
+                    if (_callActionError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _callActionError!,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                      ),
+                    if (_activeCallSession != null) ...<Widget>[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Session ${_activeCallSession!.status == 'live' ? 'Live' : 'Ended'} • billed ${_formatCoins(_activeCallSession!.totalBilledCoins)} coins',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Row(
                       children: <Widget>[
@@ -1029,20 +1235,24 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(width: 12),
                         ElevatedButton(
                           onPressed: (_quoteLoading ||
+                                  _callActionLoading ||
                                   _callQuote == null ||
-                                  !hasEnoughBalance)
+                                  !hasEnoughBalance ||
+                                  !canStartDirectCall ||
+                                  hasLiveSession)
                               ? null
-                              : () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Call setup is next. Pricing check passed.',
-                                      ),
-                                    ),
-                                  );
-                                },
-                          child: const Text('Start Call'),
+                              : _startCallSession,
+                          child: Text(
+                            _callActionLoading ? 'Working...' : 'Start Call',
+                          ),
                         ),
+                        if (hasLiveSession) ...<Widget>[
+                          const SizedBox(width: 12),
+                          ElevatedButton(
+                            onPressed: _callActionLoading ? null : _endCallSession,
+                            child: const Text('End Call'),
+                          ),
+                        ],
                       ],
                     ),
                   ],
@@ -1642,6 +1852,60 @@ class ZephyrApiClient {
     return CallQuote.fromJson(data);
   }
 
+  Future<CallSession> startCallSession({
+    required String accessToken,
+    required String mode,
+    String? receiverUserId,
+    int? directRateCoinsPerMinute,
+  }) async {
+    final Map<String, dynamic> body = <String, dynamic>{'mode': mode};
+    if (receiverUserId != null) {
+      body['receiverUserId'] = receiverUserId;
+    }
+    if (directRateCoinsPerMinute != null) {
+      body['directRateCoinsPerMinute'] = directRateCoinsPerMinute;
+    }
+
+    final Map<String, dynamic> data = await _request(
+      method: 'POST',
+      path: '/v1/economy/calls/start',
+      accessToken: accessToken,
+      body: body,
+    );
+
+    return CallSession.fromJson(data);
+  }
+
+  Future<CallSessionTickResult> tickCallSession({
+    required String accessToken,
+    required String sessionId,
+    int elapsedSeconds = 10,
+  }) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'POST',
+      path: '/v1/economy/calls/$sessionId/tick',
+      accessToken: accessToken,
+      body: <String, dynamic>{'elapsedSeconds': elapsedSeconds},
+    );
+
+    return CallSessionTickResult.fromJson(data);
+  }
+
+  Future<CallSession> endCallSession({
+    required String accessToken,
+    required String sessionId,
+    String reason = 'caller_ended',
+  }) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'POST',
+      path: '/v1/economy/calls/$sessionId/end',
+      accessToken: accessToken,
+      body: <String, dynamic>{'reason': reason},
+    );
+
+    return CallSession.fromJson(data);
+  }
+
   Future<dynamic> _request({
     required String method,
     required String path,
@@ -1764,6 +2028,66 @@ class CallQuote {
                 .map((num value) => value.toInt())
                 .toList()
           : <int>[2100, 4200, 8400],
+    );
+  }
+}
+
+class CallSession {
+  CallSession({
+    required this.id,
+    required this.callerUserId,
+    required this.receiverUserId,
+    required this.mode,
+    required this.rateCoinsPerMinute,
+    required this.totalBilledCoins,
+    required this.status,
+    required this.endReason,
+  });
+
+  final String id;
+  final String callerUserId;
+  final String? receiverUserId;
+  final String mode;
+  final int rateCoinsPerMinute;
+  final int totalBilledCoins;
+  final String status;
+  final String? endReason;
+
+  factory CallSession.fromJson(Map<String, dynamic> json) {
+    return CallSession(
+      id: json['id'] as String,
+      callerUserId: json['callerUserId'] as String,
+      receiverUserId: json['receiverUserId'] as String?,
+      mode: json['mode'] as String,
+      rateCoinsPerMinute: (json['rateCoinsPerMinute'] as num?)?.toInt() ?? 0,
+      totalBilledCoins: (json['totalBilledCoins'] as num?)?.toInt() ?? 0,
+      status: (json['status'] as String?) ?? 'live',
+      endReason: json['endReason'] as String?,
+    );
+  }
+}
+
+class CallSessionTickResult {
+  CallSessionTickResult({
+    required this.session,
+    required this.chargedCoins,
+    required this.callerCoinBalanceAfter,
+    required this.stoppedForInsufficientBalance,
+  });
+
+  final CallSession session;
+  final int chargedCoins;
+  final int callerCoinBalanceAfter;
+  final bool stoppedForInsufficientBalance;
+
+  factory CallSessionTickResult.fromJson(Map<String, dynamic> json) {
+    return CallSessionTickResult(
+      session: CallSession.fromJson(json['session'] as Map<String, dynamic>),
+      chargedCoins: (json['chargedCoins'] as num?)?.toInt() ?? 0,
+      callerCoinBalanceAfter:
+          (json['callerCoinBalanceAfter'] as num?)?.toInt() ?? 0,
+      stoppedForInsufficientBalance:
+          (json['stoppedForInsufficientBalance'] as bool?) ?? false,
     );
   }
 }

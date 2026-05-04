@@ -52,6 +52,14 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
     - Direct call tier options: `2100`, `4200`, `8400` coins/min
     - Random call: `600` coins/min
 - ✅ Mobile `Go Live` tab now calls quote endpoint and renders live pricing (mode, rate/min, total coins, balance guard).
+- ✅ Call billing lifecycle scaffold is now implemented in backend and wired in mobile:
+   - `start` call session
+   - periodic `tick` billing (coin deduction + ledger write)
+   - `end` session (manual/insufficient balance)
+- ✅ Locked economics defaults in backend config:
+   - `COINS_PER_USD_RECEIVER=10000`
+   - `RECEIVER_SHARE_BPS=6000`
+   - `SPARK_PER_USD=10000` (neutral/no inflation default)
 - 🔄 Remaining work is execution/billing flow (start/stop call charging and revenue split writes), not quote/config.
 
 ### Staging smoke validation completed (4 May 2026)
@@ -154,6 +162,9 @@ Implemented endpoints:
 - `POST /v1/economy/purchase-coins`
 - `GET /v1/economy/private-call/quote`
 - `GET /v1/economy/gifts/catalog`
+- `POST /v1/economy/calls/start`
+- `POST /v1/economy/calls/:sessionId/tick`
+- `POST /v1/economy/calls/:sessionId/end`
 
 Recent backend validation additions:
 
@@ -240,6 +251,9 @@ Optional economy env vars (backend, scaffold knobs):
 - `DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE` (comma-separated, default: `2100,4200,8400`)
 - `DEFAULT_DIRECT_CALL_RATE_COINS_PER_MINUTE` (default: first direct tier, typically `2100`)
 - `RANDOM_CALL_RATE_COINS_PER_MINUTE` (default: `600`)
+- `COINS_PER_USD_RECEIVER` (default: `10000`)
+- `RECEIVER_SHARE_BPS` (default: `6000` = 60%)
+- `SPARK_PER_USD` (default: `10000`)
 - `GIFT_PLATFORM_FEE_BPS` (default scaffold: `3000` = 30%)
 
 Call quote behavior (current scaffold):

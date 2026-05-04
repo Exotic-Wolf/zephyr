@@ -130,6 +130,33 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ON wallet_transactions(user_id, created_at DESC);
     `);
 
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS call_sessions (
+        id UUID PRIMARY KEY,
+        caller_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        receiver_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        mode TEXT NOT NULL,
+        rate_coins_per_minute INTEGER NOT NULL,
+        receiver_share_bps INTEGER NOT NULL,
+        coins_per_usd_receiver INTEGER NOT NULL,
+        spark_per_usd INTEGER NOT NULL,
+        total_billed_coins INTEGER NOT NULL DEFAULT 0,
+        total_receiver_coins INTEGER NOT NULL DEFAULT 0,
+        total_receiver_usd NUMERIC(14, 4) NOT NULL DEFAULT 0,
+        total_receiver_spark INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        end_reason TEXT,
+        started_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        ended_at TIMESTAMPTZ
+      );
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS call_sessions_caller_status_idx
+      ON call_sessions(caller_user_id, status, updated_at DESC);
+    `);
+
     this.logger.log('Database schema is ready.');
   }
 }

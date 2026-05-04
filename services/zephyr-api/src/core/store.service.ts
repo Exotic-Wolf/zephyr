@@ -51,6 +51,9 @@ export interface EconomyConfig {
   randomCallRateCoinsPerMinute: number;
   directCallAllowedRatesCoinsPerMinute: number[];
   defaultDirectCallRateCoinsPerMinute: number;
+  coinsPerUsdReceiver: number;
+  receiverShareBps: number;
+  sparkPerUsd: number;
   giftPlatformFeeBps: number;
   coinPacks: CoinPack[];
 }
@@ -65,6 +68,37 @@ export interface GiftCatalogItem {
   id: string;
   name: string;
   coinCost: number;
+}
+
+export interface CallSession {
+  id: string;
+  callerUserId: string;
+  receiverUserId: string | null;
+  mode: 'direct' | 'random';
+  rateCoinsPerMinute: number;
+  receiverShareBps: number;
+  coinsPerUsdReceiver: number;
+  sparkPerUsd: number;
+  totalBilledCoins: number;
+  totalReceiverCoins: number;
+  totalReceiverUsd: number;
+  totalReceiverSpark: number;
+  status: 'live' | 'ended';
+  endReason: string | null;
+  startedAt: string;
+  updatedAt: string;
+  endedAt: string | null;
+}
+
+export interface CallSessionTickResult {
+  session: CallSession;
+  chargedCoins: number;
+  receiverCoins: number;
+  receiverUsd: number;
+  receiverSpark: number;
+  platformCoins: number;
+  callerCoinBalanceAfter: number;
+  stoppedForInsufficientBalance: boolean;
 }
 
 interface Session {
@@ -88,6 +122,7 @@ export class StoreService {
   private readonly walletBalances = new Map<string, number>();
   private readonly userLevels = new Map<string, number>();
   private readonly userRevenueUsd = new Map<string, number>();
+  private readonly callSessions = new Map<string, CallSession>();
 
   async issueGuestSession(displayName?: string): Promise<{ accessToken: string; user: UserProfile }> {
     const userId = randomUUID();
@@ -716,6 +751,18 @@ export class StoreService {
       process.env.RANDOM_CALL_RATE_COINS_PER_MINUTE ?? '600',
       10,
     );
+    const coinsPerUsdReceiverRaw = Number.parseInt(
+      process.env.COINS_PER_USD_RECEIVER ?? '10000',
+      10,
+    );
+    const receiverShareBpsRaw = Number.parseInt(
+      process.env.RECEIVER_SHARE_BPS ?? '6000',
+      10,
+    );
+    const sparkPerUsdRaw = Number.parseInt(
+      process.env.SPARK_PER_USD ?? String(coinsPerUsdReceiverRaw),
+      10,
+    );
     const giftFeeRaw = Number.parseInt(
       process.env.GIFT_PLATFORM_FEE_BPS ?? '3000',
       10,
@@ -729,12 +776,24 @@ export class StoreService {
     const normalizedRandomRate = Number.isFinite(randomCallRateRaw)
       ? Math.max(randomCallRateRaw, 1)
       : 600;
+    const normalizedCoinsPerUsdReceiver = Number.isFinite(coinsPerUsdReceiverRaw)
+      ? Math.max(coinsPerUsdReceiverRaw, 1)
+      : 10000;
+    const normalizedReceiverShareBps = Number.isFinite(receiverShareBpsRaw)
+      ? Math.min(Math.max(receiverShareBpsRaw, 0), 10000)
+      : 6000;
+    const normalizedSparkPerUsd = Number.isFinite(sparkPerUsdRaw)
+      ? Math.max(sparkPerUsdRaw, 1)
+      : normalizedCoinsPerUsdReceiver;
 
     return {
       privateCallRateCoinsPerMinute: normalizedDefaultDirectRate,
       randomCallRateCoinsPerMinute: normalizedRandomRate,
       directCallAllowedRatesCoinsPerMinute: directCallAllowedRates,
       defaultDirectCallRateCoinsPerMinute: normalizedDefaultDirectRate,
+      coinsPerUsdReceiver: normalizedCoinsPerUsdReceiver,
+      receiverShareBps: normalizedReceiverShareBps,
+      sparkPerUsd: normalizedSparkPerUsd,
       giftPlatformFeeBps: Number.isFinite(giftFeeRaw)
         ? Math.max(giftFeeRaw, 0)
         : 3000,
@@ -950,6 +1009,276 @@ export class StoreService {
     };
   }
 
+  async startCallSession(
+    callerUserId: string,
+    options: {
+      mode: string;
+      receiverUserId?: string;
+      directRateCoinsPerMinute?: number;
+    },
+  ): Promise<CallSession> {
+    const mode = options.mode === 'random' ? 'random' : 'direct';
+    if (mode === 'direct' && !options.receiverUserId) {
+      throw new BadRequestException('receiverUserId is required for direct call');
+    }
+
+    const quote = this.getPrivateCallQuote(1, {
+      mode,
+      directRateCoinsPerMinute: options.directRateCoinsPerMinute,
+    });
+    const config = this.getEconomyConfig();
+    const now = new Date().toISOString();
+
+    const session: CallSession = {
+      id: randomUUID(),
+      callerUserId,
+      receiverUserId: options.receiverUserId ?? null,
+      mode,
+      rateCoinsPerMinute: quote.rateCoinsPerMinute,
+      receiverShareBps: config.receiverShareBps,
+      coinsPerUsdReceiver: config.coinsPerUsdReceiver,
+      sparkPerUsd: config.sparkPerUsd,
+      totalBilledCoins: 0,
+      totalReceiverCoins: 0,
+      totalReceiverUsd: 0,
+      totalReceiverSpark: 0,
+      status: 'live',
+      endReason: null,
+      startedAt: now,
+      updatedAt: now,
+      endedAt: null,
+    };
+
+    if (this.databaseService?.isEnabled()) {
+      await this.ensureWalletAndRevenueRows(callerUserId);
+      if (session.receiverUserId) {
+        await this.ensureWalletAndRevenueRows(session.receiverUserId);
+      }
+
+      await this.databaseService.query(
+        `
+          INSERT INTO call_sessions (
+            id,
+            caller_user_id,
+            receiver_user_id,
+            mode,
+            rate_coins_per_minute,
+            receiver_share_bps,
+            coins_per_usd_receiver,
+            spark_per_usd,
+            total_billed_coins,
+            total_receiver_coins,
+            total_receiver_usd,
+            total_receiver_spark,
+            status,
+            end_reason,
+            started_at,
+            updated_at,
+            ended_at
+          )
+          VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+          )
+        `,
+        [
+          session.id,
+          session.callerUserId,
+          session.receiverUserId,
+          session.mode,
+          session.rateCoinsPerMinute,
+          session.receiverShareBps,
+          session.coinsPerUsdReceiver,
+          session.sparkPerUsd,
+          session.totalBilledCoins,
+          session.totalReceiverCoins,
+          session.totalReceiverUsd,
+          session.totalReceiverSpark,
+          session.status,
+          session.endReason,
+          session.startedAt,
+          session.updatedAt,
+          session.endedAt,
+        ],
+      );
+
+      return session;
+    }
+
+    this.callSessions.set(session.id, session);
+    return session;
+  }
+
+  async tickCallSession(
+    callerUserId: string,
+    sessionId: string,
+    elapsedSeconds = 60,
+  ): Promise<CallSessionTickResult> {
+    const session = await this.getCallSessionForCaller(sessionId, callerUserId);
+    if (session.status === 'ended') {
+      const callerWallet = await this.getWalletSummary(callerUserId);
+      return {
+        session,
+        chargedCoins: 0,
+        receiverCoins: 0,
+        receiverUsd: 0,
+        receiverSpark: 0,
+        platformCoins: 0,
+        callerCoinBalanceAfter: callerWallet.coinBalance,
+        stoppedForInsufficientBalance: session.endReason === 'insufficient_balance',
+      };
+    }
+
+    const normalizedSeconds = Number.isFinite(elapsedSeconds)
+      ? Math.min(Math.max(Math.trunc(elapsedSeconds), 1), 300)
+      : 60;
+    const chargedCoins = Math.max(
+      Math.ceil((session.rateCoinsPerMinute * normalizedSeconds) / 60),
+      1,
+    );
+
+    const callerWalletBefore = await this.getWalletSummary(callerUserId);
+    if (callerWalletBefore.coinBalance < chargedCoins) {
+      const endedSession = await this.endCallSession(
+        callerUserId,
+        sessionId,
+        'insufficient_balance',
+      );
+      return {
+        session: endedSession,
+        chargedCoins: 0,
+        receiverCoins: 0,
+        receiverUsd: 0,
+        receiverSpark: 0,
+        platformCoins: 0,
+        callerCoinBalanceAfter: callerWalletBefore.coinBalance,
+        stoppedForInsufficientBalance: true,
+      };
+    }
+
+    const receiverCoins = Math.floor(
+      (chargedCoins * session.receiverShareBps) / 10000,
+    );
+    const platformCoins = chargedCoins - receiverCoins;
+    const receiverUsd = receiverCoins / session.coinsPerUsdReceiver;
+    const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
+    const now = new Date().toISOString();
+
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `
+          UPDATE wallets
+          SET coin_balance = coin_balance - $2,
+              updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [callerUserId, chargedCoins],
+      );
+
+      if (session.receiverUserId) {
+        await this.databaseService.query(
+          `
+            UPDATE user_revenue
+            SET revenue_usd = revenue_usd + $2,
+                updated_at = NOW()
+            WHERE user_id = $1
+          `,
+          [session.receiverUserId, receiverUsd],
+        );
+      }
+    } else {
+      const callerCurrentBalance = this.walletBalances.get(callerUserId) ?? 1200;
+      this.walletBalances.set(callerUserId, callerCurrentBalance - chargedCoins);
+
+      if (session.receiverUserId) {
+        const receiverCurrentRevenue =
+          this.userRevenueUsd.get(session.receiverUserId) ?? 0;
+        this.userRevenueUsd.set(
+          session.receiverUserId,
+          receiverCurrentRevenue + receiverUsd,
+        );
+      }
+    }
+
+    await this.writeWalletTransaction({
+      userId: callerUserId,
+      type: 'call_spend',
+      coinsDelta: -chargedCoins,
+      amountUsd: null,
+      metadata: {
+        sessionId,
+        mode: session.mode,
+        elapsedSeconds: normalizedSeconds,
+        receiverUserId: session.receiverUserId,
+        receiverCoins,
+        platformCoins,
+      },
+      createdAt: now,
+    });
+
+    if (session.receiverUserId && receiverCoins > 0) {
+      await this.writeWalletTransaction({
+        userId: session.receiverUserId,
+        type: 'call_earning',
+        coinsDelta: receiverCoins,
+        amountUsd: receiverUsd,
+        metadata: {
+          sessionId,
+          mode: session.mode,
+          elapsedSeconds: normalizedSeconds,
+          sparkEarned: receiverSpark,
+        },
+        createdAt: now,
+      });
+    }
+
+    const updatedSession: CallSession = {
+      ...session,
+      totalBilledCoins: session.totalBilledCoins + chargedCoins,
+      totalReceiverCoins: session.totalReceiverCoins + receiverCoins,
+      totalReceiverUsd:
+        Math.round((session.totalReceiverUsd + receiverUsd) * 10000) / 10000,
+      totalReceiverSpark: session.totalReceiverSpark + receiverSpark,
+      updatedAt: now,
+    };
+
+    await this.persistCallSession(updatedSession);
+    const callerWalletAfter = await this.getWalletSummary(callerUserId);
+
+    return {
+      session: updatedSession,
+      chargedCoins,
+      receiverCoins,
+      receiverUsd,
+      receiverSpark,
+      platformCoins,
+      callerCoinBalanceAfter: callerWalletAfter.coinBalance,
+      stoppedForInsufficientBalance: false,
+    };
+  }
+
+  async endCallSession(
+    callerUserId: string,
+    sessionId: string,
+    reason = 'caller_ended',
+  ): Promise<CallSession> {
+    const session = await this.getCallSessionForCaller(sessionId, callerUserId);
+    if (session.status === 'ended') {
+      return session;
+    }
+
+    const now = new Date().toISOString();
+    const endedSession: CallSession = {
+      ...session,
+      status: 'ended',
+      endReason: reason,
+      endedAt: now,
+      updatedAt: now,
+    };
+
+    await this.persistCallSession(endedSession);
+    return endedSession;
+  }
+
   listGiftCatalog(): GiftCatalogItem[] {
     return [
       { id: 'rose', name: 'Rose', coinCost: 10 },
@@ -1002,6 +1331,159 @@ export class StoreService {
       'Invalid DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE. Using default rates 2100,4200,8400.',
     );
     return [2100, 4200, 8400];
+  }
+
+  private async getCallSessionForCaller(
+    sessionId: string,
+    callerUserId: string,
+  ): Promise<CallSession> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        id: string;
+        caller_user_id: string;
+        receiver_user_id: string | null;
+        mode: 'direct' | 'random';
+        rate_coins_per_minute: number;
+        receiver_share_bps: number;
+        coins_per_usd_receiver: number;
+        spark_per_usd: number;
+        total_billed_coins: number;
+        total_receiver_coins: number;
+        total_receiver_usd: string | number;
+        total_receiver_spark: number;
+        status: 'live' | 'ended';
+        end_reason: string | null;
+        started_at: string;
+        updated_at: string;
+        ended_at: string | null;
+      }>(
+        `
+          SELECT
+            id,
+            caller_user_id,
+            receiver_user_id,
+            mode,
+            rate_coins_per_minute,
+            receiver_share_bps,
+            coins_per_usd_receiver,
+            spark_per_usd,
+            total_billed_coins,
+            total_receiver_coins,
+            total_receiver_usd,
+            total_receiver_spark,
+            status,
+            end_reason,
+            started_at,
+            updated_at,
+            ended_at
+          FROM call_sessions
+          WHERE id = $1 AND caller_user_id = $2
+          LIMIT 1
+        `,
+        [sessionId, callerUserId],
+      );
+
+      if (result.rowCount === 0) {
+        throw new NotFoundException('Call session not found');
+      }
+
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        callerUserId: row.caller_user_id,
+        receiverUserId: row.receiver_user_id,
+        mode: row.mode,
+        rateCoinsPerMinute: row.rate_coins_per_minute,
+        receiverShareBps: row.receiver_share_bps,
+        coinsPerUsdReceiver: row.coins_per_usd_receiver,
+        sparkPerUsd: row.spark_per_usd,
+        totalBilledCoins: row.total_billed_coins,
+        totalReceiverCoins: row.total_receiver_coins,
+        totalReceiverUsd: Number.parseFloat(String(row.total_receiver_usd)) || 0,
+        totalReceiverSpark: row.total_receiver_spark,
+        status: row.status,
+        endReason: row.end_reason,
+        startedAt: new Date(row.started_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString(),
+        endedAt: row.ended_at ? new Date(row.ended_at).toISOString() : null,
+      };
+    }
+
+    const session = this.callSessions.get(sessionId);
+    if (!session || session.callerUserId !== callerUserId) {
+      throw new NotFoundException('Call session not found');
+    }
+    return session;
+  }
+
+  private async persistCallSession(session: CallSession): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `
+          UPDATE call_sessions
+          SET total_billed_coins = $2,
+              total_receiver_coins = $3,
+              total_receiver_usd = $4,
+              total_receiver_spark = $5,
+              status = $6,
+              end_reason = $7,
+              updated_at = $8,
+              ended_at = $9
+          WHERE id = $1
+        `,
+        [
+          session.id,
+          session.totalBilledCoins,
+          session.totalReceiverCoins,
+          session.totalReceiverUsd,
+          session.totalReceiverSpark,
+          session.status,
+          session.endReason,
+          session.updatedAt,
+          session.endedAt,
+        ],
+      );
+      return;
+    }
+
+    this.callSessions.set(session.id, session);
+  }
+
+  private async writeWalletTransaction(input: {
+    userId: string;
+    type: string;
+    coinsDelta: number;
+    amountUsd: number | null;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+  }): Promise<void> {
+    if (!this.databaseService?.isEnabled()) {
+      return;
+    }
+
+    await this.databaseService.query(
+      `
+        INSERT INTO wallet_transactions (
+          id,
+          user_id,
+          type,
+          coins_delta,
+          amount_usd,
+          metadata,
+          created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+      `,
+      [
+        randomUUID(),
+        input.userId,
+        input.type,
+        input.coinsDelta,
+        input.amountUsd,
+        JSON.stringify(input.metadata),
+        input.createdAt,
+      ],
+    );
   }
 
   private toUserProfile(row: {
