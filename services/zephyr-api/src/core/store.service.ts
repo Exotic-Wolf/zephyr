@@ -1470,7 +1470,7 @@ export class StoreService {
         [userId],
       );
 
-      return result.rowCount > 0;
+      return (result.rowCount ?? 0) > 0;
     }
 
     for (const session of this.callSessions.values()) {
