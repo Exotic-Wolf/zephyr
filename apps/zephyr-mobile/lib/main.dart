@@ -419,6 +419,12 @@ class _HomeScreenState extends State<HomeScreen> {
     CoinPack(id: 'plus_500', label: 'Plus', coins: 500, priceUsd: 4.49),
     CoinPack(id: 'pro_1200', label: 'Pro', coins: 1200, priceUsd: 9.99),
   ];
+  int _callMinutes = 2;
+  String _callMode = 'direct';
+  int _selectedDirectRate = 2100;
+  CallQuote? _callQuote;
+  bool _quoteLoading = false;
+  String? _quoteError;
   int _activeFeedIndex = 0;
   bool _checkingApiStatus = true;
   bool? _apiReachable;
@@ -505,6 +511,52 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refreshHome() async {
     await Future.wait(<Future<void>>[_loadData(), _refreshApiStatus()]);
+  }
+
+  Future<void> _loadCallQuote() async {
+    setState(() {
+      _quoteLoading = true;
+      _quoteError = null;
+    });
+
+    try {
+      final CallQuote quote = await widget.apiClient.getPrivateCallQuote(
+        minutes: _callMinutes,
+        mode: _callMode,
+        directRateCoinsPerMinute: _callMode == 'direct'
+            ? _selectedDirectRate
+            : null,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _callQuote = quote;
+        if (
+            quote.mode == 'direct' &&
+            !quote.directCallAllowedRatesCoinsPerMinute.contains(
+              _selectedDirectRate,
+            )) {
+          _selectedDirectRate = quote.directCallAllowedRatesCoinsPerMinute.first;
+        }
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _quoteError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _quoteLoading = false;
+        });
+      }
+    }
   }
 
   Future<void> _createRoom() async {
@@ -781,6 +833,222 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(color: Colors.grey.shade700),
             ),
             if (action != null) ...<Widget>[const SizedBox(height: 16), action],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCallPricingTab(bool isTablet) {
+    final List<int> minuteOptions = <int>[1, 2, 3, 5, 10, 15];
+    final List<int> directRateOptions =
+        _callQuote?.directCallAllowedRatesCoinsPerMinute ?? <int>[2100, 4200, 8400];
+    final int quoteRequiredCoins = _callQuote?.requiredCoins ?? 0;
+    final bool hasEnoughBalance = _coinBalance >= quoteRequiredCoins;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: maxContentWidth),
+        child: ListView(
+          padding: EdgeInsets.all(isTablet ? 24 : 16),
+          children: <Widget>[
+            const Text(
+              'Call Pricing',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Preview pricing from backend before starting a call.',
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text(
+                      'Call Type',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      segments: const <ButtonSegment<String>>[
+                        ButtonSegment<String>(
+                          value: 'direct',
+                          label: Text('Direct'),
+                          icon: Icon(Icons.person_pin_circle_rounded),
+                        ),
+                        ButtonSegment<String>(
+                          value: 'random',
+                          label: Text('Random'),
+                          icon: Icon(Icons.casino_rounded),
+                        ),
+                      ],
+                      selected: <String>{_callMode},
+                      onSelectionChanged: (Set<String> selection) {
+                        final String nextMode = selection.first;
+                        if (nextMode == _callMode) {
+                          return;
+                        }
+                        setState(() {
+                          _callMode = nextMode;
+                        });
+                        _loadCallQuote();
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Minutes',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<int>(
+                      value: _callMinutes,
+                      items: minuteOptions
+                          .map(
+                            (int minute) => DropdownMenuItem<int>(
+                              value: minute,
+                              child: Text('$minute min'),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (int? value) {
+                        if (value == null || value == _callMinutes) {
+                          return;
+                        }
+                        setState(() {
+                          _callMinutes = value;
+                        });
+                        _loadCallQuote();
+                      },
+                    ),
+                    if (_callMode == 'direct') ...<Widget>[
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Receiver Rate Tier',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: directRateOptions.map((int tier) {
+                          return ChoiceChip(
+                            label: Text('${_formatCoins(tier)} / min'),
+                            selected: _selectedDirectRate == tier,
+                            onSelected: (bool selected) {
+                              if (!selected || _selectedDirectRate == tier) {
+                                return;
+                              }
+                              setState(() {
+                                _selectedDirectRate = tier;
+                              });
+                              _loadCallQuote();
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text(
+                      'Quote',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_quoteLoading)
+                      const Row(
+                        children: <Widget>[
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 8),
+                          Text('Fetching live quote...'),
+                        ],
+                      )
+                    else if (_quoteError != null)
+                      Text(
+                        _quoteError!,
+                        style: const TextStyle(color: Colors.red),
+                      )
+                    else if (_callQuote != null) ...<Widget>[
+                      Text(
+                        'Mode: ${_callQuote!.mode == 'direct' ? 'Direct' : 'Random'}',
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Rate: ${_formatCoins(_callQuote!.rateCoinsPerMinute)} coins/min',
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Total for ${_callQuote!.minutes} min: ${_formatCoins(_callQuote!.requiredCoins)} coins',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Text(
+                      'Your balance: ${_formatCoins(_coinBalance)} coins',
+                      style: TextStyle(
+                        color: hasEnoughBalance
+                            ? Colors.green.shade700
+                            : Colors.red.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (!_quoteLoading && _callQuote != null && !hasEnoughBalance)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Not enough coins. Please top up in My Balance before starting this call.',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: <Widget>[
+                        ElevatedButton.icon(
+                          onPressed: _quoteLoading ? null : _loadCallQuote,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Refresh Quote'),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton(
+                          onPressed: (_quoteLoading ||
+                                  _callQuote == null ||
+                                  !hasEnoughBalance)
+                              ? null
+                              : () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Call setup is next. Pricing check passed.',
+                                      ),
+                                    ),
+                                  );
+                                },
+                          child: const Text('Start Call'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1084,11 +1352,7 @@ class _HomeScreenState extends State<HomeScreen> {
         : switch (_selectedTabIndex) {
             0 => _buildHomeTab(isTablet),
             1 => _buildLiveRoomsTab(isTablet),
-            2 => _buildPlaceholderTab(
-                icon: Icons.add_circle_rounded,
-                title: 'Go Live',
-                subtitle: 'Live streaming setup is the next core feature.',
-              ),
+            2 => _buildCallPricingTab(isTablet),
             3 => _buildPlaceholderTab(
                 icon: Icons.chat_bubble_rounded,
                 title: 'Inbox',
@@ -1154,6 +1418,9 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _selectedTabIndex = index;
           });
+          if (index == 2 && _callQuote == null && !_quoteLoading) {
+            _loadCallQuote();
+          }
         },
         destinations: const <NavigationDestination>[
           NavigationDestination(
@@ -1351,6 +1618,30 @@ class ZephyrApiClient {
     return WalletSummary.fromJson(data);
   }
 
+  Future<CallQuote> getPrivateCallQuote({
+    required int minutes,
+    required String mode,
+    int? directRateCoinsPerMinute,
+  }) async {
+    final Map<String, String> queryParams = <String, String>{
+      'minutes': '$minutes',
+      'mode': mode,
+    };
+
+    if (directRateCoinsPerMinute != null) {
+      queryParams['rateCoinsPerMinute'] = '$directRateCoinsPerMinute';
+    }
+
+    final String query = Uri(queryParameters: queryParams).query;
+
+    final Map<String, dynamic> data = await _request(
+      method: 'GET',
+      path: '/v1/economy/private-call/quote?$query',
+    );
+
+    return CallQuote.fromJson(data);
+  }
+
   Future<dynamic> _request({
     required String method,
     required String path,
@@ -1440,6 +1731,39 @@ class CoinPack {
       label: json['label'] as String,
       coins: (json['coins'] as num?)?.toInt() ?? 0,
       priceUsd: (json['priceUsd'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
+class CallQuote {
+  CallQuote({
+    required this.minutes,
+    required this.mode,
+    required this.requiredCoins,
+    required this.rateCoinsPerMinute,
+    required this.directCallAllowedRatesCoinsPerMinute,
+  });
+
+  final int minutes;
+  final String mode;
+  final int requiredCoins;
+  final int rateCoinsPerMinute;
+  final List<int> directCallAllowedRatesCoinsPerMinute;
+
+  factory CallQuote.fromJson(Map<String, dynamic> json) {
+    final dynamic rawRates = json['directCallAllowedRatesCoinsPerMinute'];
+
+    return CallQuote(
+      minutes: (json['minutes'] as num?)?.toInt() ?? 1,
+      mode: (json['mode'] as String?) ?? 'direct',
+      requiredCoins: (json['requiredCoins'] as num?)?.toInt() ?? 0,
+      rateCoinsPerMinute: (json['rateCoinsPerMinute'] as num?)?.toInt() ?? 0,
+      directCallAllowedRatesCoinsPerMinute: rawRates is List<dynamic>
+          ? rawRates
+                .whereType<num>()
+                .map((num value) => value.toInt())
+                .toList()
+          : <int>[2100, 4200, 8400],
     );
   }
 }

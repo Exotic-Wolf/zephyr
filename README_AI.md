@@ -41,7 +41,29 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
    - `user_revenue`
    - `wallet_transactions`
 - ✅ Mobile app now consumes economy APIs for wallet and coin-pack retrieval, and buy-coin actions.
-- 🔄 Pricing/business values are intentionally scaffold defaults and should be adjusted next.
+- ✅ Coin-pack pricing ladder is finalized in staging env and backend defaults:
+    - `$2.99` → `16,500`
+    - `$5.99` → `33,000`
+    - `$9.99` → `55,000`
+    - `$29.99` → `165,000`
+    - `$59.99` → `330,000`
+    - `$99.99` → `550,000`
+- ✅ Call pricing modes are now configured and deployed:
+    - Direct call tier options: `2100`, `4200`, `8400` coins/min
+    - Random call: `600` coins/min
+- ✅ Mobile `Go Live` tab now calls quote endpoint and renders live pricing (mode, rate/min, total coins, balance guard).
+- 🔄 Remaining work is execution/billing flow (start/stop call charging and revenue split writes), not quote/config.
+
+### Staging smoke validation completed (4 May 2026)
+
+- ✅ `GET /v1/economy/private-call/quote?minutes=2&mode=direct&rateCoinsPerMinute=4200`
+   - response `requiredCoins=8400`, `HTTP 200`
+- ✅ `GET /v1/economy/private-call/quote?minutes=2&mode=random`
+   - response `requiredCoins=1200`, `HTTP 200`
+- ✅ Auth wallet purchase flow on staging:
+   - wallet before: `1200`
+   - purchase `pack_299`: success `HTTP 201`
+   - wallet after: `17700`
 
 ### Auth milestone completed (3 May 2026)
 
@@ -228,6 +250,12 @@ Call quote behavior (current scaffold):
    - `GET /v1/economy/private-call/quote?minutes=2&mode=direct&rateCoinsPerMinute=4200`
    - `GET /v1/economy/private-call/quote?minutes=2&mode=random`
 
+Render env values currently used for call pricing:
+
+- `DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE=2100,4200,8400`
+- `DEFAULT_DIRECT_CALL_RATE_COINS_PER_MINUTE=2100`
+- `RANDOM_CALL_RATE_COINS_PER_MINUTE=600`
+
 Staging env vars currently required on Render (`zephyr-api`):
 
 - `JWT_SECRET`
@@ -238,9 +266,9 @@ Staging env vars currently required on Render (`zephyr-api`):
 ## Resume plan (next session)
 
 1. Keep current auth + 5-tab shell baseline and run quick staging smoke checks
-2. Decide final economy values (coin packs, private-call rate, gift split) and update env/config
+2. Implement private-call start/stop billing flow (per-minute charging + insufficient balance handling)
 3. Implement gift sending + balance deduction + creator revenue accrual transactions
-4. Implement paid private-call session charging flow (wallet checks + billing events)
+4. Add weekly promotion mechanism for coin packs (bonus/discount strategy via env/config)
 5. Rotate exposed Web OAuth client secret in Google Cloud as security cleanup
 
 ## Verified command patterns
@@ -308,4 +336,4 @@ flutter run --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
 
 ## Quick prompt to continue tomorrow
 
-"Continue Zephyr from `README_AI.md`. Keep current auth baseline, re-run quick staging smoke, then implement realtime room/feed updates."
+"Continue Zephyr from `README_AI.md`. Keep current auth + economy quote baseline, then implement private-call billing execution (start/stop, charge, and balance guard)."
