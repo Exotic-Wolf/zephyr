@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   DefaultValuePipe,
@@ -53,8 +54,36 @@ export class EconomyController {
   @Get('private-call/quote')
   getPrivateCallQuote(
     @Query('minutes', new DefaultValuePipe(1), ParseIntPipe) minutes: number,
-  ): { minutes: number; requiredCoins: number; rateCoinsPerMinute: number } {
-    return this.storeService.getPrivateCallQuote(minutes);
+    @Query('mode') mode?: string,
+    @Query('rateCoinsPerMinute') rateCoinsPerMinuteRaw?: string,
+  ): {
+    minutes: number;
+    mode: 'direct' | 'random';
+    requiredCoins: number;
+    rateCoinsPerMinute: number;
+    directCallAllowedRatesCoinsPerMinute: number[];
+  } {
+    const normalizedMode =
+      mode === undefined || mode === '' ? 'direct' : mode.toLowerCase();
+    if (normalizedMode !== 'direct' && normalizedMode !== 'random') {
+      throw new BadRequestException('mode must be one of: direct, random');
+    }
+
+    let directRateCoinsPerMinute: number | undefined;
+    if (rateCoinsPerMinuteRaw !== undefined && rateCoinsPerMinuteRaw !== '') {
+      const parsed = Number.parseInt(rateCoinsPerMinuteRaw, 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new BadRequestException(
+          'rateCoinsPerMinute must be a positive integer',
+        );
+      }
+      directRateCoinsPerMinute = parsed;
+    }
+
+    return this.storeService.getPrivateCallQuote(minutes, {
+      mode: normalizedMode,
+      directRateCoinsPerMinute,
+    });
   }
 
   @Get('gifts/catalog')

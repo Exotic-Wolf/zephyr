@@ -215,8 +215,18 @@ Required env vars (backend):
 Optional economy env vars (backend, scaffold knobs):
 
 - `COIN_PACKS_JSON` (JSON array of packs: `[{"id":"pack_299","label":"16.5K","coins":16500,"priceUsd":2.99},{"id":"pack_599","label":"33K","coins":33000,"priceUsd":5.99},{"id":"pack_999","label":"55K","coins":55000,"priceUsd":9.99},{"id":"pack_2999","label":"165K","coins":165000,"priceUsd":29.99},{"id":"pack_5999","label":"330K","coins":330000,"priceUsd":59.99},{"id":"pack_9999","label":"550K","coins":550000,"priceUsd":99.99}]`)
-- `PRIVATE_CALL_RATE_COINS_PER_MINUTE` (default scaffold: `30`)
+- `DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE` (comma-separated, default: `2100,4200,8400`)
+- `DEFAULT_DIRECT_CALL_RATE_COINS_PER_MINUTE` (default: first direct tier, typically `2100`)
+- `RANDOM_CALL_RATE_COINS_PER_MINUTE` (default: `600`)
 - `GIFT_PLATFORM_FEE_BPS` (default scaffold: `3000` = 30%)
+
+Call quote behavior (current scaffold):
+
+- Direct user-to-user call uses receiver-selected rate tier (`2100`, `4200`, or `8400` by default)
+- Random call uses fixed rate (`600` by default)
+- Quote endpoint supports mode and optional direct tier override:
+   - `GET /v1/economy/private-call/quote?minutes=2&mode=direct&rateCoinsPerMinute=4200`
+   - `GET /v1/economy/private-call/quote?minutes=2&mode=random`
 
 Staging env vars currently required on Render (`zephyr-api`):
 

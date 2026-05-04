@@ -48,6 +48,9 @@ export interface CoinPack {
 
 export interface EconomyConfig {
   privateCallRateCoinsPerMinute: number;
+  randomCallRateCoinsPerMinute: number;
+  directCallAllowedRatesCoinsPerMinute: number[];
+  defaultDirectCallRateCoinsPerMinute: number;
   giftPlatformFeeBps: number;
   coinPacks: CoinPack[];
 }
@@ -698,8 +701,19 @@ export class StoreService {
   }
 
   getEconomyConfig(): EconomyConfig {
-    const privateCallRateRaw = Number.parseInt(
-      process.env.PRIVATE_CALL_RATE_COINS_PER_MINUTE ?? '30',
+    const directCallAllowedRates = this.getDirectCallAllowedRates();
+    const legacyPrivateCallRateRaw = Number.parseInt(
+      process.env.PRIVATE_CALL_RATE_COINS_PER_MINUTE ??
+        String(directCallAllowedRates[0] ?? 2100),
+      10,
+    );
+    const defaultDirectCallRateRaw = Number.parseInt(
+      process.env.DEFAULT_DIRECT_CALL_RATE_COINS_PER_MINUTE ??
+        String(legacyPrivateCallRateRaw),
+      10,
+    );
+    const randomCallRateRaw = Number.parseInt(
+      process.env.RANDOM_CALL_RATE_COINS_PER_MINUTE ?? '600',
       10,
     );
     const giftFeeRaw = Number.parseInt(
@@ -707,10 +721,20 @@ export class StoreService {
       10,
     );
 
+    const normalizedDefaultDirectRate = directCallAllowedRates.includes(
+      defaultDirectCallRateRaw,
+    )
+      ? defaultDirectCallRateRaw
+      : directCallAllowedRates[0];
+    const normalizedRandomRate = Number.isFinite(randomCallRateRaw)
+      ? Math.max(randomCallRateRaw, 1)
+      : 600;
+
     return {
-      privateCallRateCoinsPerMinute: Number.isFinite(privateCallRateRaw)
-        ? Math.max(privateCallRateRaw, 1)
-        : 30,
+      privateCallRateCoinsPerMinute: normalizedDefaultDirectRate,
+      randomCallRateCoinsPerMinute: normalizedRandomRate,
+      directCallAllowedRatesCoinsPerMinute: directCallAllowedRates,
+      defaultDirectCallRateCoinsPerMinute: normalizedDefaultDirectRate,
       giftPlatformFeeBps: Number.isFinite(giftFeeRaw)
         ? Math.max(giftFeeRaw, 0)
         : 3000,
@@ -879,20 +903,50 @@ export class StoreService {
     return this.getWalletSummary(userId);
   }
 
-  getPrivateCallQuote(minutes: number): {
+  getPrivateCallQuote(
+    minutes: number,
+    options?: {
+      mode?: string;
+      directRateCoinsPerMinute?: number;
+    },
+  ): {
     minutes: number;
+    mode: 'direct' | 'random';
     requiredCoins: number;
     rateCoinsPerMinute: number;
+    directCallAllowedRatesCoinsPerMinute: number[];
   } {
     const normalizedMinutes = Number.isFinite(minutes)
       ? Math.min(Math.max(Math.trunc(minutes), 1), 240)
       : 1;
     const config = this.getEconomyConfig();
+    const mode = options?.mode === 'random' ? 'random' : 'direct';
+
+    let rateCoinsPerMinute =
+      mode === 'random'
+        ? config.randomCallRateCoinsPerMinute
+        : config.defaultDirectCallRateCoinsPerMinute;
+
+    if (mode === 'direct' && options?.directRateCoinsPerMinute !== undefined) {
+      if (
+        !config.directCallAllowedRatesCoinsPerMinute.includes(
+          options.directRateCoinsPerMinute,
+        )
+      ) {
+        throw new BadRequestException(
+          `Invalid direct call rate. Allowed rates: ${config.directCallAllowedRatesCoinsPerMinute.join(', ')}`,
+        );
+      }
+      rateCoinsPerMinute = options.directRateCoinsPerMinute;
+    }
 
     return {
       minutes: normalizedMinutes,
-      requiredCoins: normalizedMinutes * config.privateCallRateCoinsPerMinute,
-      rateCoinsPerMinute: config.privateCallRateCoinsPerMinute,
+      mode,
+      requiredCoins: normalizedMinutes * rateCoinsPerMinute,
+      rateCoinsPerMinute,
+      directCallAllowedRatesCoinsPerMinute:
+        config.directCallAllowedRatesCoinsPerMinute,
     };
   }
 
@@ -927,6 +981,27 @@ export class StoreService {
       `,
       [userId],
     );
+  }
+
+  private getDirectCallAllowedRates(): number[] {
+    const rawRates =
+      process.env.DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE ??
+      '2100,4200,8400';
+
+    const parsed = rawRates
+      .split(',')
+      .map((value) => Number.parseInt(value.trim(), 10))
+      .filter((value) => Number.isFinite(value) && value > 0);
+
+    const uniqueRates = [...new Set(parsed)];
+    if (uniqueRates.length > 0) {
+      return uniqueRates;
+    }
+
+    this.logger.warn(
+      'Invalid DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE. Using default rates 2100,4200,8400.',
+    );
+    return [2100, 4200, 8400];
   }
 
   private toUserProfile(row: {
