@@ -411,6 +411,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final PageController _feedController = PageController(viewportFraction: 0.92);
   UserProfile? _me;
   List<LiveFeedCard> _feedCards = <LiveFeedCard>[];
+  Room? _myLiveRoom;
+  String? _selectedDirectReceiverUserId;
   int _selectedTabIndex = 0;
   int _coinBalance = 1200;
   int _userLevel = 4;
@@ -425,10 +427,13 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedDirectRate = 2100;
   CallQuote? _callQuote;
   CallSession? _activeCallSession;
+  RtcJoinInfo? _rtcJoinInfo;
   Timer? _callTickTimer;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
+  bool _rtcLoading = false;
   String? _callActionError;
+  String? _rtcError;
   static const int _callTickIntervalSeconds = 10;
   bool _quoteLoading = false;
   String? _quoteError;
@@ -480,6 +485,25 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _me = me;
         _feedCards = feedCards;
+        _myLiveRoom = feedCards
+            .where((LiveFeedCard card) => card.hostUserId == me.id)
+            .cast<LiveFeedCard?>()
+            .map(
+              (LiveFeedCard? card) => card == null
+                  ? null
+                  : Room(
+                      id: card.roomId,
+                      hostUserId: card.hostUserId,
+                      title: card.title,
+                      audienceCount: card.audienceCount,
+                      status: 'live',
+                      createdAt: card.startedAt,
+                    ),
+            )
+            .firstWhere(
+              (Room? room) => room != null,
+              orElse: () => null,
+            );
         _coinBalance = wallet.coinBalance;
         _userLevel = wallet.level;
         _myRevenue = wallet.revenueUsd;
@@ -568,6 +592,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String? _resolveDirectReceiverUserId() {
+    if (_selectedDirectReceiverUserId != null) {
+      return _selectedDirectReceiverUserId;
+    }
     if (_feedCards.isNotEmpty) {
       final int safeIndex = _activeFeedIndex.clamp(0, _feedCards.length - 1);
       return _feedCards[safeIndex].hostUserId;
@@ -612,7 +639,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         _activeCallSession = session;
+        _rtcJoinInfo = null;
+        _rtcError = null;
       });
+
+      unawaited(_prepareRtcJoin(session.id));
 
       _callTickTimer?.cancel();
       _callTickTimer = Timer.periodic(
@@ -663,6 +694,9 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _activeCallSession = result.session;
         _coinBalance = result.callerCoinBalanceAfter;
+        if (result.session.status == 'ended') {
+          _rtcJoinInfo = null;
+        }
       });
 
       if (result.stoppedForInsufficientBalance || result.session.status == 'ended') {
@@ -716,6 +750,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         _activeCallSession = ended;
+        _rtcJoinInfo = null;
       });
 
       ScaffoldMessenger.of(
@@ -737,6 +772,45 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _prepareRtcJoin(String sessionId) async {
+    if (_rtcLoading) {
+      return;
+    }
+
+    setState(() {
+      _rtcLoading = true;
+      _rtcError = null;
+    });
+
+    try {
+      final RtcJoinInfo joinInfo = await widget.apiClient.requestCallRtcToken(
+        accessToken: widget.accessToken,
+        sessionId: sessionId,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _rtcJoinInfo = joinInfo;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rtcError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _rtcLoading = false;
+        });
+      }
+    }
+  }
+
   Future<void> _createRoom() async {
     final String title = _roomTitleController.text.trim();
     if (title.isEmpty) {
@@ -752,9 +826,16 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      await widget.apiClient.createRoom(widget.accessToken, title);
+      final Room room = await widget.apiClient.createRoom(widget.accessToken, title);
       _roomTitleController.clear();
+      _selectedDirectReceiverUserId = room.hostUserId;
       await _loadData();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('You are live now: ${room.title}')),
+      );
     } catch (error) {
       setState(() {
         _error = error.toString();
@@ -779,9 +860,12 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) {
         return;
       }
+      setState(() {
+        _selectedDirectReceiverUserId = feedCard.hostUserId;
+      });
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Joined ${feedCard.title}')));
+      ).showSnackBar(SnackBar(content: Text('Watching ${feedCard.title} live')));
     } catch (error) {
       setState(() {
         _error = error.toString();
@@ -793,6 +877,104 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
+  }
+
+  Future<void> _endMyLive() async {
+    final Room? liveRoom = _myLiveRoom;
+    if (liveRoom == null) {
+      return;
+    }
+
+    setState(() {
+      _creating = true;
+      _error = null;
+    });
+
+    try {
+      await widget.apiClient.endRoom(widget.accessToken, liveRoom.id);
+      await _loadData();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Live ended.')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _creating = false;
+        });
+      }
+    }
+  }
+
+  void _openCallTabForHost(String hostUserId) {
+    setState(() {
+      _selectedDirectReceiverUserId = hostUserId;
+      _selectedTabIndex = 2;
+    });
+    if (_callQuote == null && !_quoteLoading) {
+      _loadCallQuote();
+    }
+  }
+
+  Future<void> _openHostProfile(LiveFeedCard feedCard) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  feedCard.hostDisplayName,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                const Text('Status: Online · Live now'),
+                const SizedBox(height: 4),
+                Text('Current live: ${feedCard.title}'),
+                const SizedBox(height: 14),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _enterRoom(feedCard);
+                        },
+                        child: const Text('Watch Live'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _openCallTabForHost(feedCard.hostUserId);
+                        },
+                        icon: const Icon(Icons.call_rounded),
+                        label: const Text('Call'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildFeedCard(LiveFeedCard feedCard) {
@@ -810,7 +992,15 @@ class _HomeScreenState extends State<HomeScreen> {
               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
-            Text('Host: ${feedCard.hostDisplayName}'),
+            InkWell(
+              onTap: () => _openHostProfile(feedCard),
+              child: Text(
+                'Host: ${feedCard.hostDisplayName}',
+                style: const TextStyle(
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
             const SizedBox(height: 8),
             Text('Audience: ${feedCard.audienceCount}'),
             const SizedBox(height: 8),
@@ -818,14 +1008,25 @@ class _HomeScreenState extends State<HomeScreen> {
               'Started: ${feedCard.startedAt.toLocal().toIso8601String().substring(0, 16).replaceFirst('T', ' ')}',
             ),
             const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: joiningCurrentRoom
-                    ? null
-                    : () => _enterRoom(feedCard),
-                child: Text(joiningCurrentRoom ? 'Entering...' : 'Enter Room'),
-              ),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: joiningCurrentRoom
+                        ? null
+                        : () => _enterRoom(feedCard),
+                    child: Text(joiningCurrentRoom ? 'Opening...' : 'Watch Live'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openCallTabForHost(feedCard.hostUserId),
+                    icon: const Icon(Icons.call_rounded),
+                    label: const Text('Call Host'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -836,8 +1037,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String _titleForTab() {
     return switch (_selectedTabIndex) {
       0 => 'Home',
-      1 => 'Live Rooms',
-      2 => 'Go Live',
+      1 => 'Live',
+      2 => 'Calls',
       3 => 'Inbox',
       4 => 'Me',
       _ => 'Zephyr',
@@ -861,24 +1062,44 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: TextField(
-                      controller: _roomTitleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Room Title',
-                        hintText: 'Night Talk, Music Chill, etc.',
-                      ),
+              if (_myLiveRoom != null)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            'You are live: ${_myLiveRoom!.title} · ${_myLiveRoom!.audienceCount} viewers',
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: _creating ? null : _endMyLive,
+                          child: Text(_creating ? 'Ending...' : 'End Live'),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _creating ? null : _createRoom,
-                    child: Text(_creating ? 'Creating...' : 'Create'),
-                  ),
-                ],
-              ),
+                )
+              else
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextField(
+                        controller: _roomTitleController,
+                        decoration: const InputDecoration(
+                          labelText: 'Live Title',
+                          hintText: 'Night Talk, Music Chill, etc.',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _creating ? null : _createRoom,
+                      child: Text(_creating ? 'Starting...' : 'Go Live'),
+                    ),
+                  ],
+                ),
               if (_error != null) ...<Widget>[
                 const SizedBox(height: 12),
                 Text(_error!, style: const TextStyle(color: Colors.red)),
@@ -889,14 +1110,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
                     isTablet
-                        ? 'Live Rooms: ${_feedCards.length}'
+                        ? 'Live Sessions: ${_feedCards.length}'
                         : 'Swipe ${_activeFeedIndex + 1}/${_feedCards.length}',
                   ),
                 ),
               Expanded(
                 child: _feedCards.isEmpty
                     ? const Center(
-                        child: Text('No live rooms yet. Create one to start.'),
+                        child: Text('No live sessions yet. Be the first to go live.'),
                       )
                     : (isTablet
                           ? GridView.builder(
@@ -942,7 +1163,7 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
-                'Live Rooms',
+                'Live Sessions',
                 style: TextStyle(
                   fontSize: isTablet ? 24 : 20,
                   fontWeight: FontWeight.w700,
@@ -951,7 +1172,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
               Expanded(
                 child: _feedCards.isEmpty
-                    ? const Center(child: Text('No live rooms right now.'))
+                    ? const Center(child: Text('No live sessions right now.'))
                     : (isTablet
                           ? GridView.builder(
                               gridDelegate:
@@ -1088,7 +1309,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<int>(
-                      value: _callMinutes,
+                      initialValue: _callMinutes,
                       items: minuteOptions
                           .map(
                             (int minute) => DropdownMenuItem<int>(
@@ -1139,7 +1360,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         const Padding(
                           padding: EdgeInsets.only(top: 8),
                           child: Text(
-                            'No receiver available from live feed yet. Use Random mode or join a live room first.',
+                            'No receiver available from live feed yet. Open a live host card or use Random mode.',
                             style: TextStyle(color: Colors.red),
                           ),
                         ),
@@ -1223,6 +1444,28 @@ class _HomeScreenState extends State<HomeScreen> {
                         'Session ${_activeCallSession!.status == 'live' ? 'Live' : 'Ended'} • billed ${_formatCoins(_activeCallSession!.totalBilledCoins)} coins',
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _rtcJoinInfo != null
+                            ? 'RTC ready: ${_rtcJoinInfo!.provider} • ${_rtcJoinInfo!.role}'
+                            : (_rtcLoading
+                                  ? 'Preparing RTC token...'
+                                  : 'RTC not prepared yet'),
+                        style: TextStyle(
+                          color: _rtcJoinInfo != null
+                              ? Colors.green.shade700
+                              : Colors.grey.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (_rtcError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            _rtcError!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
                     ],
                     const SizedBox(height: 12),
                     Row(
@@ -1247,6 +1490,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         if (hasLiveSession) ...<Widget>[
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: (_callActionLoading ||
+                                    _rtcLoading ||
+                                    _activeCallSession == null)
+                                ? null
+                                : () => _prepareRtcJoin(_activeCallSession!.id),
+                            icon: const Icon(Icons.videocam_rounded),
+                            label: Text(
+                              _rtcLoading ? 'Preparing RTC...' : 'Prepare RTC',
+                            ),
+                          ),
                           const SizedBox(width: 12),
                           ElevatedButton(
                             onPressed: _callActionLoading ? null : _endCallSession,
@@ -1351,7 +1606,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     purchasingPackId = null;
                   });
 
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(this.context).showSnackBar(
                     SnackBar(
                       content: Text(
                         'Added ${pack.coins} coins via ${pack.label}.',
@@ -1367,7 +1622,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     purchasingPackId = null;
                   });
 
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(this.context).showSnackBar(
                     SnackBar(content: Text('Purchase failed: $error')),
                   );
                 }
@@ -1639,11 +1894,11 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           NavigationDestination(
             icon: Icon(Icons.live_tv_rounded),
-            label: 'Live Rooms',
+            label: 'Live',
           ),
           NavigationDestination(
-            icon: Icon(Icons.add_circle_rounded),
-            label: 'Go Live',
+            icon: Icon(Icons.call_rounded),
+            label: 'Calls',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_rounded),
@@ -1792,6 +2047,14 @@ class ZephyrApiClient {
     return Room.fromJson(data);
   }
 
+  Future<void> endRoom(String accessToken, String roomId) async {
+    await _request(
+      method: 'DELETE',
+      path: '/v1/rooms/$roomId',
+      accessToken: accessToken,
+    );
+  }
+
   Future<WalletSummary> getWalletSummary(String accessToken) async {
     final Map<String, dynamic> data = await _request(
       method: 'GET',
@@ -1904,6 +2167,19 @@ class ZephyrApiClient {
     );
 
     return CallSession.fromJson(data);
+  }
+
+  Future<RtcJoinInfo> requestCallRtcToken({
+    required String accessToken,
+    required String sessionId,
+  }) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'POST',
+      path: '/v1/economy/calls/$sessionId/rtc-token',
+      accessToken: accessToken,
+    );
+
+    return RtcJoinInfo.fromJson(data);
   }
 
   Future<dynamic> _request({
@@ -2088,6 +2364,38 @@ class CallSessionTickResult {
           (json['callerCoinBalanceAfter'] as num?)?.toInt() ?? 0,
       stoppedForInsufficientBalance:
           (json['stoppedForInsufficientBalance'] as bool?) ?? false,
+    );
+  }
+}
+
+class RtcJoinInfo {
+  RtcJoinInfo({
+    required this.provider,
+    required this.wsUrl,
+    required this.roomName,
+    required this.identity,
+    required this.role,
+    required this.token,
+    required this.expiresInSeconds,
+  });
+
+  final String provider;
+  final String wsUrl;
+  final String roomName;
+  final String identity;
+  final String role;
+  final String token;
+  final int expiresInSeconds;
+
+  factory RtcJoinInfo.fromJson(Map<String, dynamic> json) {
+    return RtcJoinInfo(
+      provider: (json['provider'] as String?) ?? 'livekit',
+      wsUrl: (json['wsUrl'] as String?) ?? '',
+      roomName: (json['roomName'] as String?) ?? '',
+      identity: (json['identity'] as String?) ?? '',
+      role: (json['role'] as String?) ?? 'caller',
+      token: (json['token'] as String?) ?? '',
+      expiresInSeconds: (json['expiresInSeconds'] as num?)?.toInt() ?? 0,
     );
   }
 }

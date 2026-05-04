@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
@@ -36,5 +37,15 @@ export class RoomsController {
   ): Promise<Room> {
     await this.storeService.getUserFromAuthHeader(authorization);
     return this.storeService.joinRoom(roomId);
+  }
+
+  @Delete(':roomId')
+  async endRoom(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomId', new ParseUUIDPipe()) roomId: string,
+  ): Promise<{ ok: true }> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.endRoom(user.id, roomId);
+    return { ok: true };
   }
 }

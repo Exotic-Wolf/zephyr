@@ -1,4 +1,8 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { StoreService } from './store.service';
 
 describe('StoreService', () => {
@@ -32,6 +36,32 @@ describe('StoreService', () => {
     expect(joinedRoom.audienceCount).toBe(2);
     const rooms = await storeService.listRooms();
     expect(rooms[0].id).toBe(room.id);
+  });
+
+  it('keeps only one active live room per host', async () => {
+    const session = await storeService.issueGuestSession('host_one_live');
+    const firstRoom = await storeService.createRoom(session.user.id, 'First Live');
+    const secondRoom = await storeService.createRoom(session.user.id, 'Second Live');
+
+    await expect(storeService.joinRoom(firstRoom.id)).rejects.toThrow(NotFoundException);
+
+    const rooms = await storeService.listRooms();
+    expect(rooms).toHaveLength(1);
+    expect(rooms[0].id).toBe(secondRoom.id);
+  });
+
+  it('ends live room and removes it from feed/list', async () => {
+    const session = await storeService.issueGuestSession('host_end_live');
+    const room = await storeService.createRoom(session.user.id, 'Temporary Live');
+
+    await storeService.endRoom(session.user.id, room.id);
+
+    const feed = await storeService.listLiveFeed();
+    const rooms = await storeService.listRooms();
+
+    expect(feed).toHaveLength(0);
+    expect(rooms).toHaveLength(0);
+    await expect(storeService.joinRoom(room.id)).rejects.toThrow(NotFoundException);
   });
 
   it('rejects missing auth header', async () => {
@@ -196,6 +226,45 @@ describe('StoreService', () => {
         giftId: 'rose',
         quantity: 1,
       }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('resolves call participant role for caller and receiver', async () => {
+    const caller = await storeService.issueGuestSession('rtc_caller');
+    const receiver = await storeService.issueGuestSession('rtc_receiver');
+
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+
+    const callerParticipant = await storeService.getLiveCallSessionParticipant(
+      session.id,
+      caller.user.id,
+    );
+    const receiverParticipant = await storeService.getLiveCallSessionParticipant(
+      session.id,
+      receiver.user.id,
+    );
+
+    expect(callerParticipant.role).toBe('caller');
+    expect(receiverParticipant.role).toBe('receiver');
+  });
+
+  it('rejects non-participant RTC token access', async () => {
+    const caller = await storeService.issueGuestSession('rtc_owner');
+    const receiver = await storeService.issueGuestSession('rtc_peer');
+    const outsider = await storeService.issueGuestSession('rtc_outsider');
+
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+
+    await expect(
+      storeService.getLiveCallSessionParticipant(session.id, outsider.user.id),
     ).rejects.toThrow(BadRequestException);
   });
 });

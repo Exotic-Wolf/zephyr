@@ -20,10 +20,25 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 
 ### UI shell + profile milestone completed (4 May 2026)
 
-- ✅ Added post-login bottom navigation with 5 tabs: `Home`, `Live Rooms`, `Go Live`, `Inbox`, `Me`.
-- ✅ Kept existing home/feed/create/join flow fully functional under `Home`.
+- ✅ Added post-login bottom navigation with 5 tabs: `Home`, `Live`, `Calls`, `Inbox`, `Me`.
+- ✅ Home + Live now operate on **ephemeral live sessions** (no static pre-created room inventory).
 - ✅ Apple sign-in button is now iOS-only (hidden on Android).
 - ✅ Added `Me` menu with pages for `Level`, `My Balance`, `My Revenue`, `Settings`.
+
+### Ephemeral live-session flow completed (4 May 2026)
+
+- ✅ `POST /v1/rooms` now behaves as **Go Live**:
+   - creates a live session immediately
+   - enforces one active live per host (new Go Live replaces previous active live)
+- ✅ `DELETE /v1/rooms/:roomId` added so host can end live; ended sessions disappear from live feed/list.
+- ✅ `GET /v1/rooms` now returns only active live sessions (`status='live'`).
+- ✅ `POST /v1/rooms/:roomId/join` now joins only active lives (non-live/missing returns not found).
+- ✅ Flutter Home now supports host lifecycle directly:
+   - `Go Live` (title + start)
+   - `End Live` for host-owned active session
+- ✅ Flutter live cards now expose viewer actions:
+   - `Watch Live`
+   - `Call Host` (routes to private-call flow)
 
 ### Economy/call billing milestone completed (4 May 2026)
 
@@ -68,6 +83,11 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
    - `COINS_PER_USD_RECEIVER=10000`
    - `RECEIVER_SHARE_BPS=6000`
    - `SPARK_PER_USD=10000` (neutral/no inflation default)
+- ✅ RTC join-token scaffold is now implemented for live call sessions:
+   - backend token service added (`RtcService`)
+   - participant-auth endpoint added: `POST /v1/economy/calls/:sessionId/rtc-token`
+   - only live-session caller/receiver can request join token
+   - mobile includes RTC token preparation hook + readiness indicator (room UI plugin integration is next)
 - 🔄 Remaining work is now downstream economy features (gift execution, cashout/redeem flow, payout operations), not core call billing.
 
 ### Staging smoke validation completed (4 May 2026)
@@ -180,6 +200,7 @@ Implemented endpoints:
 - `GET /v1/rooms`
 - `POST /v1/rooms`
 - `POST /v1/rooms/:roomId/join`
+- `DELETE /v1/rooms/:roomId`
 - `GET /v1/feed/live`
 - `GET /v1/economy/config`
 - `GET /v1/economy/coin-packs`
@@ -190,6 +211,7 @@ Implemented endpoints:
 - `POST /v1/economy/calls/start`
 - `POST /v1/economy/calls/:sessionId/tick`
 - `POST /v1/economy/calls/:sessionId/end`
+- `POST /v1/economy/calls/:sessionId/rtc-token`
 
 Recent backend validation additions:
 
@@ -201,6 +223,8 @@ Recent backend validation additions:
    - caller coin deduction + receiver Spark accrual
    - busy caller cannot start a second live call
    - busy receiver cannot be called by another user
+   - live caller/receiver participant resolution for RTC token auth path
+   - outsider rejection for RTC token auth path
 
 Backend hardening completed:
 
@@ -235,8 +259,9 @@ Implemented app flow:
 
 - Fetch profile
 - Swipe live feed cards (`/v1/feed/live`)
-- Create room
-- Enter/join room from swipe card CTA
+- Go live (`POST /v1/rooms`) and end live (`DELETE /v1/rooms/:roomId`) from Home
+- Watch/join live from feed card CTA (`POST /v1/rooms/:roomId/join`)
+- Start private call to host via `Call Host` from live card (separate from live viewing flow)
 
 Recent UI/dev productivity additions:
 
@@ -254,6 +279,7 @@ Tablet responsiveness status:
 - `zephyr-mobile`: `flutter test` and `flutter analyze` pass
 - `zephyr-api`: `test:e2e` includes feed endpoint coverage and passes
 - `zephyr-api`: focused `store.service.spec.ts` passes (`8` tests), including busy-state and Spark earning behavior
+- `zephyr-api`: focused `store.service.spec.ts` passes (`12` tests), including RTC participant auth checks
 - Render live health checks pass:
    - `GET /v1/health/live` → `HTTP 200`
    - `GET /v1/health/ready` → `HTTP 200` (`storage: postgres`)
@@ -283,6 +309,13 @@ Required env vars (backend):
 - `GOOGLE_CLIENT_ID` (legacy/single audience, optional when `GOOGLE_CLIENT_IDS` is used)
 - `GOOGLE_CLIENT_IDS` (comma-separated Google audiences for iOS + Android)
 - `APPLE_CLIENT_ID` (for Apple ID token verification)
+- `LIVEKIT_API_KEY` (required for RTC token signing)
+- `LIVEKIT_API_SECRET` (required for RTC token signing)
+- `LIVEKIT_WS_URL` (returned to client for room connection)
+
+Optional RTC env vars (backend):
+
+- `RTC_TOKEN_TTL_SECONDS` (default: `3600`, max: `86400`)
 
 Optional economy env vars (backend, scaffold knobs):
 
@@ -316,13 +349,20 @@ Staging env vars currently required on Render (`zephyr-api`):
 - `CORS_ORIGINS`
 - `GOOGLE_CLIENT_IDS` (required for Google login on staging; currently iOS + Android + Web IDs)
 
+When enabling RTC token issuance on staging, also set:
+
+- `LIVEKIT_API_KEY`
+- `LIVEKIT_API_SECRET`
+- `LIVEKIT_WS_URL`
+
 ## Resume plan (next session)
 
 1. Keep current auth + 5-tab shell baseline and run quick staging smoke checks
-2. Implement gift sending + balance deduction + creator Spark/revenue accrual transactions
-3. Add dedicated reusable live smoke script (`smoke-live-call`) and wire to `pnpm` script
-4. Design and implement Spark redeem/cashout workflow (rules, thresholds, settlement path)
-5. Rotate exposed Web OAuth client secret in Google Cloud as security cleanup
+2. Wire full Flutter RTC room plugin flow (join room with token + connect audio/video)
+3. Implement gift sending + balance deduction + creator Spark/revenue accrual transactions
+4. Add dedicated reusable live smoke script (`smoke-live-call`) and wire to `pnpm` script
+5. Design and implement Spark redeem/cashout workflow (rules, thresholds, settlement path)
+6. Rotate exposed Web OAuth client secret in Google Cloud as security cleanup
 
 ## Verified command patterns
 

@@ -102,6 +102,11 @@ export interface CallSessionTickResult {
   stoppedForInsufficientBalance: boolean;
 }
 
+export interface CallSessionParticipant {
+  session: CallSession;
+  role: 'caller' | 'receiver';
+}
+
 export interface GiftSendResult {
   sessionId: string;
   giftId: string;
@@ -592,6 +597,7 @@ export class StoreService {
         `
           SELECT id, host_user_id, title, audience_count, status, created_at
           FROM rooms
+          WHERE status = 'live'
           ORDER BY created_at DESC
         `,
       );
@@ -687,6 +693,14 @@ export class StoreService {
     };
 
     if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `
+          DELETE FROM rooms
+          WHERE host_user_id = $1 AND status = 'live'
+        `,
+        [hostUserId],
+      );
+
       const result = await this.databaseService.query<{
         id: string;
         host_user_id: string;
@@ -706,6 +720,14 @@ export class StoreService {
       return this.toRoom(result.rows[0]);
     }
 
+    const existingLiveRoom = [...this.rooms.values()].find(
+      (existingRoom) =>
+        existingRoom.hostUserId === hostUserId && existingRoom.status === 'live',
+    );
+    if (existingLiveRoom) {
+      this.rooms.delete(existingLiveRoom.id);
+    }
+
     this.rooms.set(room.id, room);
     return room;
   }
@@ -723,7 +745,7 @@ export class StoreService {
         `
           UPDATE rooms
           SET audience_count = audience_count + 1
-          WHERE id = $1
+          WHERE id = $1 AND status = 'live'
           RETURNING id, host_user_id, title, audience_count, status, created_at
         `,
         [roomId],
@@ -748,6 +770,31 @@ export class StoreService {
 
     this.rooms.set(roomId, nextRoom);
     return nextRoom;
+  }
+
+  async endRoom(hostUserId: string, roomId: string): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query(
+        `
+          DELETE FROM rooms
+          WHERE id = $1 AND host_user_id = $2 AND status = 'live'
+        `,
+        [roomId, hostUserId],
+      );
+
+      if (result.rowCount === 0) {
+        throw new NotFoundException('Room not found');
+      }
+
+      return;
+    }
+
+    const room = this.rooms.get(roomId);
+    if (!room || room.hostUserId !== hostUserId || room.status !== 'live') {
+      throw new NotFoundException('Room not found');
+    }
+
+    this.rooms.delete(roomId);
   }
 
   getEconomyConfig(): EconomyConfig {
@@ -1468,6 +1515,28 @@ export class StoreService {
       platformCoins,
       senderCoinBalanceAfter: senderWalletAfter.coinBalance,
     };
+  }
+
+  async getLiveCallSessionParticipant(
+    sessionId: string,
+    userId: string,
+  ): Promise<CallSessionParticipant> {
+    const session = await this.getCallSessionById(sessionId);
+    if (session.status !== 'live') {
+      throw new BadRequestException('Call session is not live');
+    }
+
+    if (session.callerUserId === userId) {
+      return { session, role: 'caller' };
+    }
+
+    if (session.receiverUserId === userId) {
+      return { session, role: 'receiver' };
+    }
+
+    throw new BadRequestException(
+      'User is not a participant in this call session',
+    );
   }
 
   private async ensureWalletAndRevenueRows(userId: string): Promise<void> {

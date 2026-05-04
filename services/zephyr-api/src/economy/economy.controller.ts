@@ -13,6 +13,10 @@ import {
 import {
   StoreService,
 } from '../core/store.service';
+import {
+  RtcJoinTokenResult,
+  RtcService,
+} from '../core/rtc.service';
 import type {
   CoinPack,
   EconomyConfig,
@@ -30,7 +34,10 @@ import { TickCallSessionDto } from './dto/tick-call-session.dto';
 
 @Controller('v1/economy')
 export class EconomyController {
-  constructor(private readonly storeService: StoreService) {}
+  constructor(
+    private readonly storeService: StoreService,
+    private readonly rtcService: RtcService,
+  ) {}
 
   @Get('config')
   getEconomyConfig(): EconomyConfig {
@@ -151,5 +158,23 @@ export class EconomyController {
       sessionId,
       body.reason ?? 'caller_ended',
     );
+  }
+
+  @Post('calls/:sessionId/rtc-token')
+  async createCallRtcToken(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('sessionId') sessionId: string,
+  ): Promise<RtcJoinTokenResult> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    const participant = await this.storeService.getLiveCallSessionParticipant(
+      sessionId,
+      user.id,
+    );
+
+    return this.rtcService.createJoinToken({
+      sessionId,
+      userId: user.id,
+      role: participant.role,
+    });
   }
 }
