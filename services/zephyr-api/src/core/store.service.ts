@@ -39,6 +39,31 @@ export interface LiveFeedCard {
   startedAt: string;
 }
 
+export interface CoinPack {
+  id: string;
+  label: string;
+  coins: number;
+  priceUsd: number;
+}
+
+export interface EconomyConfig {
+  privateCallRateCoinsPerMinute: number;
+  giftPlatformFeeBps: number;
+  coinPacks: CoinPack[];
+}
+
+export interface WalletSummary {
+  coinBalance: number;
+  level: number;
+  revenueUsd: number;
+}
+
+export interface GiftCatalogItem {
+  id: string;
+  name: string;
+  coinCost: number;
+}
+
 interface Session {
   token: string;
   userId: string;
@@ -57,6 +82,9 @@ export class StoreService {
   private readonly rooms = new Map<string, Room>();
   private readonly googleSubjectToUserId = new Map<string, string>();
   private readonly appleSubjectToUserId = new Map<string, string>();
+  private readonly walletBalances = new Map<string, number>();
+  private readonly userLevels = new Map<string, number>();
+  private readonly userRevenueUsd = new Map<string, number>();
 
   async issueGuestSession(displayName?: string): Promise<{ accessToken: string; user: UserProfile }> {
     const userId = randomUUID();
@@ -667,6 +695,238 @@ export class StoreService {
 
     this.rooms.set(roomId, nextRoom);
     return nextRoom;
+  }
+
+  getEconomyConfig(): EconomyConfig {
+    const privateCallRateRaw = Number.parseInt(
+      process.env.PRIVATE_CALL_RATE_COINS_PER_MINUTE ?? '30',
+      10,
+    );
+    const giftFeeRaw = Number.parseInt(
+      process.env.GIFT_PLATFORM_FEE_BPS ?? '3000',
+      10,
+    );
+
+    return {
+      privateCallRateCoinsPerMinute: Number.isFinite(privateCallRateRaw)
+        ? Math.max(privateCallRateRaw, 1)
+        : 30,
+      giftPlatformFeeBps: Number.isFinite(giftFeeRaw)
+        ? Math.max(giftFeeRaw, 0)
+        : 3000,
+      coinPacks: this.listCoinPacks(),
+    };
+  }
+
+  listCoinPacks(): CoinPack[] {
+    const rawConfig = process.env.COIN_PACKS_JSON?.trim();
+    if (!rawConfig) {
+      return [
+        { id: 'pack_299', label: '16.5K', coins: 16500, priceUsd: 2.99 },
+        { id: 'pack_599', label: '33K', coins: 33000, priceUsd: 5.99 },
+        { id: 'pack_999', label: '55K', coins: 55000, priceUsd: 9.99 },
+        { id: 'pack_2999', label: '165K', coins: 165000, priceUsd: 29.99 },
+        { id: 'pack_5999', label: '330K', coins: 330000, priceUsd: 59.99 },
+        { id: 'pack_9999', label: '550K', coins: 550000, priceUsd: 99.99 },
+      ];
+    }
+
+    try {
+      const parsed = JSON.parse(rawConfig) as unknown;
+      if (!Array.isArray(parsed)) {
+        throw new Error('COIN_PACKS_JSON must be an array');
+      }
+
+      const packs = parsed
+        .map((item) => {
+          const candidate = item as {
+            id?: string;
+            label?: string;
+            coins?: number;
+            priceUsd?: number;
+          };
+
+          if (
+            !candidate.id ||
+            !candidate.label ||
+            !Number.isFinite(candidate.coins) ||
+            !Number.isFinite(candidate.priceUsd)
+          ) {
+            return null;
+          }
+
+          const coins = Number(candidate.coins);
+          const priceUsd = Number(candidate.priceUsd);
+
+          return {
+            id: candidate.id,
+            label: candidate.label,
+            coins: Math.max(Math.trunc(coins), 1),
+            priceUsd: Math.max(priceUsd, 0),
+          } satisfies CoinPack;
+        })
+        .filter((pack): pack is CoinPack => pack !== null);
+
+      if (packs.length > 0) {
+        return packs;
+      }
+    } catch {
+      this.logger.warn(
+        'Invalid COIN_PACKS_JSON. Using default coin pack scaffold values.',
+      );
+    }
+
+    return [
+      { id: 'pack_299', label: '16.5K', coins: 16500, priceUsd: 2.99 },
+      { id: 'pack_599', label: '33K', coins: 33000, priceUsd: 5.99 },
+      { id: 'pack_999', label: '55K', coins: 55000, priceUsd: 9.99 },
+      { id: 'pack_2999', label: '165K', coins: 165000, priceUsd: 29.99 },
+      { id: 'pack_5999', label: '330K', coins: 330000, priceUsd: 59.99 },
+      { id: 'pack_9999', label: '550K', coins: 550000, priceUsd: 99.99 },
+    ];
+  }
+
+  async getWalletSummary(userId: string): Promise<WalletSummary> {
+    if (this.databaseService?.isEnabled()) {
+      await this.ensureWalletAndRevenueRows(userId);
+
+      const result = await this.databaseService.query<{
+        coin_balance: number;
+        level: number;
+        revenue_usd: string | number;
+      }>(
+        `
+          SELECT
+            wallets.coin_balance,
+            wallets.level,
+            COALESCE(user_revenue.revenue_usd, 0) AS revenue_usd
+          FROM wallets
+          LEFT JOIN user_revenue ON user_revenue.user_id = wallets.user_id
+          WHERE wallets.user_id = $1
+          LIMIT 1
+        `,
+        [userId],
+      );
+
+      const row = result.rows[0];
+      return {
+        coinBalance: row?.coin_balance ?? 0,
+        level: row?.level ?? 1,
+        revenueUsd: Number.parseFloat(String(row?.revenue_usd ?? 0)) || 0,
+      };
+    }
+
+    return {
+      coinBalance: this.walletBalances.get(userId) ?? 1200,
+      level: this.userLevels.get(userId) ?? 4,
+      revenueUsd: this.userRevenueUsd.get(userId) ?? 86.4,
+    };
+  }
+
+  async purchaseCoins(userId: string, packId: string): Promise<WalletSummary> {
+    const selectedPack = this.listCoinPacks().find((pack) => pack.id === packId);
+    if (!selectedPack) {
+      throw new BadRequestException('Unknown coin pack id');
+    }
+
+    if (this.databaseService?.isEnabled()) {
+      await this.ensureWalletAndRevenueRows(userId);
+
+      await this.databaseService.query(
+        `
+          UPDATE wallets
+          SET coin_balance = coin_balance + $2,
+              updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [userId, selectedPack.coins],
+      );
+
+      await this.databaseService.query(
+        `
+          INSERT INTO wallet_transactions (
+            id,
+            user_id,
+            type,
+            coins_delta,
+            amount_usd,
+            metadata,
+            created_at
+          )
+          VALUES ($1, $2, 'purchase', $3, $4, $5::jsonb, NOW())
+        `,
+        [
+          randomUUID(),
+          userId,
+          selectedPack.coins,
+          selectedPack.priceUsd,
+          JSON.stringify({ packId: selectedPack.id, label: selectedPack.label }),
+        ],
+      );
+
+      return this.getWalletSummary(userId);
+    }
+
+    const current = this.walletBalances.get(userId) ?? 1200;
+    this.walletBalances.set(userId, current + selectedPack.coins);
+    if (!this.userLevels.has(userId)) {
+      this.userLevels.set(userId, 4);
+    }
+    if (!this.userRevenueUsd.has(userId)) {
+      this.userRevenueUsd.set(userId, 86.4);
+    }
+
+    return this.getWalletSummary(userId);
+  }
+
+  getPrivateCallQuote(minutes: number): {
+    minutes: number;
+    requiredCoins: number;
+    rateCoinsPerMinute: number;
+  } {
+    const normalizedMinutes = Number.isFinite(minutes)
+      ? Math.min(Math.max(Math.trunc(minutes), 1), 240)
+      : 1;
+    const config = this.getEconomyConfig();
+
+    return {
+      minutes: normalizedMinutes,
+      requiredCoins: normalizedMinutes * config.privateCallRateCoinsPerMinute,
+      rateCoinsPerMinute: config.privateCallRateCoinsPerMinute,
+    };
+  }
+
+  listGiftCatalog(): GiftCatalogItem[] {
+    return [
+      { id: 'rose', name: 'Rose', coinCost: 10 },
+      { id: 'heart', name: 'Heart', coinCost: 50 },
+      { id: 'rocket', name: 'Rocket', coinCost: 120 },
+      { id: 'crown', name: 'Crown', coinCost: 300 },
+    ];
+  }
+
+  private async ensureWalletAndRevenueRows(userId: string): Promise<void> {
+    if (!this.databaseService?.isEnabled()) {
+      return;
+    }
+
+    await this.databaseService.query(
+      `
+        INSERT INTO wallets (user_id, coin_balance, level, updated_at)
+        VALUES ($1, 1200, 4, NOW())
+        ON CONFLICT (user_id) DO NOTHING
+      `,
+      [userId],
+    );
+
+    await this.databaseService.query(
+      `
+        INSERT INTO user_revenue (user_id, revenue_usd, updated_at)
+        VALUES ($1, 0, NOW())
+        ON CONFLICT (user_id) DO NOTHING
+      `,
+      [userId],
+    );
   }
 
   private toUserProfile(row: {

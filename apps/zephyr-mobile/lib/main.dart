@@ -357,21 +357,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: isTablet ? 320 : double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _appleLoading ? null : _continueWithApple,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black,
-                      foregroundColor: Colors.white,
-                    ),
-                    icon: const Icon(Icons.apple),
-                    label: Text(
-                      _appleLoading ? 'Signing in...' : 'Continue with Apple',
+                if (Platform.isIOS) ...<Widget>[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: isTablet ? 320 : double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _appleLoading ? null : _continueWithApple,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.apple),
+                      label: Text(
+                        _appleLoading
+                            ? 'Signing in...'
+                            : 'Continue with Apple',
+                      ),
                     ),
                   ),
-                ),
+                ],
                 if (_error != null) ...<Widget>[
                   const SizedBox(height: 12),
                   Text(_error!, style: const TextStyle(color: Colors.red)),
@@ -406,6 +410,15 @@ class _HomeScreenState extends State<HomeScreen> {
   final PageController _feedController = PageController(viewportFraction: 0.92);
   UserProfile? _me;
   List<LiveFeedCard> _feedCards = <LiveFeedCard>[];
+  int _selectedTabIndex = 0;
+  int _coinBalance = 1200;
+  int _userLevel = 4;
+  double _myRevenue = 86.40;
+  List<CoinPack> _coinPacks = <CoinPack>[
+    CoinPack(id: 'starter_100', label: 'Starter', coins: 100, priceUsd: 0.99),
+    CoinPack(id: 'plus_500', label: 'Plus', coins: 500, priceUsd: 4.49),
+    CoinPack(id: 'pro_1200', label: 'Pro', coins: 1200, priceUsd: 9.99),
+  ];
   int _activeFeedIndex = 0;
   bool _checkingApiStatus = true;
   bool? _apiReachable;
@@ -435,16 +448,28 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final UserProfile me = await widget.apiClient.getMe(widget.accessToken);
-      final List<LiveFeedCard> feedCards = await widget.apiClient.listLiveFeed(
-        widget.accessToken,
-      );
+      final List<dynamic> data = await Future.wait<dynamic>(<Future<dynamic>>[
+        widget.apiClient.getMe(widget.accessToken),
+        widget.apiClient.listLiveFeed(widget.accessToken),
+        widget.apiClient.getWalletSummary(widget.accessToken),
+        widget.apiClient.listCoinPacks(),
+      ]);
+
+      final UserProfile me = data[0] as UserProfile;
+      final List<LiveFeedCard> feedCards = data[1] as List<LiveFeedCard>;
+      final WalletSummary wallet = data[2] as WalletSummary;
+      final List<CoinPack> packs = data[3] as List<CoinPack>;
+
       if (!mounted) {
         return;
       }
       setState(() {
         _me = me;
         _feedCards = feedCards;
+        _coinBalance = wallet.coinBalance;
+        _userLevel = wallet.level;
+        _myRevenue = wallet.revenueUsd;
+        _coinPacks = packs;
         _activeFeedIndex = feedCards.isEmpty
             ? 0
             : _activeFeedIndex.clamp(0, feedCards.length - 1);
@@ -578,42 +603,538 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  String _titleForTab() {
+    return switch (_selectedTabIndex) {
+      0 => 'Home',
+      1 => 'Live Rooms',
+      2 => 'Go Live',
+      3 => 'Inbox',
+      4 => 'Me',
+      _ => 'Zephyr',
+    };
+  }
+
+  Widget _buildHomeTab(bool isTablet) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: maxContentWidth),
+        child: Padding(
+          padding: EdgeInsets.all(isTablet ? 24 : 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Live Now',
+                style: TextStyle(
+                  fontSize: isTablet ? 24 : 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: _roomTitleController,
+                      decoration: const InputDecoration(
+                        labelText: 'Room Title',
+                        hintText: 'Night Talk, Music Chill, etc.',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _creating ? null : _createRoom,
+                    child: Text(_creating ? 'Creating...' : 'Create'),
+                  ),
+                ],
+              ),
+              if (_error != null) ...<Widget>[
+                const SizedBox(height: 12),
+                Text(_error!, style: const TextStyle(color: Colors.red)),
+              ],
+              const SizedBox(height: 16),
+              if (_feedCards.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    isTablet
+                        ? 'Live Rooms: ${_feedCards.length}'
+                        : 'Swipe ${_activeFeedIndex + 1}/${_feedCards.length}',
+                  ),
+                ),
+              Expanded(
+                child: _feedCards.isEmpty
+                    ? const Center(
+                        child: Text('No live rooms yet. Create one to start.'),
+                      )
+                    : (isTablet
+                          ? GridView.builder(
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 2,
+                                    crossAxisSpacing: 12,
+                                    mainAxisSpacing: 12,
+                                    childAspectRatio: 1.18,
+                                  ),
+                              itemCount: _feedCards.length,
+                              itemBuilder: (BuildContext context, int index) {
+                                return _buildFeedCard(_feedCards[index]);
+                              },
+                            )
+                          : PageView.builder(
+                              controller: _feedController,
+                              itemCount: _feedCards.length,
+                              onPageChanged: (int index) {
+                                setState(() {
+                                  _activeFeedIndex = index;
+                                });
+                              },
+                              itemBuilder: (BuildContext context, int index) {
+                                return _buildFeedCard(_feedCards[index]);
+                              },
+                            )),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLiveRoomsTab(bool isTablet) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: maxContentWidth),
+        child: Padding(
+          padding: EdgeInsets.all(isTablet ? 24 : 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Live Rooms',
+                style: TextStyle(
+                  fontSize: isTablet ? 24 : 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: _feedCards.isEmpty
+                    ? const Center(child: Text('No live rooms right now.'))
+                    : (isTablet
+                          ? GridView.builder(
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 2,
+                                    crossAxisSpacing: 12,
+                                    mainAxisSpacing: 12,
+                                    childAspectRatio: 1.18,
+                                  ),
+                              itemCount: _feedCards.length,
+                              itemBuilder: (BuildContext context, int index) {
+                                return _buildFeedCard(_feedCards[index]);
+                              },
+                            )
+                          : ListView.builder(
+                              itemCount: _feedCards.length,
+                              itemBuilder: (BuildContext context, int index) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: SizedBox(
+                                    height: 240,
+                                    child: _buildFeedCard(_feedCards[index]),
+                                  ),
+                                );
+                              },
+                            )),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholderTab({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    Widget? action,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, size: 52, color: Colors.purple.shade300),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+            if (action != null) ...<Widget>[const SizedBox(height: 16), action],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatCoins(int value) {
+    return value.toString();
+  }
+
+  String _formatRevenue(double value) {
+    return value.toStringAsFixed(2);
+  }
+
+  String _formatUsd(double value) {
+    return '\$${_formatRevenue(value)}';
+  }
+
+  Future<void> _openLevelPage() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Level')),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Icon(Icons.military_tech_rounded, size: 56),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Level $_userLevel',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Keep streaming, receiving gifts, and engaging to level up.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _openBalancePage() async {
+    String? purchasingPackId;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) {
+          return StatefulBuilder(
+            builder: (
+              BuildContext context,
+              void Function(void Function()) setInnerState,
+            ) {
+              Future<void> buyCoins(CoinPack pack) async {
+                setInnerState(() {
+                  purchasingPackId = pack.id;
+                });
+
+                try {
+                  final WalletSummary wallet = await widget.apiClient
+                      .purchaseCoins(widget.accessToken, pack.id);
+
+                  if (!mounted) {
+                    return;
+                  }
+
+                  setState(() {
+                    _coinBalance = wallet.coinBalance;
+                    _userLevel = wallet.level;
+                    _myRevenue = wallet.revenueUsd;
+                  });
+
+                  if (!mounted) {
+                    return;
+                  }
+
+                  setInnerState(() {
+                    purchasingPackId = null;
+                  });
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Added ${pack.coins} coins via ${pack.label}.',
+                      ),
+                    ),
+                  );
+                } catch (error) {
+                  if (!mounted) {
+                    return;
+                  }
+
+                  setInnerState(() {
+                    purchasingPackId = null;
+                  });
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Purchase failed: $error')),
+                  );
+                }
+              }
+
+              return Scaffold(
+                appBar: AppBar(title: const Text('My Balance')),
+                body: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: <Widget>[
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Text(
+                              'Coin Balance',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '${_formatCoins(_coinBalance)} coins',
+                              style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Buy Coins',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._coinPacks.map((CoinPack pack) {
+                      final bool isPurchasing = purchasingPackId == pack.id;
+
+                      return ListTile(
+                        leading: const Icon(Icons.monetization_on_rounded),
+                        title: Text('${pack.coins} coins • ${pack.label}'),
+                        subtitle: Text(_formatUsd(pack.priceUsd)),
+                        trailing: ElevatedButton(
+                          onPressed: isPurchasing
+                              ? null
+                              : () {
+                                  buyCoins(pack);
+                                },
+                          child: Text(isPurchasing ? 'Buying...' : 'Buy'),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _openRevenuePage() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('My Revenue')),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Icon(Icons.account_balance_wallet_rounded, size: 56),
+                    const SizedBox(height: 12),
+                    Text(
+                      _formatUsd(_myRevenue),
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Revenue from gifts and paid calls appears here.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _openSettingsPage() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Settings')),
+            body: ListView(
+              children: const <Widget>[
+                ListTile(
+                  leading: Icon(Icons.person_outline_rounded),
+                  title: Text('Account'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.privacy_tip_outlined),
+                  title: Text('Privacy'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.notifications_none_rounded),
+                  title: Text('Notifications'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.language_rounded),
+                  title: Text('Language'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMeTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: <Widget>[
+        Card(
+          child: ListTile(
+            leading: const CircleAvatar(child: Icon(Icons.person_rounded)),
+            title: Text(_me?.displayName ?? 'Me'),
+            subtitle: Text(_me?.bio ?? 'Welcome to Zephyr'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Column(
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.military_tech_rounded),
+                title: const Text('Level'),
+                trailing: Text('Lv $_userLevel'),
+                onTap: _openLevelPage,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet_rounded),
+                title: const Text('My Balance'),
+                trailing: Text('${_formatCoins(_coinBalance)} coins'),
+                onTap: _openBalancePage,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.payments_rounded),
+                title: const Text('My Revenue'),
+                trailing: Text(_formatUsd(_myRevenue)),
+                onTap: _openRevenuePage,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.settings_rounded),
+                title: const Text('Settings'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: _openSettingsPage,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isTablet = MediaQuery.sizeOf(context).width >= tabletBreakpoint;
 
+    final Widget bodyContent = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : switch (_selectedTabIndex) {
+            0 => _buildHomeTab(isTablet),
+            1 => _buildLiveRoomsTab(isTablet),
+            2 => _buildPlaceholderTab(
+                icon: Icons.add_circle_rounded,
+                title: 'Go Live',
+                subtitle: 'Live streaming setup is the next core feature.',
+              ),
+            3 => _buildPlaceholderTab(
+                icon: Icons.chat_bubble_rounded,
+                title: 'Inbox',
+                subtitle: 'Messages and notifications will appear here.',
+              ),
+            4 => _buildMeTab(),
+            _ => const SizedBox.shrink(),
+          };
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('Zephyr ${_me?.displayName ?? ''}'),
+        title: Text(_titleForTab()),
         actions: <Widget>[
-          Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: _checkingApiStatus
-                    ? Colors.orange.shade50
-                    : (_apiReachable == true
-                          ? Colors.green.shade50
-                          : Colors.red.shade50),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                _checkingApiStatus
-                    ? 'API...'
-                    : (_apiReachable == true ? 'API ✓' : 'API ✕'),
-                style: TextStyle(
+          if (_selectedTabIndex == 0 || _selectedTabIndex == 1)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
                   color: _checkingApiStatus
-                      ? Colors.orange.shade700
+                      ? Colors.orange.shade50
                       : (_apiReachable == true
-                            ? Colors.green.shade700
-                            : Colors.red.shade700),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                            ? Colors.green.shade50
+                            : Colors.red.shade50),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _checkingApiStatus
+                      ? 'API...'
+                      : (_apiReachable == true ? 'API ✓' : 'API ✕'),
+                  style: TextStyle(
+                    color: _checkingApiStatus
+                        ? Colors.orange.shade700
+                        : (_apiReachable == true
+                              ? Colors.green.shade700
+                              : Colors.red.shade700),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
+          if (_selectedTabIndex == 0 || _selectedTabIndex == 1)
+            const SizedBox(width: 8),
           IconButton(
             tooltip: 'Refresh',
             onPressed: _loading ? null : _refreshHome,
@@ -626,104 +1147,34 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: maxContentWidth),
-                child: Padding(
-                  padding: EdgeInsets.all(isTablet ? 24 : 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        'Live Now',
-                        style: TextStyle(
-                          fontSize: isTablet ? 24 : 20,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: TextField(
-                              controller: _roomTitleController,
-                              decoration: const InputDecoration(
-                                labelText: 'Room Title',
-                                hintText: 'Night Talk, Music Chill, etc.',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: _creating ? null : _createRoom,
-                            child: Text(_creating ? 'Creating...' : 'Create'),
-                          ),
-                        ],
-                      ),
-                      if (_error != null) ...<Widget>[
-                        const SizedBox(height: 12),
-                        Text(
-                          _error!,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      if (_feedCards.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(
-                            isTablet
-                                ? 'Live Rooms: ${_feedCards.length}'
-                                : 'Swipe ${_activeFeedIndex + 1}/${_feedCards.length}',
-                          ),
-                        ),
-                      Expanded(
-                        child: _feedCards.isEmpty
-                            ? const Center(
-                                child: Text(
-                                  'No live rooms yet. Create one to start.',
-                                ),
-                              )
-                            : (isTablet
-                                  ? GridView.builder(
-                                      gridDelegate:
-                                          const SliverGridDelegateWithFixedCrossAxisCount(
-                                            crossAxisCount: 2,
-                                            crossAxisSpacing: 12,
-                                            mainAxisSpacing: 12,
-                                            childAspectRatio: 1.18,
-                                          ),
-                                      itemCount: _feedCards.length,
-                                      itemBuilder:
-                                          (BuildContext context, int index) {
-                                            return _buildFeedCard(
-                                              _feedCards[index],
-                                            );
-                                          },
-                                    )
-                                  : PageView.builder(
-                                      controller: _feedController,
-                                      itemCount: _feedCards.length,
-                                      onPageChanged: (int index) {
-                                        setState(() {
-                                          _activeFeedIndex = index;
-                                        });
-                                      },
-                                      itemBuilder:
-                                          (BuildContext context, int index) {
-                                            return _buildFeedCard(
-                                              _feedCards[index],
-                                            );
-                                          },
-                                    )),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+      body: bodyContent,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedTabIndex,
+        onDestinationSelected: (int index) {
+          setState(() {
+            _selectedTabIndex = index;
+          });
+        },
+        destinations: const <NavigationDestination>[
+          NavigationDestination(
+            icon: Icon(Icons.home_rounded),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.live_tv_rounded),
+            label: 'Live Rooms',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.add_circle_rounded),
+            label: 'Go Live',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.chat_bubble_rounded),
+            label: 'Inbox',
+          ),
+          NavigationDestination(icon: Icon(Icons.person_rounded), label: 'Me'),
+        ],
+      ),
     );
   }
 }
@@ -864,6 +1315,42 @@ class ZephyrApiClient {
     return Room.fromJson(data);
   }
 
+  Future<WalletSummary> getWalletSummary(String accessToken) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'GET',
+      path: '/v1/economy/wallet',
+      accessToken: accessToken,
+    );
+
+    return WalletSummary.fromJson(data);
+  }
+
+  Future<List<CoinPack>> listCoinPacks() async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/economy/coin-packs',
+    );
+
+    if (data is! List<dynamic>) {
+      throw Exception('Invalid coin packs response');
+    }
+
+    return data
+        .map((dynamic item) => CoinPack.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<WalletSummary> purchaseCoins(String accessToken, String packId) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'POST',
+      path: '/v1/economy/purchase-coins',
+      accessToken: accessToken,
+      body: <String, dynamic>{'packId': packId},
+    );
+
+    return WalletSummary.fromJson(data);
+  }
+
   Future<dynamic> _request({
     required String method,
     required String path,
@@ -912,6 +1399,49 @@ class AuthSession {
 
   final String accessToken;
   final UserProfile user;
+}
+
+class WalletSummary {
+  WalletSummary({
+    required this.coinBalance,
+    required this.level,
+    required this.revenueUsd,
+  });
+
+  final int coinBalance;
+  final int level;
+  final double revenueUsd;
+
+  factory WalletSummary.fromJson(Map<String, dynamic> json) {
+    return WalletSummary(
+      coinBalance: (json['coinBalance'] as num?)?.toInt() ?? 0,
+      level: (json['level'] as num?)?.toInt() ?? 1,
+      revenueUsd: (json['revenueUsd'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
+class CoinPack {
+  CoinPack({
+    required this.id,
+    required this.label,
+    required this.coins,
+    required this.priceUsd,
+  });
+
+  final String id;
+  final String label;
+  final int coins;
+  final double priceUsd;
+
+  factory CoinPack.fromJson(Map<String, dynamic> json) {
+    return CoinPack(
+      id: json['id'] as String,
+      label: json['label'] as String,
+      coins: (json['coins'] as num?)?.toInt() ?? 0,
+      priceUsd: (json['priceUsd'] as num?)?.toDouble() ?? 0,
+    );
+  }
 }
 
 class UserProfile {

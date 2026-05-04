@@ -16,7 +16,32 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 - API contract: `packages/zephyr-contracts/openapi.yaml`
 - Deploy prep: `render.yaml`, `docs/api/deploy-checklist.md`
 
-## Current status (as of 3 May 2026, latest update)
+## Current status (as of 4 May 2026, latest update)
+
+### UI shell + profile milestone completed (4 May 2026)
+
+- ✅ Added post-login bottom navigation with 5 tabs: `Home`, `Live Rooms`, `Go Live`, `Inbox`, `Me`.
+- ✅ Kept existing home/feed/create/join flow fully functional under `Home`.
+- ✅ Apple sign-in button is now iOS-only (hidden on Android).
+- ✅ Added `Me` menu with pages for `Level`, `My Balance`, `My Revenue`, `Settings`.
+
+### Economy scaffold milestone in progress (4 May 2026)
+
+- ✅ Backend economy module scaffolded and wired into app module.
+- ✅ New economy endpoints are live in code:
+   - `GET /v1/economy/config`
+   - `GET /v1/economy/coin-packs`
+   - `GET /v1/economy/wallet`
+   - `POST /v1/economy/purchase-coins`
+   - `GET /v1/economy/private-call/quote?minutes=`
+   - `GET /v1/economy/gifts/catalog`
+- ✅ Store layer now supports economy config + wallet summary + coin purchases + gift catalog + private-call quote.
+- ✅ Postgres schema now includes economy tables:
+   - `wallets`
+   - `user_revenue`
+   - `wallet_transactions`
+- ✅ Mobile app now consumes economy APIs for wallet and coin-pack retrieval, and buy-coin actions.
+- 🔄 Pricing/business values are intentionally scaffold defaults and should be adjusted next.
 
 ### Auth milestone completed (3 May 2026)
 
@@ -101,6 +126,12 @@ Implemented endpoints:
 - `POST /v1/rooms`
 - `POST /v1/rooms/:roomId/join`
 - `GET /v1/feed/live`
+- `GET /v1/economy/config`
+- `GET /v1/economy/coin-packs`
+- `GET /v1/economy/wallet`
+- `POST /v1/economy/purchase-coins`
+- `GET /v1/economy/private-call/quote`
+- `GET /v1/economy/gifts/catalog`
 
 Recent backend validation additions:
 
@@ -181,6 +212,12 @@ Required env vars (backend):
 - `GOOGLE_CLIENT_IDS` (comma-separated Google audiences for iOS + Android)
 - `APPLE_CLIENT_ID` (for Apple ID token verification)
 
+Optional economy env vars (backend, scaffold knobs):
+
+- `COIN_PACKS_JSON` (JSON array of packs: `[{"id":"pack_299","label":"16.5K","coins":16500,"priceUsd":2.99},{"id":"pack_599","label":"33K","coins":33000,"priceUsd":5.99},{"id":"pack_999","label":"55K","coins":55000,"priceUsd":9.99},{"id":"pack_2999","label":"165K","coins":165000,"priceUsd":29.99},{"id":"pack_5999","label":"330K","coins":330000,"priceUsd":59.99},{"id":"pack_9999","label":"550K","coins":550000,"priceUsd":99.99}]`)
+- `PRIVATE_CALL_RATE_COINS_PER_MINUTE` (default scaffold: `30`)
+- `GIFT_PLATFORM_FEE_BPS` (default scaffold: `3000` = 30%)
+
 Staging env vars currently required on Render (`zephyr-api`):
 
 - `JWT_SECRET`
@@ -190,10 +227,10 @@ Staging env vars currently required on Render (`zephyr-api`):
 
 ## Resume plan (next session)
 
-1. Start from current stable auth baseline (Guest + Google verified on iOS/Android)
-2. Keep Flutter pointed to staging API and run quick smoke checks
-3. Begin next MVP feature: realtime room/feed updates
-4. Add moderation baseline after realtime path is stable
+1. Keep current auth + 5-tab shell baseline and run quick staging smoke checks
+2. Decide final economy values (coin packs, private-call rate, gift split) and update env/config
+3. Implement gift sending + balance deduction + creator revenue accrual transactions
+4. Implement paid private-call session charging flow (wallet checks + billing events)
 5. Rotate exposed Web OAuth client secret in Google Cloud as security cleanup
 
 ## Verified command patterns

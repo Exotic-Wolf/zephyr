@@ -96,6 +96,40 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       );
     `);
 
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS wallets (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        coin_balance INTEGER NOT NULL DEFAULT 0,
+        level INTEGER NOT NULL DEFAULT 1,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS user_revenue (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        revenue_usd NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS wallet_transactions (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        coins_delta INTEGER NOT NULL,
+        amount_usd NUMERIC(12, 2),
+        metadata JSONB,
+        created_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS wallet_transactions_user_created_idx
+      ON wallet_transactions(user_id, created_at DESC);
+    `);
+
     this.logger.log('Database schema is ready.');
   }
 }
