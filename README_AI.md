@@ -25,7 +25,7 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 - ✅ Apple sign-in button is now iOS-only (hidden on Android).
 - ✅ Added `Me` menu with pages for `Level`, `My Balance`, `My Revenue`, `Settings`.
 
-### Economy scaffold milestone in progress (4 May 2026)
+### Economy/call billing milestone completed (4 May 2026)
 
 - ✅ Backend economy module scaffolded and wired into app module.
 - ✅ New economy endpoints are live in code:
@@ -56,11 +56,19 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
    - `start` call session
    - periodic `tick` billing (coin deduction + ledger write)
    - `end` session (manual/insufficient balance)
+- ✅ Receiver earnings are Spark-first:
+   - caller spends coins
+   - receiver earns Spark (`spark_balance`) and revenue USD tracking
+   - receiver does not receive spendable coin wallet credit from call ticks
+- ✅ One-live-call busy guard is now enforced:
+   - a user can be both caller and receiver across the product
+   - but cannot be in more than one live call at a time
+   - start is rejected when caller or receiver is already in a live call
 - ✅ Locked economics defaults in backend config:
    - `COINS_PER_USD_RECEIVER=10000`
    - `RECEIVER_SHARE_BPS=6000`
    - `SPARK_PER_USD=10000` (neutral/no inflation default)
-- 🔄 Remaining work is execution/billing flow (start/stop call charging and revenue split writes), not quote/config.
+- 🔄 Remaining work is now downstream economy features (gift execution, cashout/redeem flow, payout operations), not core call billing.
 
 ### Staging smoke validation completed (4 May 2026)
 
@@ -72,6 +80,7 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
    - wallet before: `1200`
    - purchase `pack_299`: success `HTTP 201`
    - wallet after: `17700`
+- ✅ Call lifecycle smoke passed after redeploy (`start` → `tick` → `end`) with expected charging math.
 
 ### Auth milestone completed (3 May 2026)
 
@@ -171,6 +180,11 @@ Recent backend validation additions:
 - E2E coverage for feed route in `services/zephyr-api/test/app.e2e-spec.ts`:
    - unauthenticated `GET /v1/feed/live` returns `401`
    - authenticated feed fetch returns room cards after room creation
+- Unit coverage for call economics/state in `services/zephyr-api/src/core/store.service.spec.ts` now includes:
+   - same user can act as both caller and receiver
+   - caller coin deduction + receiver Spark accrual
+   - busy caller cannot start a second live call
+   - busy receiver cannot be called by another user
 
 Backend hardening completed:
 
@@ -223,6 +237,7 @@ Tablet responsiveness status:
 - `zephyr-api`: tests and build pass
 - `zephyr-mobile`: `flutter test` and `flutter analyze` pass
 - `zephyr-api`: `test:e2e` includes feed endpoint coverage and passes
+- `zephyr-api`: focused `store.service.spec.ts` passes (`8` tests), including busy-state and Spark earning behavior
 - Local smoke flow has passed against running API
 - iOS simulator run confirmed
 - Root facilitation commands validated (`dev:status`, `dev:doctor`, `dev:api:health`)
@@ -236,6 +251,7 @@ Tablet responsiveness status:
 - Google provider config is completed for staging (iOS + Android + Web audience alignment)
 - Mobile Google sign-in requires `GOOGLE_SERVER_CLIENT_ID` (Web OAuth client ID) when launching Flutter app
 - Apple Sign-In production setup requires paid Apple Developer enrollment
+- Call session concurrency rule is enforced backend-side: one user can only participate in one live call at a time
 
 Required env vars (backend):
 
@@ -280,9 +296,9 @@ Staging env vars currently required on Render (`zephyr-api`):
 ## Resume plan (next session)
 
 1. Keep current auth + 5-tab shell baseline and run quick staging smoke checks
-2. Implement private-call start/stop billing flow (per-minute charging + insufficient balance handling)
+2. Add/verify staging smoke for busy-state rejection paths (`caller busy`, `receiver busy`)
 3. Implement gift sending + balance deduction + creator revenue accrual transactions
-4. Add weekly promotion mechanism for coin packs (bonus/discount strategy via env/config)
+4. Design and implement Spark redeem/cashout workflow (rules, thresholds, settlement path)
 5. Rotate exposed Web OAuth client secret in Google Cloud as security cleanup
 
 ## Verified command patterns
@@ -350,4 +366,4 @@ flutter run --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
 
 ## Quick prompt to continue tomorrow
 
-"Continue Zephyr from `README_AI.md`. Keep current auth + economy quote baseline, then implement private-call billing execution (start/stop, charge, and balance guard)."
+"Continue Zephyr from `README_AI.md`. Keep current auth + call billing baseline, then implement gifts + Spark redeem/cashout and extend staging smoke coverage."

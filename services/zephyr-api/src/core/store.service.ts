@@ -62,6 +62,7 @@ export interface WalletSummary {
   coinBalance: number;
   level: number;
   revenueUsd: number;
+  sparkBalance: number;
 }
 
 export interface GiftCatalogItem {
@@ -122,6 +123,7 @@ export class StoreService {
   private readonly walletBalances = new Map<string, number>();
   private readonly userLevels = new Map<string, number>();
   private readonly userRevenueUsd = new Map<string, number>();
+  private readonly userSparkBalances = new Map<string, number>();
   private readonly callSessions = new Map<string, CallSession>();
 
   async issueGuestSession(displayName?: string): Promise<{ accessToken: string; user: UserProfile }> {
@@ -877,12 +879,14 @@ export class StoreService {
         coin_balance: number;
         level: number;
         revenue_usd: string | number;
+        spark_balance: number;
       }>(
         `
           SELECT
             wallets.coin_balance,
             wallets.level,
-            COALESCE(user_revenue.revenue_usd, 0) AS revenue_usd
+            COALESCE(user_revenue.revenue_usd, 0) AS revenue_usd,
+            COALESCE(user_revenue.spark_balance, 0) AS spark_balance
           FROM wallets
           LEFT JOIN user_revenue ON user_revenue.user_id = wallets.user_id
           WHERE wallets.user_id = $1
@@ -896,6 +900,7 @@ export class StoreService {
         coinBalance: row?.coin_balance ?? 0,
         level: row?.level ?? 1,
         revenueUsd: Number.parseFloat(String(row?.revenue_usd ?? 0)) || 0,
+        sparkBalance: row?.spark_balance ?? 0,
       };
     }
 
@@ -903,6 +908,7 @@ export class StoreService {
       coinBalance: this.walletBalances.get(userId) ?? 1200,
       level: this.userLevels.get(userId) ?? 4,
       revenueUsd: this.userRevenueUsd.get(userId) ?? 86.4,
+      sparkBalance: this.userSparkBalances.get(userId) ?? 0,
     };
   }
 
@@ -957,6 +963,9 @@ export class StoreService {
     }
     if (!this.userRevenueUsd.has(userId)) {
       this.userRevenueUsd.set(userId, 86.4);
+    }
+    if (!this.userSparkBalances.has(userId)) {
+      this.userSparkBalances.set(userId, 0);
     }
 
     return this.getWalletSummary(userId);
@@ -1018,8 +1027,22 @@ export class StoreService {
     },
   ): Promise<CallSession> {
     const mode = options.mode === 'random' ? 'random' : 'direct';
-    if (mode === 'direct' && !options.receiverUserId) {
+    const receiverUserId = options.receiverUserId?.trim() || undefined;
+
+    if (mode === 'direct' && !receiverUserId) {
       throw new BadRequestException('receiverUserId is required for direct call');
+    }
+
+    const callerBusy = await this.hasLiveCallSessionForUser(callerUserId);
+    if (callerBusy) {
+      throw new BadRequestException('Caller is busy in another live call');
+    }
+
+    if (receiverUserId && receiverUserId !== callerUserId) {
+      const receiverBusy = await this.hasLiveCallSessionForUser(receiverUserId);
+      if (receiverBusy) {
+        throw new BadRequestException('Receiver is busy in another live call');
+      }
     }
 
     const quote = this.getPrivateCallQuote(1, {
@@ -1032,7 +1055,7 @@ export class StoreService {
     const session: CallSession = {
       id: randomUUID(),
       callerUserId,
-      receiverUserId: options.receiverUserId ?? null,
+      receiverUserId: receiverUserId ?? null,
       mode,
       rateCoinsPerMinute: quote.rateCoinsPerMinute,
       receiverShareBps: config.receiverShareBps,
@@ -1051,7 +1074,7 @@ export class StoreService {
 
     if (this.databaseService?.isEnabled()) {
       await this.ensureWalletAndRevenueRows(callerUserId);
-      if (session.receiverUserId) {
+      if (session.receiverUserId && session.receiverUserId !== callerUserId) {
         await this.ensureWalletAndRevenueRows(session.receiverUserId);
       }
 
@@ -1179,10 +1202,11 @@ export class StoreService {
           `
             UPDATE user_revenue
             SET revenue_usd = revenue_usd + $2,
+                spark_balance = spark_balance + $3,
                 updated_at = NOW()
             WHERE user_id = $1
           `,
-          [session.receiverUserId, receiverUsd],
+          [session.receiverUserId, receiverUsd, receiverSpark],
         );
       }
     } else {
@@ -1192,9 +1216,15 @@ export class StoreService {
       if (session.receiverUserId) {
         const receiverCurrentRevenue =
           this.userRevenueUsd.get(session.receiverUserId) ?? 0;
+        const receiverCurrentSpark =
+          this.userSparkBalances.get(session.receiverUserId) ?? 0;
         this.userRevenueUsd.set(
           session.receiverUserId,
           receiverCurrentRevenue + receiverUsd,
+        );
+        this.userSparkBalances.set(
+          session.receiverUserId,
+          receiverCurrentSpark + receiverSpark,
         );
       }
     }
@@ -1218,13 +1248,14 @@ export class StoreService {
     if (session.receiverUserId && receiverCoins > 0) {
       await this.writeWalletTransaction({
         userId: session.receiverUserId,
-        type: 'call_earning',
-        coinsDelta: receiverCoins,
+        type: 'call_earning_spark',
+        coinsDelta: 0,
         amountUsd: receiverUsd,
         metadata: {
           sessionId,
           mode: session.mode,
           elapsedSeconds: normalizedSeconds,
+          receiverCoinsEquivalent: receiverCoins,
           sparkEarned: receiverSpark,
         },
         createdAt: now,
@@ -1307,6 +1338,16 @@ export class StoreService {
         INSERT INTO user_revenue (user_id, revenue_usd, updated_at)
         VALUES ($1, 0, NOW())
         ON CONFLICT (user_id) DO NOTHING
+      `,
+      [userId],
+    );
+
+    await this.databaseService.query(
+      `
+        UPDATE user_revenue
+        SET spark_balance = COALESCE(spark_balance, 0),
+            updated_at = NOW()
+        WHERE user_id = $1
       `,
       [userId],
     );
@@ -1414,6 +1455,34 @@ export class StoreService {
       throw new NotFoundException('Call session not found');
     }
     return session;
+  }
+
+  private async hasLiveCallSessionForUser(userId: string): Promise<boolean> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query(
+        `
+          SELECT id
+          FROM call_sessions
+          WHERE status = 'live'
+            AND (caller_user_id = $1 OR receiver_user_id = $1)
+          LIMIT 1
+        `,
+        [userId],
+      );
+
+      return result.rowCount > 0;
+    }
+
+    for (const session of this.callSessions.values()) {
+      if (
+        session.status === 'live' &&
+        (session.callerUserId === userId || session.receiverUserId === userId)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private async persistCallSession(session: CallSession): Promise<void> {

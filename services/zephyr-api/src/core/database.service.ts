@@ -109,8 +109,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       CREATE TABLE IF NOT EXISTS user_revenue (
         user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         revenue_usd NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        spark_balance INTEGER NOT NULL DEFAULT 0,
         updated_at TIMESTAMPTZ NOT NULL
       );
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE user_revenue
+      ADD COLUMN IF NOT EXISTS spark_balance INTEGER NOT NULL DEFAULT 0;
     `);
 
     await this.pool.query(`
