@@ -81,6 +81,18 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
    - purchase `pack_299`: success `HTTP 201`
    - wallet after: `17700`
 - ✅ Call lifecycle smoke passed after redeploy (`start` → `tick` → `end`) with expected charging math.
+- ✅ Live authenticated call flow smoke validated on Render after latest deploy:
+   - guest logins (`caller`, `receiver`, `third`) all `HTTP 201`
+   - `POST /v1/economy/calls/start` → `HTTP 201`
+   - `POST /v1/economy/calls/:sessionId/tick` (`10s`) → `HTTP 201`
+   - `POST /v1/economy/calls/:sessionId/end` → `HTTP 201`
+   - busy protections verified:
+      - busy caller second start attempt → `HTTP 400`
+      - busy receiver called by third user → `HTTP 400`
+   - wallet/economy deltas verified:
+      - caller coin delta: `-350`
+      - receiver spark delta: `+210`
+      - receiver coin delta: `0` (Spark-only earning behavior confirmed)
 
 ### Auth milestone completed (3 May 2026)
 
@@ -109,6 +121,10 @@ Security note:
 - Mobile app is wired to live staging API:
    - `apps/zephyr-mobile/lib/main.dart` default `API_BASE_URL` now points to `https://zephyr-api-wr1s.onrender.com`
 - iOS simulator run against staging is validated (API badge green, feed/room flow visible)
+- Latest deploy/build incident (resolved):
+   - Render build failed once with TypeScript nullability error (`TS18047`) on `result.rowCount`
+   - fixed in commit `a8a9e2d2` by null-safe check: `(result.rowCount ?? 0) > 0`
+   - Render auto-deploy after push succeeded; service is live and healthy
 
 ### Auth rollout decision (latest)
 
@@ -238,6 +254,13 @@ Tablet responsiveness status:
 - `zephyr-mobile`: `flutter test` and `flutter analyze` pass
 - `zephyr-api`: `test:e2e` includes feed endpoint coverage and passes
 - `zephyr-api`: focused `store.service.spec.ts` passes (`8` tests), including busy-state and Spark earning behavior
+- Render live health checks pass:
+   - `GET /v1/health/live` → `HTTP 200`
+   - `GET /v1/health/ready` → `HTTP 200` (`storage: postgres`)
+- Render live quote checks pass:
+   - direct quote (`2 min @ 2100`) returns `requiredCoins=4200`
+   - random quote (`2 min @ 600`) returns `requiredCoins=1200`
+- Render live authenticated call smoke passes with busy-state + Spark assertions
 - Local smoke flow has passed against running API
 - iOS simulator run confirmed
 - Root facilitation commands validated (`dev:status`, `dev:doctor`, `dev:api:health`)
@@ -296,8 +319,8 @@ Staging env vars currently required on Render (`zephyr-api`):
 ## Resume plan (next session)
 
 1. Keep current auth + 5-tab shell baseline and run quick staging smoke checks
-2. Add/verify staging smoke for busy-state rejection paths (`caller busy`, `receiver busy`)
-3. Implement gift sending + balance deduction + creator revenue accrual transactions
+2. Implement gift sending + balance deduction + creator Spark/revenue accrual transactions
+3. Add dedicated reusable live smoke script (`smoke-live-call`) and wire to `pnpm` script
 4. Design and implement Spark redeem/cashout workflow (rules, thresholds, settlement path)
 5. Rotate exposed Web OAuth client secret in Google Cloud as security cleanup
 

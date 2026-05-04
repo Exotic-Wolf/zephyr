@@ -102,6 +102,19 @@ export interface CallSessionTickResult {
   stoppedForInsufficientBalance: boolean;
 }
 
+export interface GiftSendResult {
+  sessionId: string;
+  giftId: string;
+  giftName: string;
+  quantity: number;
+  totalGiftCoins: number;
+  receiverCoins: number;
+  receiverUsd: number;
+  receiverSpark: number;
+  platformCoins: number;
+  senderCoinBalanceAfter: number;
+}
+
 interface Session {
   token: string;
   userId: string;
@@ -1316,7 +1329,145 @@ export class StoreService {
       { id: 'heart', name: 'Heart', coinCost: 50 },
       { id: 'rocket', name: 'Rocket', coinCost: 120 },
       { id: 'crown', name: 'Crown', coinCost: 300 },
+      { id: 'lion', name: 'Lion', coinCost: 5000 },
     ];
+  }
+
+  async sendGiftInCall(
+    senderUserId: string,
+    input: {
+      sessionId: string;
+      giftId: string;
+      quantity?: number;
+    },
+  ): Promise<GiftSendResult> {
+    const session = await this.getCallSessionById(input.sessionId);
+    if (session.status !== 'live') {
+      throw new BadRequestException('Gifts can only be sent during a live call');
+    }
+
+    if (session.callerUserId !== senderUserId) {
+      throw new BadRequestException('Only the caller can send gifts during a call');
+    }
+
+    if (!session.receiverUserId) {
+      throw new BadRequestException('Receiver is not available for gift delivery');
+    }
+
+    const gift = this.listGiftCatalog().find((item) => item.id === input.giftId);
+    if (!gift) {
+      throw new BadRequestException('Unknown gift id');
+    }
+
+    const quantity = Number.isFinite(input.quantity)
+      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
+      : 1;
+    const totalGiftCoins = gift.coinCost * quantity;
+
+    const senderWalletBefore = await this.getWalletSummary(senderUserId);
+    if (senderWalletBefore.coinBalance < totalGiftCoins) {
+      throw new BadRequestException('Insufficient coin balance for gift');
+    }
+
+    const receiverCoins = Math.floor(
+      (totalGiftCoins * session.receiverShareBps) / 10000,
+    );
+    const platformCoins = totalGiftCoins - receiverCoins;
+    const receiverUsd = receiverCoins / session.coinsPerUsdReceiver;
+    const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
+    const now = new Date().toISOString();
+
+    if (this.databaseService?.isEnabled()) {
+      await this.ensureWalletAndRevenueRows(senderUserId);
+      await this.ensureWalletAndRevenueRows(session.receiverUserId);
+
+      await this.databaseService.query(
+        `
+          UPDATE wallets
+          SET coin_balance = coin_balance - $2,
+              updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [senderUserId, totalGiftCoins],
+      );
+
+      await this.databaseService.query(
+        `
+          UPDATE user_revenue
+          SET revenue_usd = revenue_usd + $2,
+              spark_balance = spark_balance + $3,
+              updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [session.receiverUserId, receiverUsd, receiverSpark],
+      );
+    } else {
+      const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
+      this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
+
+      const receiverRevenue = this.userRevenueUsd.get(session.receiverUserId) ?? 0;
+      const receiverSparkBalance =
+        this.userSparkBalances.get(session.receiverUserId) ?? 0;
+      this.userRevenueUsd.set(
+        session.receiverUserId,
+        receiverRevenue + receiverUsd,
+      );
+      this.userSparkBalances.set(
+        session.receiverUserId,
+        receiverSparkBalance + receiverSpark,
+      );
+    }
+
+    await this.writeWalletTransaction({
+      userId: senderUserId,
+      type: 'gift_spend',
+      coinsDelta: -totalGiftCoins,
+      amountUsd: null,
+      metadata: {
+        sessionId: session.id,
+        mode: session.mode,
+        giftId: gift.id,
+        giftName: gift.name,
+        quantity,
+        receiverUserId: session.receiverUserId,
+        receiverCoins,
+        platformCoins,
+      },
+      createdAt: now,
+    });
+
+    await this.writeWalletTransaction({
+      userId: session.receiverUserId,
+      type: 'gift_earning_spark',
+      coinsDelta: 0,
+      amountUsd: receiverUsd,
+      metadata: {
+        sessionId: session.id,
+        mode: session.mode,
+        giftId: gift.id,
+        giftName: gift.name,
+        quantity,
+        senderUserId,
+        receiverCoinsEquivalent: receiverCoins,
+        sparkEarned: receiverSpark,
+      },
+      createdAt: now,
+    });
+
+    const senderWalletAfter = await this.getWalletSummary(senderUserId);
+
+    return {
+      sessionId: session.id,
+      giftId: gift.id,
+      giftName: gift.name,
+      quantity,
+      totalGiftCoins,
+      receiverCoins,
+      receiverUsd,
+      receiverSpark,
+      platformCoins,
+      senderCoinBalanceAfter: senderWalletAfter.coinBalance,
+    };
   }
 
   private async ensureWalletAndRevenueRows(userId: string): Promise<void> {
@@ -1454,6 +1605,87 @@ export class StoreService {
     if (!session || session.callerUserId !== callerUserId) {
       throw new NotFoundException('Call session not found');
     }
+    return session;
+  }
+
+  private async getCallSessionById(sessionId: string): Promise<CallSession> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        id: string;
+        caller_user_id: string;
+        receiver_user_id: string | null;
+        mode: 'direct' | 'random';
+        rate_coins_per_minute: number;
+        receiver_share_bps: number;
+        coins_per_usd_receiver: number;
+        spark_per_usd: number;
+        total_billed_coins: number;
+        total_receiver_coins: number;
+        total_receiver_usd: string | number;
+        total_receiver_spark: number;
+        status: 'live' | 'ended';
+        end_reason: string | null;
+        started_at: string;
+        updated_at: string;
+        ended_at: string | null;
+      }>(
+        `
+          SELECT
+            id,
+            caller_user_id,
+            receiver_user_id,
+            mode,
+            rate_coins_per_minute,
+            receiver_share_bps,
+            coins_per_usd_receiver,
+            spark_per_usd,
+            total_billed_coins,
+            total_receiver_coins,
+            total_receiver_usd,
+            total_receiver_spark,
+            status,
+            end_reason,
+            started_at,
+            updated_at,
+            ended_at
+          FROM call_sessions
+          WHERE id = $1
+          LIMIT 1
+        `,
+        [sessionId],
+      );
+
+      if (result.rowCount === 0) {
+        throw new NotFoundException('Call session not found');
+      }
+
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        callerUserId: row.caller_user_id,
+        receiverUserId: row.receiver_user_id,
+        mode: row.mode,
+        rateCoinsPerMinute: row.rate_coins_per_minute,
+        receiverShareBps: row.receiver_share_bps,
+        coinsPerUsdReceiver: row.coins_per_usd_receiver,
+        sparkPerUsd: row.spark_per_usd,
+        totalBilledCoins: row.total_billed_coins,
+        totalReceiverCoins: row.total_receiver_coins,
+        totalReceiverUsd: Number.parseFloat(String(row.total_receiver_usd)) || 0,
+        totalReceiverSpark: row.total_receiver_spark,
+        status: row.status,
+        endReason: row.end_reason,
+        startedAt: new Date(row.started_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString(),
+        endedAt: row.ended_at ? new Date(row.ended_at).toISOString() : null,
+      };
+    }
+
+    const session = this.callSessions.get(sessionId);
+    if (!session) {
+      throw new NotFoundException('Call session not found');
+    }
+
     return session;
   }
 

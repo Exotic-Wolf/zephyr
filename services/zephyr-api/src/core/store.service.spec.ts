@@ -149,4 +149,53 @@ describe('StoreService', () => {
       }),
     ).rejects.toThrow(BadRequestException);
   });
+
+  it('allows caller to send gift during live call and credits receiver spark', async () => {
+    const caller = await storeService.issueGuestSession('gift_caller');
+    const receiver = await storeService.issueGuestSession('gift_receiver');
+
+    await storeService.purchaseCoins(caller.user.id, 'pack_299');
+    const callerWalletBefore = await storeService.getWalletSummary(caller.user.id);
+    const receiverWalletBefore = await storeService.getWalletSummary(receiver.user.id);
+
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+
+    const giftResult = await storeService.sendGiftInCall(caller.user.id, {
+      sessionId: session.id,
+      giftId: 'lion',
+      quantity: 1,
+    });
+
+    const callerWalletAfter = await storeService.getWalletSummary(caller.user.id);
+    const receiverWalletAfter = await storeService.getWalletSummary(receiver.user.id);
+
+    expect(giftResult.totalGiftCoins).toBe(5000);
+    expect(giftResult.receiverSpark).toBe(3000);
+    expect(callerWalletAfter.coinBalance).toBe(callerWalletBefore.coinBalance - 5000);
+    expect(receiverWalletAfter.sparkBalance).toBe(receiverWalletBefore.sparkBalance + 3000);
+    expect(receiverWalletAfter.coinBalance).toBe(receiverWalletBefore.coinBalance);
+  });
+
+  it('rejects gift send when sender is not the call caller', async () => {
+    const caller = await storeService.issueGuestSession('gift_owner');
+    const receiver = await storeService.issueGuestSession('gift_receiver_only');
+
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+
+    await expect(
+      storeService.sendGiftInCall(receiver.user.id, {
+        sessionId: session.id,
+        giftId: 'rose',
+        quantity: 1,
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
 });

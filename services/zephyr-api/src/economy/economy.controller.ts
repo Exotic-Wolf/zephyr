@@ -17,12 +17,14 @@ import type {
   CoinPack,
   EconomyConfig,
   GiftCatalogItem,
+  GiftSendResult,
   CallSession,
   CallSessionTickResult,
   WalletSummary,
 } from '../core/store.service';
 import { EndCallSessionDto } from './dto/end-call-session.dto';
 import { PurchaseCoinsDto } from './dto/purchase-coins.dto';
+import { SendGiftDto } from './dto/send-gift.dto';
 import { StartCallSessionDto } from './dto/start-call-session.dto';
 import { TickCallSessionDto } from './dto/tick-call-session.dto';
 
@@ -95,6 +97,19 @@ export class EconomyController {
   @Get('gifts/catalog')
   getGiftCatalog(): GiftCatalogItem[] {
     return this.storeService.listGiftCatalog();
+  }
+
+  @Post('gifts/send')
+  async sendGift(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: SendGiftDto,
+  ): Promise<GiftSendResult> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    return this.storeService.sendGiftInCall(user.id, {
+      sessionId: body.sessionId,
+      giftId: body.giftId,
+      quantity: body.quantity,
+    });
   }
 
   @Post('calls/start')
