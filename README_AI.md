@@ -18,6 +18,27 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 
 ## Current status (as of 4 May 2026, latest update)
 
+### Critical handoff for next session (4 May 2026, end-of-day)
+
+- ✅ Latest pushed commit: `8df88051` (`fix(mobile): prevent iOS call action row overflow`)
+- ✅ Branch state at handoff: `main` synced to `origin/main`
+- ✅ Render staging health confirmed:
+   - `GET /v1/health/live` → `HTTP 200`
+   - `GET /v1/health/ready` → `HTTP 200`
+- ✅ iOS simulator app boot against staging confirmed after overflow fix
+- ⚠️ Android emulator login is reported broken again and must be treated as active regression (reproduce first tomorrow)
+- ⚠️ Product-direction correction from owner:
+   - current UI changes are not final
+   - 3rd footer icon must remain `Go Live` (call action should not replace that primary behavior)
+   - next session should be a screen-by-screen walkthrough before further UI refactors
+
+Tomorrow-first execution order (do not skip):
+
+1. Reproduce and fix Android emulator login on `emulator-5554`
+2. Walk screen-by-screen with product owner and document intended behavior
+3. Restore footer 3rd icon to `Go Live` flow
+4. Apply agreed UI corrections only after the walkthrough
+
 ### UI shell + profile milestone completed (4 May 2026)
 
 - ✅ Added post-login bottom navigation with 5 tabs: `Home`, `Live`, `Calls`, `Inbox`, `Me`.
@@ -116,11 +137,16 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 
 ### Auth milestone completed (3 May 2026)
 
-- ✅ Google login now works end-to-end on both Android emulator and iOS simulator against staging.
+- ✅ Google login was previously working end-to-end on both Android emulator and iOS simulator against staging.
 - ✅ iOS flow still works after Android auth fixes (no regression).
 - ✅ Backend Google audience allowlist now includes iOS + Android + Web OAuth client IDs.
 - ✅ Mobile app now requests Google ID tokens with `GOOGLE_SERVER_CLIENT_ID` (Web client ID) via `--dart-define`.
 - ✅ Latest auth fix commit is on `main`: `de008ac4`.
+
+Regression note (4 May 2026, latest):
+
+- ⚠️ Android emulator login has reportedly stopped working again and is currently unresolved.
+- ✅ iOS simulator still launches and reaches app runtime; auth regression appears Android-specific until proven otherwise.
 
 Key OAuth IDs used in this session:
 
@@ -253,7 +279,8 @@ Implemented onboarding/auth options:
 
 Current validated runtime:
 
-- Google login is confirmed working end-to-end on iOS simulator and Android emulator (login succeeds and lands in app)
+- iOS simulator launch and runtime are confirmed against staging.
+- Android emulator login currently requires re-validation due to reported regression.
 
 Implemented app flow:
 
@@ -357,11 +384,11 @@ When enabling RTC token issuance on staging, also set:
 
 ## Resume plan (next session)
 
-1. Keep current auth + 5-tab shell baseline and run quick staging smoke checks
-2. Wire full Flutter RTC room plugin flow (join room with token + connect audio/video)
-3. Implement gift sending + balance deduction + creator Spark/revenue accrual transactions
-4. Add dedicated reusable live smoke script (`smoke-live-call`) and wire to `pnpm` script
-5. Design and implement Spark redeem/cashout workflow (rules, thresholds, settlement path)
+1. Reproduce and fix Android emulator login regression first (`emulator-5554`)
+2. Run screen-by-screen product walkthrough and capture exact desired UI/UX behavior
+3. Restore 3rd footer icon to `Go Live` intent and remove conflicting call-placement behavior
+4. Re-run iOS + Android smoke checks after UI/auth fixes
+5. Then continue planned roadmap: RTC room plugin, gifts, Spark redeem/cashout, extended smoke coverage
 6. Rotate exposed Web OAuth client secret in Google Cloud as security cleanup
 
 ## Verified command patterns
@@ -429,4 +456,4 @@ flutter run --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
 
 ## Quick prompt to continue tomorrow
 
-"Continue Zephyr from `README_AI.md`. Keep current auth + call billing baseline, then implement gifts + Spark redeem/cashout and extend staging smoke coverage."
+"Continue Zephyr from `README_AI.md`. Start by fixing Android emulator login on `emulator-5554`, then do a screen-by-screen UI review with the owner, restore 3rd footer icon to `Go Live`, and only then continue roadmap features."
