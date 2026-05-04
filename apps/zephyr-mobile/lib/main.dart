@@ -1468,14 +1468,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                     ],
                     const SizedBox(height: 12),
-                    Row(
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
                       children: <Widget>[
                         ElevatedButton.icon(
                           onPressed: _quoteLoading ? null : _loadCallQuote,
                           icon: const Icon(Icons.refresh_rounded),
                           label: const Text('Refresh Quote'),
                         ),
-                        const SizedBox(width: 12),
                         ElevatedButton(
                           onPressed: (_quoteLoading ||
                                   _callActionLoading ||
@@ -1490,7 +1491,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         if (hasLiveSession) ...<Widget>[
-                          const SizedBox(width: 12),
                           ElevatedButton.icon(
                             onPressed: (_callActionLoading ||
                                     _rtcLoading ||
@@ -1502,7 +1502,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               _rtcLoading ? 'Preparing RTC...' : 'Prepare RTC',
                             ),
                           ),
-                          const SizedBox(width: 12),
                           ElevatedButton(
                             onPressed: _callActionLoading ? null : _endCallSession,
                             child: const Text('End Call'),
