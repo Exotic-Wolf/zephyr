@@ -8,6 +8,6 @@ void main() {
 
     expect(find.text('Zephyr Onboarding'), findsOneWidget);
     expect(find.text('Continue as Guest'), findsOneWidget);
-    expect(find.text('Display Name'), findsOneWidget);
+    expect(find.text('Display Name'), findsNothing);
   });
 }

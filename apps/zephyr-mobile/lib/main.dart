@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
@@ -82,7 +83,6 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  final TextEditingController _nameController = TextEditingController();
   late final GoogleSignIn _googleSignIn;
   bool _loading = false;
   bool _googleLoading = false;
@@ -103,12 +103,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _refreshApiStatus();
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
-  }
-
   Future<void> _refreshApiStatus() async {
     setState(() {
       _checkingApiStatus = true;
@@ -126,13 +120,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _continue() async {
-    final String name = _nameController.text.trim();
-    if (name.isEmpty) {
-      setState(() {
-        _error = 'Please enter your display name.';
-      });
-      return;
-    }
+    const String guestName = 'wolf';
 
     setState(() {
       _loading = true;
@@ -140,7 +128,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     });
 
     try {
-      final AuthSession session = await widget.apiClient.guestLogin(name);
+      final AuthSession session = await widget.apiClient.guestLogin(guestName);
       if (!mounted) {
         return;
       }
@@ -318,16 +306,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ],
                 ),
                 SizedBox(height: isTablet ? 20 : 16),
-                TextField(
-                  controller: _nameController,
-                  textInputAction: TextInputAction.done,
-                  decoration: const InputDecoration(
-                    labelText: 'Display Name',
-                    hintText: 'Enter your name',
-                  ),
-                  onSubmitted: (_) => _continue(),
-                ),
-                const SizedBox(height: 12),
                 SizedBox(
                   width: isTablet ? 320 : double.infinity,
                   child: ElevatedButton(
@@ -408,12 +386,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _roomTitleController = TextEditingController();
-  final PageController _feedController = PageController(viewportFraction: 0.92);
+  final PageController _feedController = PageController();
   UserProfile? _me;
   List<LiveFeedCard> _feedCards = <LiveFeedCard>[];
   Room? _myLiveRoom;
   String? _selectedDirectReceiverUserId;
   int _selectedTabIndex = 0;
+  int _homeTopTabIndex = 1;
   int _coinBalance = 1200;
   int _userLevel = 4;
   double _myRevenue = 86.40;
@@ -438,7 +417,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _quoteLoading = false;
   String? _quoteError;
   int _activeFeedIndex = 0;
-  bool _checkingApiStatus = true;
   bool? _apiReachable;
   bool _loading = true;
   bool _creating = false;
@@ -526,10 +504,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _refreshApiStatus() async {
-    setState(() {
-      _checkingApiStatus = true;
-    });
-
     final bool isReachable = await widget.apiClient.ping();
     if (!mounted) {
       return;
@@ -537,7 +511,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _apiReachable = isReachable;
-      _checkingApiStatus = false;
     });
   }
 
@@ -1045,7 +1018,195 @@ class _HomeScreenState extends State<HomeScreen> {
     };
   }
 
+  Future<void> _startRandomMatchFromHome() async {
+    if (_callActionLoading || _quoteLoading) {
+      return;
+    }
+
+    setState(() {
+      _callMode = 'random';
+      _selectedTabIndex = 2;
+      _callActionError = null;
+    });
+
+    await _loadCallQuote();
+    if (!mounted || _callQuote == null) {
+      return;
+    }
+
+    if (_coinBalance < _callQuote!.requiredCoins) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Not enough coins for random match. Top up first.'),
+        ),
+      );
+      return;
+    }
+
+    await _startCallSession();
+  }
+
+  Widget _buildHomeTopTab({
+    required String label,
+    required int index,
+  }) {
+    final bool selected = _homeTopTabIndex == index;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () {
+        setState(() {
+          _homeTopTabIndex = index;
+        });
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? Colors.black : Colors.black54,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiscoverLiveCard(LiveFeedCard feedCard, bool isTablet) {
+    final bool joiningCurrentRoom = _joiningRoomId == feedCard.roomId;
+    final double borderRadius = isTablet ? 44 : 34;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(borderRadius),
+        onTap: joiningCurrentRoom ? null : () => _enterRoom(feedCard),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: const Color(0xFF1FA4EA),
+            borderRadius: BorderRadius.circular(borderRadius),
+          ),
+          child: Stack(
+            children: <Widget>[
+              Positioned(
+                top: 20,
+                left: 20,
+                child: Text(
+                  joiningCurrentRoom ? 'Opening live...' : feedCard.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 20,
+                right: 20,
+                child: Container(
+                  width: isTablet ? 150 : 100,
+                  height: isTablet ? 180 : 130,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: Colors.white70,
+                    size: 34,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiscoverTab(bool isTablet) {
+    if (_feedCards.isEmpty) {
+      return const Center(
+        child: Text('No one is live right now. Check again in a moment.'),
+      );
+    }
+
+    return Stack(
+      children: <Widget>[
+        PageView.builder(
+          controller: _feedController,
+          scrollDirection: Axis.vertical,
+          itemCount: _feedCards.length,
+          onPageChanged: (int index) {
+            setState(() {
+              _activeFeedIndex = index;
+            });
+          },
+          itemBuilder: (BuildContext context, int index) {
+            return Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 18),
+              child: _buildDiscoverLiveCard(_feedCards[index], isTablet),
+            );
+          },
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: isTablet ? 18 : 14,
+          child: Center(
+            child: FilledButton(
+              onPressed: _startRandomMatchFromHome,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF7BEA3B),
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+              ),
+              child: const Text('Random match'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildHomeTab(bool isTablet) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: maxContentWidth),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            isTablet ? 24 : 16,
+            isTablet ? 16 : 8,
+            isTablet ? 24 : 16,
+            isTablet ? 24 : 16,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              if (_error != null) ...<Widget>[
+                const SizedBox(height: 12),
+                Text(_error!, style: const TextStyle(color: Colors.red)),
+              ],
+              const SizedBox(height: 4),
+              Expanded(
+                child: switch (_homeTopTabIndex) {
+                  0 => const Center(child: Text('Popular tab visual coming next.')),
+                  1 => _buildDiscoverTab(isTablet),
+                  2 => const Center(child: Text('Follow tab visual coming next.')),
+                  _ => const SizedBox.shrink(),
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLiveRoomsTab(bool isTablet) {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: maxContentWidth),
@@ -1055,13 +1216,13 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
-                'Live Now',
+                'Live Sessions',
                 style: TextStyle(
                   fontSize: isTablet ? 24 : 20,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               if (_myLiveRoom != null)
                 Card(
                   child: Padding(
@@ -1073,6 +1234,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             'You are live: ${_myLiveRoom!.title} · ${_myLiveRoom!.audienceCount} viewers',
                           ),
                         ),
+                        const SizedBox(width: 8),
                         ElevatedButton(
                           onPressed: _creating ? null : _endMyLive,
                           child: Text(_creating ? 'Ending...' : 'End Live'),
@@ -1100,75 +1262,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
-              if (_error != null) ...<Widget>[
-                const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: Colors.red)),
-              ],
-              const SizedBox(height: 16),
-              if (_feedCards.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    isTablet
-                        ? 'Live Sessions: ${_feedCards.length}'
-                        : 'Swipe ${_activeFeedIndex + 1}/${_feedCards.length}',
-                  ),
-                ),
-              Expanded(
-                child: _feedCards.isEmpty
-                    ? const Center(
-                        child: Text('No live sessions yet. Be the first to go live.'),
-                      )
-                    : (isTablet
-                          ? GridView.builder(
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    crossAxisSpacing: 12,
-                                    mainAxisSpacing: 12,
-                                    childAspectRatio: 1.18,
-                                  ),
-                              itemCount: _feedCards.length,
-                              itemBuilder: (BuildContext context, int index) {
-                                return _buildFeedCard(_feedCards[index]);
-                              },
-                            )
-                          : PageView.builder(
-                              controller: _feedController,
-                              itemCount: _feedCards.length,
-                              onPageChanged: (int index) {
-                                setState(() {
-                                  _activeFeedIndex = index;
-                                });
-                              },
-                              itemBuilder: (BuildContext context, int index) {
-                                return _buildFeedCard(_feedCards[index]);
-                              },
-                            )),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLiveRoomsTab(bool isTablet) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: maxContentWidth),
-        child: Padding(
-          padding: EdgeInsets.all(isTablet ? 24 : 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                'Live Sessions',
-                style: TextStyle(
-                  fontSize: isTablet ? 24 : 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
               const SizedBox(height: 12),
               Expanded(
                 child: _feedCards.isEmpty
@@ -1828,51 +1921,64 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_titleForTab()),
+        centerTitle: _selectedTabIndex == 0 ? false : null,
+        title: _selectedTabIndex == 0
+            ? SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: <Widget>[
+                    _buildHomeTopTab(label: 'Popular', index: 0),
+                    const SizedBox(width: 12),
+                    _buildHomeTopTab(label: 'Discover', index: 1),
+                    const SizedBox(width: 12),
+                    _buildHomeTopTab(label: 'Follow', index: 2),
+                  ],
+                ),
+              )
+            : Text(_titleForTab()),
         actions: <Widget>[
-          if (_selectedTabIndex == 0 || _selectedTabIndex == 1)
-            Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: _checkingApiStatus
-                      ? Colors.orange.shade50
-                      : (_apiReachable == true
-                            ? Colors.green.shade50
-                            : Colors.red.shade50),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  _checkingApiStatus
-                      ? 'API...'
-                      : (_apiReachable == true ? 'API ✓' : 'API ✕'),
-                  style: TextStyle(
-                    color: _checkingApiStatus
-                        ? Colors.orange.shade700
-                        : (_apiReachable == true
-                              ? Colors.green.shade700
-                              : Colors.red.shade700),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+          if (_selectedTabIndex == 0) ...<Widget>[
+            IconButton(
+              tooltip: 'Search',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              iconSize: 20,
+              onPressed: () {},
+              icon: const Icon(Icons.search_rounded),
+            ),
+            IconButton(
+              tooltip: 'Country',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              iconSize: 20,
+              onPressed: () {},
+              icon: SvgPicture.asset(
+                'assets/flags/mu.svg',
+                width: 20,
+                height: 14,
+                fit: BoxFit.cover,
               ),
             ),
-          if (_selectedTabIndex == 0 || _selectedTabIndex == 1)
-            const SizedBox(width: 8),
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _loading ? null : _refreshHome,
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
-            tooltip: 'Logout',
-            onPressed: widget.onLogout,
-            icon: const Icon(Icons.logout),
-          ),
+            IconButton(
+              tooltip: 'Trophy',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              iconSize: 20,
+              onPressed: () {},
+              icon: const Icon(Icons.emoji_events_outlined),
+            ),
+          ] else ...<Widget>[
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: _loading ? null : _refreshHome,
+              icon: const Icon(Icons.refresh),
+            ),
+            IconButton(
+              tooltip: 'Logout',
+              onPressed: widget.onLogout,
+              icon: const Icon(Icons.logout),
+            ),
+          ],
         ],
       ),
       body: bodyContent,
@@ -1886,7 +1992,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _loadCallQuote();
           }
         },
-        destinations: const <NavigationDestination>[
+        destinations: <NavigationDestination>[
           NavigationDestination(
             icon: Icon(Icons.home_rounded),
             label: 'Home',
@@ -1903,7 +2009,17 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.chat_bubble_rounded),
             label: 'Inbox',
           ),
-          NavigationDestination(icon: Icon(Icons.person_rounded), label: 'Me'),
+          NavigationDestination(
+            icon: Icon(
+              Icons.person_rounded,
+              color: _apiReachable == true ? Colors.green.shade700 : null,
+            ),
+            selectedIcon: Icon(
+              Icons.person_rounded,
+              color: _apiReachable == true ? Colors.green.shade700 : null,
+            ),
+            label: 'Me',
+          ),
         ],
       ),
     );
