@@ -1142,7 +1142,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.35),
+                    color: Colors.black.withValues(alpha: 0.35),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
@@ -2216,7 +2216,7 @@ class _ShakeCallButtonState extends State<_ShakeCallButton>
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: _baseGreen.withOpacity(opacity),
+          color: _baseGreen.withValues(alpha: opacity),
           width: 2.0,
         ),
       ),
