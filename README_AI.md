@@ -16,7 +16,67 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 - API contract: `packages/zephyr-contracts/openapi.yaml`
 - Deploy prep: `render.yaml`, `docs/api/deploy-checklist.md`
 
-## Current status (as of 4 May 2026, latest update)
+## Current status (as of 8 May 2026, latest update)
+
+### Critical handoff for next session (8 May 2026, end-of-day)
+
+- ✅ Latest pushed commit: `52655a60` (`feat(mobile): refresh home UI and switch country flag to SVG`)
+- ✅ Branch state at handoff: `main` synced to `origin/main`
+- ✅ `flutter test` passing (`+1`) after all today's changes
+- ✅ iOS simulator confirmed running against staging (iPhone 17 Pro Max `8B6780BE-FC4B-47F0-8980-3D9D7504004A`)
+- ✅ Android emulator confirmed running against staging (`emulator-5554`, Android 16 API 36)
+- ⚠️ Android emulator auth regression is still unresolved — login flow needs a dedicated fix session
+- ⚠️ `lib/flags.dart` (`CountryFlags`) is now back in use — do not delete it
+
+Next session priority order:
+
+1. Fix Android emulator login regression (`emulator-5554`) — blocks Android users
+2. Continue Home Discover card polish or move to next screen (Call screen UI pass)
+3. Wire LiveKit RTC into a real call/live session (biggest remaining feature)
+4. Gift sending flow UI + execution
+5. Follow/subscribe system (key for streamer discoverability and earning)
+
+### Home Discover UI milestone completed (8 May 2026)
+
+- ✅ Country flag in Home AppBar migrated from emoji to SVG (`assets/flags/mu.svg`, `flutter_svg ^2.0.10+1`)
+- ✅ Home AppBar redesigned: `Popular / Discover / Follow` tab row as title, compact action icons (search, flag, trophy)
+- ✅ Discover tab added with vertical `PageView` of live feed cards
+- ✅ Blue discover card layout — full `Stack` overlay structure:
+  - Top-left: "Opening live…" label (fades in only while joining)
+  - Top-right: black preview box (placeholder for live video thumbnail)
+  - Bottom: single `Positioned` `Row` with text stack left + green call button right
+- ✅ Card bottom-left text stack: two lines vertically aligned
+  - Line 1: `hostDisplayName` (username, bold white)
+  - Line 2: country flag emoji + country code + language (e.g. `🇵🇭 PH English`)
+- ✅ `LiveFeedCard` model extended with `hostCountryCode` and `hostLanguage` fields (API-optional, defaults `PH` / `English`)
+- ✅ `CountryFlags.flagEmoji()` reused from `lib/flags.dart` for the locale line
+- ✅ Green animated call button (`_ShakeCallButton`) placed bottom-right of card:
+  - Diagonal gradient: Pantone green (`#00A651`) bottom-left → lime (`#7BEA3B`) top-right
+  - Animation cycle (3.8 s): gentle phone shake (±6°, first 15%) + two staggered expanding ripple rings that fade out, then long rest pause
+  - Tapping routes to `_openCallTabForHost()` (separate from card-wide tap which enters live)
+  - Text stack and button share a single `Positioned` `Row` with `crossAxisAlignment.center` — always vertically aligned
+- ✅ "Random match" `FilledButton` repositioned to sit on the card/whitespace boundary (bottom: 0) — top half on card, bottom half in white space
+- ✅ Hot-reload red flash fixed: replaced `Ink` wrapper with `Material` color + `ClipRRect`
+- ✅ `RepaintBoundary` noted as an optional future optimisation for the call button animation (not yet applied)
+
+### Design decisions confirmed (8 May 2026)
+
+- Blue card = placeholder for user's profile/cover photo (full card background)
+- Black preview box = placeholder for live video thumbnail (LiveKit widget)
+- Tap anywhere on card = enter full-screen live (`_enterRoom`)
+- Tap green phone button = call the host (separate intent)
+- Screens-first approach is correct: polish UI shell before wiring RTC/real data
+- Economy philosophy: streamers earn first — 60% receiver share (`RECEIVER_SHARE_BPS=6000`) is above market
+- Product mission: enable people to earn a living, not just side income
+
+### SVG flag migration completed (8 May 2026)
+
+- ✅ Added `apps/zephyr-mobile/assets/flags/mu.svg` (Mauritius flag, 4 horizontal stripes vector)
+- ✅ `pubspec.yaml`: added `flutter_svg: ^2.0.10+1`, registered `assets/flags/`
+- ✅ `main.dart` AppBar country action: `SvgPicture.asset('assets/flags/mu.svg', width: 20, height: 14)`
+- ✅ `lib/flags.dart` restored to import use for locale line on discover cards
+
+## Current status (as of 4 May 2026)
 
 ### Critical handoff for next session (4 May 2026, end-of-day)
 
@@ -384,12 +444,15 @@ When enabling RTC token issuance on staging, also set:
 
 ## Resume plan (next session)
 
-1. Reproduce and fix Android emulator login regression first (`emulator-5554`)
-2. Run screen-by-screen product walkthrough and capture exact desired UI/UX behavior
-3. Restore 3rd footer icon to `Go Live` intent and remove conflicting call-placement behavior
-4. Re-run iOS + Android smoke checks after UI/auth fixes
-5. Then continue planned roadmap: RTC room plugin, gifts, Spark redeem/cashout, extended smoke coverage
-6. Rotate exposed Web OAuth client secret in Google Cloud as security cleanup
+1. Fix Android emulator login regression (`emulator-5554`) — first, always
+2. Continue Discover card polish or start Call screen UI pass
+3. Wire LiveKit RTC into real call/live session (core product feature)
+4. Gift sending flow — UI + execution (key for streamer earnings)
+5. Follow system — discoverability for new streamers
+6. In-app purchases (RevenueCat / StoreKit) for coins
+7. Push notifications — users need to know when someone calls them
+8. Spark cashout/redeem flow for streamers
+9. App Store + Play Store submission prep
 
 ## Verified command patterns
 
@@ -456,4 +519,4 @@ flutter run --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
 
 ## Quick prompt to continue tomorrow
 
-"Continue Zephyr from `README_AI.md`. Start by fixing Android emulator login on `emulator-5554`, then do a screen-by-screen UI review with the owner, restore 3rd footer icon to `Go Live`, and only then continue roadmap features."
+"Continue Zephyr from `README_AI.md`. Latest commit is `52655a60` on `main`. First fix Android emulator login on `emulator-5554`, then continue the Home Discover card UI pass or move to the Call screen UI shell. Do not touch the SVG flag or `_ShakeCallButton` unless asked."
