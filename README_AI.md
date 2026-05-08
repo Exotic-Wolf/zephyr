@@ -18,60 +18,52 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 
 ## Current status (as of 9 May 2026, latest update)
 
-### Critical handoff for next session (9 May 2026, end-of-day)
+### Critical handoff for next session (9 May 2026, end-of-day — session 2)
 
 - ✅ Latest pushed commit: see push below
 - ✅ Branch state at handoff: `main` synced to `origin/main`
-- ✅ `flutter test` passing after all 9 May changes
 - ✅ iOS simulator confirmed running (iPhone 17 Pro Max `8B6780BE-FC4B-47F0-8980-3D9D7504004A`)
 - ⚠️ Android emulator auth regression still unresolved
-- ⚠️ Two mock cards (`SarahBusy`, `TaniaOnline`) are injected at end of `_feedCards` for UI preview — remove before production
+- ⚠️ Mock cards (`SarahBusy`, `TaniaOnline`, `MikeOffline`) injected into `_feedCards` — remove before production
+- ⚠️ Mock `_followingIds` set (`mock-busy-user`, `mock-offline-user`) hardcoded in `_loadData` — remove before production
 - ⚠️ `lib/flags.dart` (`CountryFlags`) is in use — do not delete
 
 Next session priority order:
 
 1. Fix Android emulator login regression (`emulator-5554`)
-2. Remove mock busy/online cards once API sends real `hostStatus`
+2. Remove all mock cards + mock `_followingIds` once API sends real `hostStatus` and `/v1/users/me/following`
 3. Add viewer count (`👁 124`) to card bottom row (uses existing `audienceCount`)
-4. Populate Popular + Follow tabs (static UI first)
-5. Live tab UI — Go Live flow, host view
-6. Wire LiveKit RTC for real video/audio (critical path to shipping)
-7. Gift sending flow UI + execution
-8. In-app coin purchase (RevenueCat / StoreKit)
-9. Push notifications
+4. Wire LiveKit RTC for real video/audio (critical path to shipping)
+5. Gift sending flow UI + execution
+6. In-app coin purchase (RevenueCat / StoreKit)
+7. Push notifications
 
-### Discover card — status system completed (9 May 2026)
+### Popular tab + Follow tab + Offline status (9 May 2026, session 2)
 
-- ✅ `LiveFeedCard` model extended with `hostStatus: 'live' | 'online' | 'busy'` (API-optional, defaults `'live'`)
-- ✅ Status badge added top-left of every card — small dark pill with:
-  - 📹 camera icon
-  - Coloured dot: 🔴 red = Live, 🟠 orange = Busy, 🟢 green = Online
-  - Status label text
-- ✅ Preview box (top-right black square) shown **only** when `hostStatus == 'live'`; hidden for Busy and Online
-- ✅ Two mock cards injected after real feed for UI preview:
-  - `SarahBusy` — US English, Busy state
-  - `TaniaOnline` — PH English, Online state
-- ✅ Hot-reload red flash fix: `Ink` replaced with `Material` color + `ClipRRect` (stable across reloads)
+- ✅ Popular tab locale line: removed language — now shows flag + country code only (e.g. `🇺🇸 US`)
+- ✅ Popular tab status badge: camera icon hidden (Discover keeps it, Popular does not)
+- ✅ Offline status added to all tabs:
+  - Faded gray dot (`#8E8E93`) + "Offline" label
+  - Cards sorted: Live → Busy → Online → Offline across both Popular and Discover
+  - Mock `MikeOffline` (🇳🇬 NG) added for preview
+- ✅ Follow tab built — identical grid to Popular (`showPreview: false`, 2 columns):
+  - Filters `_feedCards` to only those whose `hostUserId` is in `_followingIds`
+  - Empty state: "Follow someone to see them here."
+  - "Random match" button at bottom (same as Popular)
+- ✅ `getFollowingIds(accessToken)` added to `ZephyrApiClient`:
+  - Calls `GET /v1/users/me/following`
+  - Gracefully returns empty set if endpoint not yet deployed (no crash)
+- ✅ Mock `_followingIds = {'mock-busy-user', 'mock-offline-user'}` injected so Follow tab is testable now
 
-### Discover card — animation + layout completed (8–9 May 2026)
+### Discover card status system + Popular tab (9 May 2026, session 1)
 
-- ✅ Green animated call button (`_ShakeCallButton`) bottom-right:
-  - Diagonal gradient: Pantone green (`#00A651`) → lime (`#7BEA3B`)
-  - 3.8 s cycle: gentle phone shake ±6° (first 15%) + two staggered expanding ripple rings → long rest pause
-  - Psychologically reads as "invitation to call", not urgent alert
-- ✅ Text stack (username + flag/language) and call button unified in one `Positioned` `Row` — always vertically centred
-- ✅ "Random match" button sits on card/whitespace boundary (`bottom: 0`)
-- ✅ SVG Mauritius flag in AppBar (`assets/flags/mu.svg`, `flutter_svg ^2.0.10+1`)
-
-### Design decisions locked (9 May 2026)
-
-- Blue card = placeholder for user cover/profile photo
-- Black preview box = placeholder for live video thumbnail (LiveKit)
-- Tap card = enter full-screen live; tap green button = call host (separate intents)
-- Screens-first approach is correct: finish UI shell before wiring real-time
-- Economy philosophy: streamers earn first — 60% receiver share is above market
-- Product mission: enable people to earn a living, not just side income
-- Going live strategy: fix Android auth → wire LiveKit → basic coin purchase → TestFlight beta → App Store
+- ✅ `LiveFeedCard` model extended with `hostStatus: 'live' | 'online' | 'busy' | 'offline'`
+- ✅ Status badge top-left: camera icon (Discover only) + coloured dot + label
+  - 🔴 red = Live, 🟠 orange = Busy, 🟢 green = Online, ⚫ gray = Offline
+- ✅ `showPreview` flag on `_buildDiscoverLiveCard` — Popular/Follow pass `false`, Discover passes `true`
+- ✅ Popular tab: 2-column grid, no preview box, no camera icon, flag+code only
+- ✅ `withOpacity` → `withValues(alpha:)` deprecation fix (2 locations)
+- ✅ `tsconfig.json` `baseUrl` deprecation fix
 
 ## Current status (as of 8 May 2026)
 

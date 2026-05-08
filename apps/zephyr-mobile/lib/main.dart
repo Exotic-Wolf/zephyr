@@ -392,6 +392,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final PageController _feedController = PageController();
   UserProfile? _me;
   List<LiveFeedCard> _feedCards = <LiveFeedCard>[];
+  Set<String> _followingIds = <String>{};
   Room? _myLiveRoom;
   String? _selectedDirectReceiverUserId;
   int _selectedTabIndex = 0;
@@ -453,11 +454,13 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.apiClient.listLiveFeed(widget.accessToken),
         widget.apiClient.getWalletSummary(widget.accessToken),
         widget.apiClient.listCoinPacks(),
+        widget.apiClient.getFollowingIds(widget.accessToken),
       ]);
 
       final UserProfile me = data[0] as UserProfile;
       final List<LiveFeedCard> feedCards = data[1] as List<LiveFeedCard>;
       final WalletSummary wallet = data[2] as WalletSummary;
+      final Set<String> followingIds = data[4] as Set<String>;
       final List<CoinPack> packs = data[3] as List<CoinPack>;
 
       if (!mounted) {
@@ -465,9 +468,10 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       setState(() {
         _me = me;
+        _followingIds = followingIds;
         _feedCards = <LiveFeedCard>[
           ...feedCards,
-          // ── mock cards to preview Busy and Online states ──
+          // ── mock cards to preview Busy / Online / Offline states ──
           LiveFeedCard(
             roomId: 'mock-busy-1',
             title: 'Busy mock',
@@ -492,7 +496,29 @@ class _HomeScreenState extends State<HomeScreen> {
             hostStatus: 'online',
             startedAt: DateTime.now(),
           ),
-        ];
+          LiveFeedCard(
+            roomId: 'mock-offline-1',
+            title: 'Offline mock',
+            audienceCount: 0,
+            hostUserId: 'mock-offline-user',
+            hostDisplayName: 'MikeOffline',
+            hostAvatarUrl: null,
+            hostCountryCode: 'NG',
+            hostLanguage: 'English',
+            hostStatus: 'offline',
+            startedAt: DateTime.now(),
+          ),
+        ]..sort((LiveFeedCard a, LiveFeedCard b) {
+          int _rank(String s) => switch (s) {
+            'live'    => 0,
+            'busy'    => 1,
+            'online'  => 2,
+            _         => 3, // offline
+          };
+          return _rank(a.hostStatus).compareTo(_rank(b.hostStatus));
+        });
+        // ── mock: pretend we follow two of the mock users ──
+        _followingIds = <String>{'mock-busy-user', 'mock-offline-user'};
         _myLiveRoom = feedCards
             .where((LiveFeedCard card) => card.hostUserId == me.id)
             .cast<LiveFeedCard?>()
@@ -1102,24 +1128,27 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildDiscoverLiveCard(LiveFeedCard feedCard, bool isTablet) {
+  Widget _buildDiscoverLiveCard(LiveFeedCard feedCard, bool isTablet, {bool showPreview = true}) {
     final bool joiningCurrentRoom = _joiningRoomId == feedCard.roomId;
     final double borderRadius = isTablet ? 44 : 34;
-    final String localeLine =
-        '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode} ${feedCard.hostLanguage}';
-    final String status = feedCard.hostStatus; // 'live' | 'online' | 'busy'
+    final String localeLine = showPreview
+        ? '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode} ${feedCard.hostLanguage}'
+        : '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode}';
+    final String status = feedCard.hostStatus; // 'live' | 'online' | 'busy' | 'offline'
     final bool isLive = status == 'live';
 
     // status badge colours
     final Color statusDot = switch (status) {
-      'live'   => const Color(0xFFFF3B30),
-      'busy'   => const Color(0xFFFF9500),
-      _        => const Color(0xFF34C759),
+      'live'    => const Color(0xFFFF3B30),
+      'busy'    => const Color(0xFFFF9500),
+      'offline' => const Color(0xFF8E8E93),
+      _         => const Color(0xFF34C759),
     };
     final String statusLabel = switch (status) {
-      'live'   => 'Live',
-      'busy'   => 'Busy',
-      _        => 'Online',
+      'live'    => 'Live',
+      'busy'    => 'Busy',
+      'offline' => 'Offline',
+      _         => 'Online',
     };
 
     return ClipRRect(
@@ -1148,12 +1177,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Icon(
-                        Icons.videocam_rounded,
-                        color: Colors.white,
-                        size: 14,
-                      ),
-                      const SizedBox(width: 4),
+                      if (showPreview) ...[
+                        Icon(
+                          Icons.videocam_rounded,
+                          color: Colors.white,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
                       Container(
                         width: 6,
                         height: 6,
@@ -1192,7 +1223,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               // ── preview box — only shown when Live ─────────────────
-              if (isLive)
+              if (isLive && showPreview)
                 Positioned(
                   top: 20,
                   right: 20,
@@ -1256,6 +1287,103 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPopularTab(bool isTablet) {
+    if (_feedCards.isEmpty) {
+      return const Center(
+        child: Text('No popular streamers right now. Check again in a moment.'),
+      );
+    }
+
+    return Stack(
+      children: <Widget>[
+        GridView.builder(
+          padding: const EdgeInsets.only(bottom: 56),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: isTablet ? 0.72 : 0.62,
+          ),
+          itemCount: _feedCards.length,
+          itemBuilder: (BuildContext context, int index) {
+            return _buildDiscoverLiveCard(_feedCards[index], isTablet, showPreview: false);
+          },
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Center(
+            child: FilledButton(
+              onPressed: _startRandomMatchFromHome,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF7BEA3B),
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+              ),
+              child: const Text('Random match'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFollowTab(bool isTablet) {
+    final List<LiveFeedCard> followed = _feedCards
+        .where((LiveFeedCard c) => _followingIds.contains(c.hostUserId))
+        .toList();
+
+    if (_followingIds.isEmpty || followed.isEmpty) {
+      return const Center(
+        child: Text(
+          'Follow someone to see them here.',
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    return Stack(
+      children: <Widget>[
+        GridView.builder(
+          padding: const EdgeInsets.only(bottom: 56),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: isTablet ? 0.72 : 0.62,
+          ),
+          itemCount: followed.length,
+          itemBuilder: (BuildContext context, int index) {
+            return _buildDiscoverLiveCard(followed[index], isTablet, showPreview: false);
+          },
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Center(
+            child: FilledButton(
+              onPressed: _startRandomMatchFromHome,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF7BEA3B),
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+              ),
+              child: const Text('Random match'),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1328,9 +1456,9 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 4),
               Expanded(
                 child: switch (_homeTopTabIndex) {
-                  0 => const Center(child: Text('Popular tab visual coming next.')),
+                  0 => _buildPopularTab(isTablet),
                   1 => _buildDiscoverTab(isTablet),
-                  2 => const Center(child: Text('Follow tab visual coming next.')),
+                  2 => _buildFollowTab(isTablet),
                   _ => const SizedBox.shrink(),
                 },
               ),
@@ -2392,6 +2520,30 @@ class ZephyrApiClient {
           (dynamic item) => LiveFeedCard.fromJson(item as Map<String, dynamic>),
         )
         .toList();
+  }
+
+  /// Returns the set of user IDs that the current user follows.
+  /// Falls back to an empty set if the endpoint is not yet available.
+  Future<Set<String>> getFollowingIds(String accessToken) async {
+    try {
+      final dynamic data = await _request(
+        method: 'GET',
+        path: '/v1/users/me/following',
+        accessToken: accessToken,
+      );
+
+      if (data is! List<dynamic>) {
+        return <String>{};
+      }
+
+      return data
+          .map((dynamic item) =>
+              (item as Map<String, dynamic>)['userId'] as String)
+          .toSet();
+    } catch (_) {
+      // Endpoint not yet deployed — return empty set gracefully.
+      return <String>{};
+    }
   }
 
   Future<Room> createRoom(String accessToken, String title) async {
