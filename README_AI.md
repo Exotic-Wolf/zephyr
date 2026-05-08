@@ -16,7 +16,64 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 - API contract: `packages/zephyr-contracts/openapi.yaml`
 - Deploy prep: `render.yaml`, `docs/api/deploy-checklist.md`
 
-## Current status (as of 8 May 2026, latest update)
+## Current status (as of 9 May 2026, latest update)
+
+### Critical handoff for next session (9 May 2026, end-of-day)
+
+- ✅ Latest pushed commit: see push below
+- ✅ Branch state at handoff: `main` synced to `origin/main`
+- ✅ `flutter test` passing after all 9 May changes
+- ✅ iOS simulator confirmed running (iPhone 17 Pro Max `8B6780BE-FC4B-47F0-8980-3D9D7504004A`)
+- ⚠️ Android emulator auth regression still unresolved
+- ⚠️ Two mock cards (`SarahBusy`, `TaniaOnline`) are injected at end of `_feedCards` for UI preview — remove before production
+- ⚠️ `lib/flags.dart` (`CountryFlags`) is in use — do not delete
+
+Next session priority order:
+
+1. Fix Android emulator login regression (`emulator-5554`)
+2. Remove mock busy/online cards once API sends real `hostStatus`
+3. Add viewer count (`👁 124`) to card bottom row (uses existing `audienceCount`)
+4. Populate Popular + Follow tabs (static UI first)
+5. Live tab UI — Go Live flow, host view
+6. Wire LiveKit RTC for real video/audio (critical path to shipping)
+7. Gift sending flow UI + execution
+8. In-app coin purchase (RevenueCat / StoreKit)
+9. Push notifications
+
+### Discover card — status system completed (9 May 2026)
+
+- ✅ `LiveFeedCard` model extended with `hostStatus: 'live' | 'online' | 'busy'` (API-optional, defaults `'live'`)
+- ✅ Status badge added top-left of every card — small dark pill with:
+  - 📹 camera icon
+  - Coloured dot: 🔴 red = Live, 🟠 orange = Busy, 🟢 green = Online
+  - Status label text
+- ✅ Preview box (top-right black square) shown **only** when `hostStatus == 'live'`; hidden for Busy and Online
+- ✅ Two mock cards injected after real feed for UI preview:
+  - `SarahBusy` — US English, Busy state
+  - `TaniaOnline` — PH English, Online state
+- ✅ Hot-reload red flash fix: `Ink` replaced with `Material` color + `ClipRRect` (stable across reloads)
+
+### Discover card — animation + layout completed (8–9 May 2026)
+
+- ✅ Green animated call button (`_ShakeCallButton`) bottom-right:
+  - Diagonal gradient: Pantone green (`#00A651`) → lime (`#7BEA3B`)
+  - 3.8 s cycle: gentle phone shake ±6° (first 15%) + two staggered expanding ripple rings → long rest pause
+  - Psychologically reads as "invitation to call", not urgent alert
+- ✅ Text stack (username + flag/language) and call button unified in one `Positioned` `Row` — always vertically centred
+- ✅ "Random match" button sits on card/whitespace boundary (`bottom: 0`)
+- ✅ SVG Mauritius flag in AppBar (`assets/flags/mu.svg`, `flutter_svg ^2.0.10+1`)
+
+### Design decisions locked (9 May 2026)
+
+- Blue card = placeholder for user cover/profile photo
+- Black preview box = placeholder for live video thumbnail (LiveKit)
+- Tap card = enter full-screen live; tap green button = call host (separate intents)
+- Screens-first approach is correct: finish UI shell before wiring real-time
+- Economy philosophy: streamers earn first — 60% receiver share is above market
+- Product mission: enable people to earn a living, not just side income
+- Going live strategy: fix Android auth → wire LiveKit → basic coin purchase → TestFlight beta → App Store
+
+## Current status (as of 8 May 2026)
 
 ### Critical handoff for next session (8 May 2026, end-of-day)
 
@@ -519,4 +576,4 @@ flutter run --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
 
 ## Quick prompt to continue tomorrow
 
-"Continue Zephyr from `README_AI.md`. Latest commit is `52655a60` on `main`. First fix Android emulator login on `emulator-5554`, then continue the Home Discover card UI pass or move to the Call screen UI shell. Do not touch the SVG flag or `_ShakeCallButton` unless asked."
+"Continue Zephyr from `README_AI.md`. Latest work is on `main`. Fix Android emulator login on `emulator-5554` first, then remove the two mock busy/online cards in `_HomeScreenState._feedCards` and wire real `hostStatus` from the API. Then add viewer count to the Discover card and start the Live tab UI."

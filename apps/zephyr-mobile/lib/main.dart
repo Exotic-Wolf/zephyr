@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show pi, sin;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+
+import 'flags.dart';
 
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
@@ -462,7 +465,34 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       setState(() {
         _me = me;
-        _feedCards = feedCards;
+        _feedCards = <LiveFeedCard>[
+          ...feedCards,
+          // ── mock cards to preview Busy and Online states ──
+          LiveFeedCard(
+            roomId: 'mock-busy-1',
+            title: 'Busy mock',
+            audienceCount: 0,
+            hostUserId: 'mock-busy-user',
+            hostDisplayName: 'SarahBusy',
+            hostAvatarUrl: null,
+            hostCountryCode: 'US',
+            hostLanguage: 'English',
+            hostStatus: 'busy',
+            startedAt: DateTime.now(),
+          ),
+          LiveFeedCard(
+            roomId: 'mock-online-1',
+            title: 'Online mock',
+            audienceCount: 0,
+            hostUserId: 'mock-online-user',
+            hostDisplayName: 'TaniaOnline',
+            hostAvatarUrl: null,
+            hostCountryCode: 'PH',
+            hostLanguage: 'English',
+            hostStatus: 'online',
+            startedAt: DateTime.now(),
+          ),
+        ];
         _myLiveRoom = feedCards
             .where((LiveFeedCard card) => card.hostUserId == me.id)
             .cast<LiveFeedCard?>()
@@ -1075,46 +1105,151 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildDiscoverLiveCard(LiveFeedCard feedCard, bool isTablet) {
     final bool joiningCurrentRoom = _joiningRoomId == feedCard.roomId;
     final double borderRadius = isTablet ? 44 : 34;
+    final String localeLine =
+        '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode} ${feedCard.hostLanguage}';
+    final String status = feedCard.hostStatus; // 'live' | 'online' | 'busy'
+    final bool isLive = status == 'live';
 
-    return Material(
-      color: Colors.transparent,
+    // status badge colours
+    final Color statusDot = switch (status) {
+      'live'   => const Color(0xFFFF3B30),
+      'busy'   => const Color(0xFFFF9500),
+      _        => const Color(0xFF34C759),
+    };
+    final String statusLabel = switch (status) {
+      'live'   => 'Live',
+      'busy'   => 'Busy',
+      _        => 'Online',
+    };
+
+    return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
-      child: InkWell(
+      child: Material(
+        color: const Color(0xFF1FA4EA),
         borderRadius: BorderRadius.circular(borderRadius),
-        onTap: joiningCurrentRoom ? null : () => _enterRoom(feedCard),
-        child: Ink(
-          decoration: BoxDecoration(
-            color: const Color(0xFF1FA4EA),
-            borderRadius: BorderRadius.circular(borderRadius),
-          ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(borderRadius),
+          onTap: joiningCurrentRoom ? null : () => _enterRoom(feedCard),
           child: Stack(
             children: <Widget>[
+              // ── top-left status badge ──────────────────────────────
               Positioned(
-                top: 20,
-                left: 20,
-                child: Text(
-                  joiningCurrentRoom ? 'Opening live...' : feedCard.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
+                top: 16,
+                left: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.35),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(
+                        Icons.videocam_rounded,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 4),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: statusDot,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        statusLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+              // ── joining overlay ────────────────────────────────────
               Positioned(
                 top: 20,
-                right: 20,
-                child: Container(
-                  width: isTablet ? 150 : 100,
-                  height: isTablet ? 180 : 130,
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius: BorderRadius.circular(20),
+                left: 20,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 180),
+                  opacity: joiningCurrentRoom ? 1 : 0,
+                  child: const Text(
+                    'Opening live...',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.play_arrow_rounded,
-                    color: Colors.white70,
-                    size: 34,
+                ),
+              ),
+              // ── preview box — only shown when Live ─────────────────
+              if (isLive)
+                Positioned(
+                  top: 20,
+                  right: 20,
+                  child: Container(
+                    width: isTablet ? 150 : 100,
+                    height: isTablet ? 180 : 130,
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white70,
+                      size: 34,
+                    ),
                   ),
+                ),
+              Positioned(
+                bottom: 12,
+                left: 16,
+                right: 4,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            feedCard.hostDisplayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            localeLine,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _ShakeCallButton(
+                      onTap: () => _openCallTabForHost(feedCard.hostUserId),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1152,7 +1287,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Positioned(
           left: 0,
           right: 0,
-          bottom: isTablet ? 18 : 14,
+          bottom: 0,
           child: Center(
             child: FilledButton(
               onPressed: _startRandomMatchFromHome,
@@ -2026,6 +2161,124 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+class _ShakeCallButton extends StatefulWidget {
+  const _ShakeCallButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_ShakeCallButton> createState() => _ShakeCallButtonState();
+}
+
+class _ShakeCallButtonState extends State<_ShakeCallButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  static const Color _baseGreen = Color(0xFF00A651);
+  static const Color _lightGreen = Color(0xFF7BEA3B);
+  static const double _btnSize = 52;
+
+  @override
+  void initState() {
+    super.initState();
+    // 3.8 s cycle: short shake, rings expand slowly, long rest
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 3800),
+      vsync: this,
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  // gentle ring: only first 15% of cycle, slower oscillation (±6°)
+  double _shakeAngle(double t) {
+    if (t > 0.15) return 0;
+    return sin(t * 10 * 2 * pi) * (6 * pi / 180);
+  }
+
+  // ring grows slowly — expands over 40% of the cycle, staggered by phase
+  double? _ringProgress(double t, double phase) {
+    final double shifted = (t + phase) % 1.0;
+    if (shifted > 0.40) return null;
+    return shifted / 0.40;
+  }
+
+  Widget _buildRing(double progress) {
+    final double size = _btnSize + progress * 48;
+    final double opacity = (1 - progress) * 0.35;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: _baseGreen.withOpacity(opacity),
+          width: 2.0,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (BuildContext context, Widget? child) {
+        final double t = _controller.value;
+        final double? r1 = _ringProgress(t, 0.0);
+        final double? r2 = _ringProgress(t, 0.15);
+
+        return SizedBox(
+          width: _btnSize + 40,
+          height: _btnSize + 40,
+          child: Stack(
+            alignment: Alignment.center,
+            children: <Widget>[
+              if (r1 != null) _buildRing(r1),
+              if (r2 != null) _buildRing(r2),
+              Transform.rotate(
+                angle: _shakeAngle(t),
+                child: child,
+              ),
+            ],
+          ),
+        );
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          width: _btnSize,
+          height: _btnSize,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.bottomLeft,
+              end: Alignment.topRight,
+              colors: <Color>[_baseGreen, _lightGreen],
+            ),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 6,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.call_rounded,
+            color: Colors.white,
+            size: 26,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class ZephyrApiClient {
   ZephyrApiClient({required this.baseUrl});
 
@@ -2578,6 +2831,9 @@ class LiveFeedCard {
     required this.hostUserId,
     required this.hostDisplayName,
     required this.hostAvatarUrl,
+    required this.hostCountryCode,
+    required this.hostLanguage,
+    required this.hostStatus,
     required this.startedAt,
   });
 
@@ -2587,6 +2843,10 @@ class LiveFeedCard {
   final String hostUserId;
   final String hostDisplayName;
   final String? hostAvatarUrl;
+  final String hostCountryCode;
+  final String hostLanguage;
+  /// 'live' | 'online' | 'busy'
+  final String hostStatus;
   final DateTime startedAt;
 
   factory LiveFeedCard.fromJson(Map<String, dynamic> json) {
@@ -2597,6 +2857,11 @@ class LiveFeedCard {
       hostUserId: json['hostUserId'] as String,
       hostDisplayName: json['hostDisplayName'] as String,
       hostAvatarUrl: json['hostAvatarUrl'] as String?,
+      hostCountryCode: (json['hostCountryCode'] as String? ?? 'PH')
+          .trim()
+          .toUpperCase(),
+      hostLanguage: (json['hostLanguage'] as String? ?? 'English').trim(),
+      hostStatus: (json['hostStatus'] as String? ?? 'live').trim().toLowerCase(),
       startedAt: DateTime.parse(json['startedAt'] as String),
     );
   }
