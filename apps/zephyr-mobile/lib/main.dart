@@ -401,9 +401,10 @@ class _HomeScreenState extends State<HomeScreen> {
   int _userLevel = 4;
   double _myRevenue = 86.40;
   List<CoinPack> _coinPacks = <CoinPack>[
-    CoinPack(id: 'starter_100', label: 'Starter', coins: 100, priceUsd: 0.99),
-    CoinPack(id: 'plus_500', label: 'Plus', coins: 500, priceUsd: 4.49),
-    CoinPack(id: 'pro_1200', label: 'Pro', coins: 1200, priceUsd: 9.99),
+    CoinPack(id: 'pack_299',  label: '16.5K',  coins: 16500,  priceUsd: 2.99),
+    CoinPack(id: 'pack_999',  label: '55K',    coins: 55000,  priceUsd: 9.99),
+    CoinPack(id: 'pack_2999', label: '165K',   coins: 165000, priceUsd: 29.99),
+    CoinPack(id: 'pack_9999', label: '550K',   coins: 550000, priceUsd: 99.99),
   ];
   int _callMinutes = 2;
   String _callMode = 'direct';
@@ -1131,7 +1132,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openProfilePage(LiveFeedCard feedCard) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ProfilePage(feedCard: feedCard),
+        builder: (_) => ProfilePage(
+          feedCard: feedCard,
+          onMessage: () {
+            Navigator.of(context).pop();
+            setState(() => _selectedTabIndex = 3);
+          },
+        ),
       ),
     );
   }
@@ -2038,7 +2045,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       final bool isPurchasing = purchasingPackId == pack.id;
 
                       return ListTile(
-                        leading: const Icon(Icons.monetization_on_rounded),
+                        leading: const _CoinIcon(size: 28),
                         title: Text('${pack.coins} coins • ${pack.label}'),
                         subtitle: Text(_formatUsd(pack.priceUsd)),
                         trailing: ElevatedButton(
@@ -2425,9 +2432,10 @@ class _ShakeCallButtonState extends State<_ShakeCallButton>
 // ── ProfilePage ─────────────────────────────────────────────────────────────
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key, required this.feedCard});
+  const ProfilePage({super.key, required this.feedCard, required this.onMessage});
 
   final LiveFeedCard feedCard;
+  final VoidCallback onMessage;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -2437,6 +2445,94 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _following = false;
 
   LiveFeedCard get _card => widget.feedCard;
+
+  void _showCallSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                // drag handle
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                // video call row
+                InkWell(
+                  onTap: () => Navigator.of(context).pop(),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 16, horizontal: 8),
+                    child: Row(
+                      children: <Widget>[
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00A651).withValues(alpha: 0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.call_rounded,
+                            color: Color(0xFF00A651),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Text(
+                            'Video call',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Row(
+                          children: <Widget>[
+                            const Text(
+                              '4200',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const _CoinIcon(size: 18),
+                            const Text(
+                              ' /min',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Color get _statusColor => switch (_card.hostStatus) {
         'live' => const Color(0xFFFF3B30),
@@ -2454,8 +2550,98 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final double bottomPad = MediaQuery.of(context).padding.bottom;
     return Scaffold(
       backgroundColor: const Color(0xFFF2F2F7),
+      bottomNavigationBar: Container(
+        color: Colors.white,
+        padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              flex: 1,
+              child: OutlinedButton.icon(
+                onPressed: widget.onMessage,
+                icon: const Icon(
+                    Icons.chat_bubble_outline_rounded,
+                    size: 18),
+                label: const Text('Message'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.black87,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(14),
+                      bottomLeft: Radius.circular(14),
+                    ),
+                  ),
+                  side: BorderSide.none,
+                  backgroundColor: Colors.grey.shade200,
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 3,
+              child: FilledButton(
+                onPressed: (_card.hostStatus == 'offline' || _card.hostStatus == 'busy')
+                    ? null
+                    : () => _showCallSheet(context),
+                style: FilledButton.styleFrom(
+                  backgroundColor: switch (_card.hostStatus) {
+                    'offline' => Colors.grey.shade400,
+                    'busy'    => Colors.orange.shade300,
+                    _         => const Color(0xFF00A651),
+                  },
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.only(
+                      topRight: Radius.circular(14),
+                      bottomRight: Radius.circular(14),
+                    ),
+                  ),
+                ),
+                child: switch (_card.hostStatus) {
+                  'offline' => const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        Icon(Icons.phone_disabled_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text('Not available'),
+                      ],
+                    ),
+                  'busy' => const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        Icon(Icons.phone_locked_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text('Currently busy'),
+                      ],
+                    ),
+                  _ => Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        const Icon(Icons.call_rounded, size: 18),
+                        const SizedBox(width: 6),
+                        const Text('Video call',
+                            style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600)),
+                        const SizedBox(width: 8),
+                        const Text('4200',
+                            style: TextStyle(fontSize: 12)),
+                        const SizedBox(width: 3),
+                        const _CoinIcon(size: 13),
+                        const Text('/min',
+                            style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
       body: CustomScrollView(
         slivers: <Widget>[
           // ── hero header ──────────────────────────────────────────
@@ -2607,51 +2793,30 @@ class _ProfilePageState extends State<ProfilePage> {
 
                   const SizedBox(height: 24),
 
-                  // ── follow + call buttons ────────────────────────
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () {
-                            setState(() => _following = !_following);
-                          },
-                          style: FilledButton.styleFrom(
-                            backgroundColor: _following
-                                ? Colors.grey.shade300
-                                : const Color(0xFF1FA4EA),
-                            foregroundColor: _following
-                                ? Colors.black87
-                                : Colors.white,
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: Text(
-                            _following ? 'Following' : 'Follow',
-                            style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600),
-                          ),
+                  // ── follow button ─────────────────────────────────
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () {
+                        setState(() => _following = !_following);
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _following
+                            ? Colors.grey.shade300
+                            : const Color(0xFF1FA4EA),
+                        foregroundColor:
+                            _following ? Colors.black87 : Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      FilledButton(
-                        onPressed: () {},
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF00A651),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 14, horizontal: 24),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: const Icon(Icons.call_rounded, size: 22),
+                      child: Text(
+                        _following ? 'Following' : 'Follow',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w600),
                       ),
-
-                    ],
+                    ),
                   ),
 
                   const SizedBox(height: 28),
@@ -2673,6 +2838,47 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Zephyr coin icon — reusable, no copyright ───────────────────────────────
+class _CoinIcon extends StatelessWidget {
+  const _CoinIcon({this.size = 16});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[Color(0xFFFFD95A), Color(0xFFE6A817)],
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: const Color(0xFFE6A817).withValues(alpha: 0.4),
+            blurRadius: 3,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          'Z',
+          style: TextStyle(
+            fontSize: size * 0.52,
+            fontWeight: FontWeight.w900,
+            color: const Color(0xFF7A4A00),
+            height: 1,
+          ),
+        ),
       ),
     );
   }

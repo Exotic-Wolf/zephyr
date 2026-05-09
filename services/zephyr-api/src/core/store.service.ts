@@ -1576,7 +1576,7 @@ export class StoreService {
   private getDirectCallAllowedRates(): number[] {
     const rawRates =
       process.env.DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE ??
-      '2100,4200,8400';
+      '2100,3200,4200,5400,6400,8000,27000';
 
     const parsed = rawRates
       .split(',')
@@ -1589,9 +1589,9 @@ export class StoreService {
     }
 
     this.logger.warn(
-      'Invalid DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE. Using default rates 2100,4200,8400.',
+      'Invalid DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE. Using default rates 2100,3200,4200,5400,6400,8000,27000.',
     );
-    return [2100, 4200, 8400];
+    return [2100, 3200, 4200, 5400, 6400, 8000, 27000];
   }
 
   private async getCallSessionForCaller(
