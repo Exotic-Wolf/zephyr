@@ -12,6 +12,10 @@ Flutter mobile app for Zephyr — a live streaming platform inspired by Olamet/C
 - **Call bottom sheet** — status-aware (live/busy/offline), shows rate in coins/min
 - **Me tab** — level, balance, revenue, My Call Price, settings
 - **My Call Price page** — 7-tier pricing table, level-gated, auto-save on tap
+- **My Profile page** — edit avatar, nickname, gender, birthday, country (picker), language (picker)
+  - Public ID: stable 8-digit code derived from DB UUID (safe to share)
+- **Home search** — inline AppBar search by display name or 8-digit public ID
+- **Country filter** — globe icon in AppBar opens country picker, filters all tabs; ✕ badge to clear
 - **Economy** — Coins (user) → Sparks (host), 60/40 split
   - 4 coin packs: 16,500 / 55,000 / 165,000 / 550,000 coins
   - 7 call rate tiers: 2,100 → 27,000 coins/min (≤Lv3 → Lv9+)
@@ -45,6 +49,7 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
 - `POST /v1/auth/google-login`
 - `POST /v1/auth/apple-login`
 - `GET /v1/users/me`
+- `PATCH /v1/users/me`
 - `GET /v1/feed/live`
 - `GET /v1/users/me/following`
 - `GET /v1/economy/wallet`
@@ -63,8 +68,13 @@ flutter test
 ## Pending (pre-production)
 
 - LiveKit RTC integration
+- Real-time messaging (WebSocket DMs + live chat)
+  - DMs: persist to DB, unread counts, inbox
+  - Live chat: in-memory broadcast, no persistence
 - Remove mock feed cards (SarahBusy, TaniaOnline, MikeOffline)
 - Remove mock `_followingIds`
+- Save My Profile edits to API
+- Profile picture upload (camera/gallery)
 - Android emulator auth fix
 - Viewer count on cards
 - Gift stickers in profile Gifts section

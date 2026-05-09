@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' show cos, pi, sin;
+import 'package:country_picker/country_picker.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -422,6 +423,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _quoteLoading = false;
   String? _quoteError;
   int _activeFeedIndex = 0;
+  Country? _filterCountry;
+  String _searchQuery = '';
+  bool _searchActive = false;
+  final TextEditingController _searchCtrl = TextEditingController();
   bool? _apiReachable;
   bool _loading = true;
   bool _creating = false;
@@ -440,6 +445,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _callTickTimer?.cancel();
     _roomTitleController.dispose();
     _feedController.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -1308,10 +1314,33 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  List<LiveFeedCard> get _visibleCards {
+    List<LiveFeedCard> cards = _filterCountry == null
+        ? _feedCards
+        : _feedCards.where((LiveFeedCard c) =>
+            c.hostCountryCode.toUpperCase() == _filterCountry!.countryCode.toUpperCase()).toList();
+    if (_searchQuery.isNotEmpty) {
+      final String q = _searchQuery.toLowerCase();
+      cards = cards.where((LiveFeedCard c) {
+        if (c.hostDisplayName.toLowerCase().contains(q)) return true;
+        final String pid = _derivePublicId(c.hostUserId);
+        return pid.contains(q);
+      }).toList();
+    }
+    return cards;
+  }
+
   Widget _buildPopularTab(bool isTablet) {
-    if (_feedCards.isEmpty) {
-      return const Center(
-        child: Text('No popular streamers right now. Check again in a moment.'),
+    final List<LiveFeedCard> cards = _visibleCards;
+    if (cards.isEmpty) {
+      return Center(
+        child: Text(
+          _feedCards.isEmpty
+              ? 'No popular streamers right now. Check again in a moment.'
+              : _searchQuery.isNotEmpty
+                  ? 'No results for "$_searchQuery".'
+                  : 'No streamers from ${_filterCountry?.name ?? 'there'} right now.',
+        ),
       );
     }
 
@@ -1325,11 +1354,11 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSpacing: 10,
             childAspectRatio: isTablet ? 0.72 : 0.62,
           ),
-          itemCount: _feedCards.length,
+          itemCount: cards.length,
           itemBuilder: (BuildContext context, int index) {
-            return _buildDiscoverLiveCard(_feedCards[index], isTablet,
+            return _buildDiscoverLiveCard(cards[index], isTablet,
                 showPreview: false,
-                onTap: () => _openProfilePage(_feedCards[index]));
+                onTap: () => _openProfilePage(cards[index]));
           },
         ),
         Positioned(
@@ -1356,14 +1385,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildFollowTab(bool isTablet) {
-    final List<LiveFeedCard> followed = _feedCards
+    final List<LiveFeedCard> followed = _visibleCards
         .where((LiveFeedCard c) => _followingIds.contains(c.hostUserId))
         .toList();
 
     if (_followingIds.isEmpty || followed.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
-          'Follow someone to see them here.',
+          _followingIds.isEmpty
+              ? 'Follow someone to see them here.'
+              : 'None of the people you follow are live from ${_filterCountry?.name ?? 'there'} right now.',
           textAlign: TextAlign.center,
         ),
       );
@@ -1410,9 +1441,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildDiscoverTab(bool isTablet) {
-    if (_feedCards.isEmpty) {
-      return const Center(
-        child: Text('No one is live right now. Check again in a moment.'),
+    final List<LiveFeedCard> cards = _visibleCards;
+    if (cards.isEmpty) {
+      return Center(
+        child: Text(
+          _feedCards.isEmpty
+              ? 'No one is live right now. Check again in a moment.'
+              : _searchQuery.isNotEmpty
+                  ? 'No results for "$_searchQuery".'
+                  : 'No one is live from ${_filterCountry?.name ?? 'there'} right now.',
+        ),
       );
     }
 
@@ -1421,7 +1459,7 @@ class _HomeScreenState extends State<HomeScreen> {
         PageView.builder(
           controller: _feedController,
           scrollDirection: Axis.vertical,
-          itemCount: _feedCards.length,
+          itemCount: cards.length,
           onPageChanged: (int index) {
             setState(() {
               _activeFeedIndex = index;
@@ -1430,7 +1468,7 @@ class _HomeScreenState extends State<HomeScreen> {
           itemBuilder: (BuildContext context, int index) {
             return Padding(
               padding: const EdgeInsets.only(top: 4, bottom: 18),
-              child: _buildDiscoverLiveCard(_feedCards[index], isTablet),
+              child: _buildDiscoverLiveCard(cards[index], isTablet),
             );
           },
         ),
@@ -2104,6 +2142,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _openMyProfilePage() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MyProfilePage(me: _me),
+      ),
+    );
+  }
+
   Future<void> _openCallPricePage() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -2153,6 +2199,8 @@ class _HomeScreenState extends State<HomeScreen> {
             leading: const CircleAvatar(child: Icon(Icons.person_rounded)),
             title: Text(_me?.displayName ?? 'Me'),
             subtitle: Text(_me?.bio ?? 'Welcome to Zephyr'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _openMyProfilePage,
           ),
         ),
         const SizedBox(height: 12),
@@ -2223,42 +2271,97 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         centerTitle: _selectedTabIndex == 0 ? false : null,
         title: _selectedTabIndex == 0
-            ? SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: <Widget>[
-                    _buildHomeTopTab(label: 'Popular', index: 0),
-                    const SizedBox(width: 12),
-                    _buildHomeTopTab(label: 'Discover', index: 1),
-                    const SizedBox(width: 12),
-                    _buildHomeTopTab(label: 'Follow', index: 2),
-                  ],
-                ),
-              )
+            ? (_searchActive
+                ? TextField(
+                    controller: _searchCtrl,
+                    autofocus: true,
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                    decoration: InputDecoration(
+                      hintText: 'Name or ID…',
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                  )
+                : SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: <Widget>[
+                        _buildHomeTopTab(label: 'Popular', index: 0),
+                        const SizedBox(width: 12),
+                        _buildHomeTopTab(label: 'Discover', index: 1),
+                        const SizedBox(width: 12),
+                        _buildHomeTopTab(label: 'Follow', index: 2),
+                      ],
+                    ),
+                  ))
             : Text(_titleForTab()),
         actions: <Widget>[
           if (_selectedTabIndex == 0) ...<Widget>[
             IconButton(
-              tooltip: 'Search',
+              tooltip: _searchActive ? 'Close search' : 'Search',
               visualDensity: VisualDensity.compact,
               constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               iconSize: 20,
-              onPressed: () {},
-              icon: const Icon(Icons.search_rounded),
+              onPressed: () => setState(() {
+                _searchActive = !_searchActive;
+                if (!_searchActive) {
+                  _searchCtrl.clear();
+                  _searchQuery = '';
+                }
+              }),
+              icon: Icon(_searchActive ? Icons.close_rounded : Icons.search_rounded),
             ),
-            IconButton(
-              tooltip: 'Country',
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              iconSize: 20,
-              onPressed: () {},
-              icon: SvgPicture.asset(
-                'assets/flags/mu.svg',
-                width: 20,
-                height: 14,
-                fit: BoxFit.cover,
+            if (_filterCountry != null) ...<Widget>[
+              Padding(
+                padding: const EdgeInsets.only(left: 8, right: 4),
+                child: SizedBox(
+                  width: 34, height: 34,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: <Widget>[
+                      GestureDetector(
+                        onTap: () => showCountryPicker(
+                          context: context,
+                          showPhoneCode: false,
+                          onSelect: (Country c) => setState(() => _filterCountry = c),
+                        ),
+                        child: Center(
+                          child: Text(_filterCountry!.flagEmoji,
+                              style: const TextStyle(fontSize: 22)),
+                        ),
+                      ),
+                      Positioned(
+                        top: 0, right: 0,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => setState(() => _filterCountry = null),
+                          child: Container(
+                            width: 14, height: 14,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Color(0xFF1FA4EA),
+                            ),
+                            child: const Icon(Icons.close_rounded,
+                                size: 10, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+            ] else
+              GestureDetector(
+                onTap: () => showCountryPicker(
+                  context: context,
+                  showPhoneCode: false,
+                  onSelect: (Country c) => setState(() => _filterCountry = c),
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Icon(Icons.language_rounded, size: 22),
+                ),
+              ),
             IconButton(
               tooltip: 'Trophy',
               visualDensity: VisualDensity.compact,
@@ -2875,6 +2978,240 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 }
 
+// ── MyProfilePage ─────────────────────────────────────────────────────────────
+
+class MyProfilePage extends StatefulWidget {
+  const MyProfilePage({super.key, required this.me});
+  final UserProfile? me;
+
+  @override
+  State<MyProfilePage> createState() => _MyProfilePageState();
+}
+
+class _MyProfilePageState extends State<MyProfilePage> {
+  late final TextEditingController _nicknameCtrl;
+
+  // mock local state — wire to API later
+  String _gender = 'Prefer not to say';
+  DateTime? _birthday;
+  Country? _country;
+  String _language = '';
+
+  Future<void> _pickLanguage() async {
+    final String? picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _LanguagePickerSheet(),
+    );
+    if (picked != null) setState(() => _language = picked);
+  }
+
+  static const List<String> _genders = <String>[
+    'Male', 'Female', 'Non-binary', 'Prefer not to say',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _nicknameCtrl = TextEditingController(text: widget.me?.displayName ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nicknameCtrl.dispose();
+    super.dispose();
+  }
+
+  String get _userId => widget.me?.publicId ?? '—';
+
+  Future<void> _pickBirthday() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _birthday ?? DateTime(2000),
+      firstDate: DateTime(1920),
+      lastDate: DateTime.now().subtract(const Duration(days: 365 * 13)),
+    );
+    if (picked != null) setState(() => _birthday = picked);
+  }
+
+  String _formatBirthday() {
+    if (_birthday == null) return 'Not set';
+    return '${_birthday!.day}/${_birthday!.month}/${_birthday!.year}';
+  }
+
+  void _save() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(
+        content: Text('Profile saved'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 2),
+      ));
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F2F7),
+      appBar: AppBar(
+        title: const Text('My Profile'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: _save,
+            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: <Widget>[
+
+          // ── Avatar ───────────────────────────────────────────
+          Center(
+            child: Stack(
+              children: <Widget>[
+                CircleAvatar(
+                  radius: 48,
+                  backgroundColor: const Color(0xFF1FA4EA).withValues(alpha: 0.15),
+                  child: Text(
+                    (widget.me?.displayName ?? 'M').substring(0, 1).toUpperCase(),
+                    style: const TextStyle(
+                        fontSize: 40, fontWeight: FontWeight.w700,
+                        color: Color(0xFF1FA4EA)),
+                  ),
+                ),
+                Positioned(
+                  bottom: 0, right: 0,
+                  child: Container(
+                    width: 30, height: 30,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF1FA4EA),
+                    ),
+                    child: const Icon(Icons.camera_alt_rounded,
+                        size: 16, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // ── Fields ───────────────────────────────────────────
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              children: <Widget>[
+
+                // ID — fixed
+                ListTile(
+                  title: const Text('ID'),
+                  trailing: Text(_userId,
+                      style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
+                ),
+                const Divider(height: 1),
+
+                // Nickname
+                ListTile(
+                  title: const Text('Nickname'),
+                  trailing: SizedBox(
+                    width: 160,
+                    child: TextField(
+                      controller: _nicknameCtrl,
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(fontSize: 14),
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'Enter nickname',
+                        hintStyle: TextStyle(color: Colors.grey),
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+
+                // Gender
+                ListTile(
+                  title: const Text('Gender'),
+                  trailing: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _gender,
+                      isDense: true,
+                      isExpanded: false,
+                      alignment: AlignmentDirectional.centerEnd,
+                      style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                      selectedItemBuilder: (_) => _genders.map((String g) =>
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(g, style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
+                        ),
+                      ).toList(),
+                      items: _genders.map((String g) => DropdownMenuItem<String>(
+                        value: g, child: Text(g),
+                      )).toList(),
+                      onChanged: (String? v) {
+                        if (v != null) setState(() => _gender = v);
+                      },
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+
+                // Birthday
+                ListTile(
+                  title: const Text('Birthday'),
+                  trailing: Text(_formatBirthday(),
+                      style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+                  onTap: _pickBirthday,
+                ),
+                const Divider(height: 1),
+
+                // Country
+                ListTile(
+                  title: const Text('Country'),
+                  trailing: _country == null
+                      ? Text('Select', style: TextStyle(fontSize: 14, color: Colors.grey.shade400))
+                      : Text(
+                          '${_country!.flagEmoji} ${_country!.name}',
+                          style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                        ),
+                  onTap: () => showCountryPicker(
+                    context: context,
+                    showPhoneCode: false,
+                    onSelect: (Country c) => setState(() => _country = c),
+                  ),
+                ),
+                const Divider(height: 1),
+
+                // Language
+                ListTile(
+                  title: const Text('Language'),
+                  trailing: _language.isEmpty
+                      ? Text('Select', style: TextStyle(fontSize: 14, color: Colors.grey.shade400))
+                      : Text(_language, style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
+                  onTap: _pickLanguage,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Your ID is permanent and cannot be changed.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── CallPricePage ────────────────────────────────────────────────────────────
 
 class _CallTier {
@@ -3267,6 +3604,99 @@ class _FlameGloryPainter extends CustomPainter {
 }
 
 // ── Spark icon — classic flame, Pantone Green 347C ──────────────────────────
+// ── _LanguagePickerSheet ──────────────────────────────────────────────────────
+
+class _LanguagePickerSheet extends StatefulWidget {
+  const _LanguagePickerSheet();
+
+  @override
+  State<_LanguagePickerSheet> createState() => _LanguagePickerSheetState();
+}
+
+class _LanguagePickerSheetState extends State<_LanguagePickerSheet> {
+  static const List<String> _all = <String>[
+    'Afrikaans', 'Arabic', 'Bengali', 'Bulgarian', 'Catalan', 'Chinese (Simplified)',
+    'Chinese (Traditional)', 'Croatian', 'Czech', 'Danish', 'Dutch', 'English',
+    'Estonian', 'Finnish', 'French', 'German', 'Greek', 'Gujarati', 'Hebrew',
+    'Hindi', 'Hungarian', 'Indonesian', 'Italian', 'Japanese', 'Kannada', 'Korean',
+    'Latvian', 'Lithuanian', 'Malay', 'Malayalam', 'Marathi', 'Norwegian', 'Persian',
+    'Polish', 'Portuguese', 'Punjabi', 'Romanian', 'Russian', 'Serbian', 'Slovak',
+    'Slovenian', 'Spanish', 'Swahili', 'Swedish', 'Tamil', 'Telugu', 'Thai',
+    'Turkish', 'Ukrainian', 'Urdu', 'Vietnamese',
+  ];
+
+  String _query = '';
+
+  List<String> get _filtered => _query.isEmpty
+      ? _all
+      : _all.where((l) => l.toLowerCase().contains(_query.toLowerCase())).toList();
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      maxChildSize: 0.95,
+      minChildSize: 0.4,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: <Widget>[
+            const SizedBox(height: 8),
+            Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('Select Language',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                autofocus: true,
+                onChanged: (v) => setState(() => _query = v),
+                decoration: InputDecoration(
+                  hintText: 'Search language…',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  filled: true,
+                  fillColor: const Color(0xFFF2F2F7),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.builder(
+                controller: controller,
+                itemCount: _filtered.length,
+                itemBuilder: (_, i) {
+                  final String lang = _filtered[i];
+                  return ListTile(
+                    title: Text(lang),
+                    onTap: () => Navigator.of(context).pop(lang),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── _SparkIcon ────────────────────────────────────────────────────────────────
 class _SparkIcon extends StatelessWidget {
   const _SparkIcon({this.size = 16});
 
@@ -4229,6 +4659,15 @@ class RtcJoinInfo {
   }
 }
 
+/// Derives a stable 8-digit numeric public ID from a UUID using a djb2 hash.
+String _derivePublicId(String uuid) {
+  int h = 5381;
+  for (final int c in uuid.codeUnits) {
+    h = ((h << 5) + h + c) & 0x7FFFFFFF;
+  }
+  return h.abs().toString().padLeft(8, '0').substring(0, 8);
+}
+
 class UserProfile {
   UserProfile({
     required this.id,
@@ -4236,17 +4675,26 @@ class UserProfile {
     required this.avatarUrl,
     required this.bio,
     required this.createdAt,
-  });
+    String? publicId,
+  }) : publicId = publicId ?? _derivePublicId(id);
 
   final String id;
+  /// Short 8-digit public ID shown to users. Safe to share; does not expose the DB UUID.
+  final String publicId;
   final String displayName;
   final String? avatarUrl;
   final String? bio;
   final DateTime createdAt;
 
+  /// Derives a stable 8-digit numeric code from the DB UUID using a djb2 hash.
+  /// The output looks nothing like the source UUID.
+  /// Delegates to the top-level _derivePublicId function.
+  static String derivePublicId(String uuid) => _derivePublicId(uuid);
+
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
       id: json['id'] as String,
+      publicId: json['publicId'] as String?,
       displayName: json['displayName'] as String,
       avatarUrl: json['avatarUrl'] as String?,
       bio: json['bio'] as String?,

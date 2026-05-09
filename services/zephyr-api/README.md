@@ -15,7 +15,7 @@ NestJS backend for Zephyr — a live streaming platform inspired by Olamet/Chame
 
 ### Users
 - `GET /v1/users/me`
-- `PATCH /v1/users/me`
+- `PATCH /v1/users/me` — update nickname, gender, birthday, country, language
 - `GET /v1/users/me/following`
 
 ### Rooms
@@ -38,6 +38,16 @@ NestJS backend for Zephyr — a live streaming platform inspired by Olamet/Chame
 - `POST /v1/economy/calls/:id/rtc-token`
 
 API contract source: `../../packages/zephyr-contracts/openapi.yaml`
+
+## Pending endpoints (next)
+
+### Messaging (WebSocket + REST)
+- `GET /v1/messages/conversations` — list conversations with last message + unread count
+- `GET /v1/messages/conversations/:userId` — full thread with a user
+- `POST /v1/messages` — send a DM
+- `PATCH /v1/messages/:id/read` — mark as read
+- **WebSocket gateway** — real-time DM delivery (`new_message` event)
+- **WebSocket gateway** — live chat broadcast per room (`room_chat` event, in-memory only, no DB write)
 
 ## Economy constants
 
