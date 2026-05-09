@@ -1128,7 +1128,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildDiscoverLiveCard(LiveFeedCard feedCard, bool isTablet, {bool showPreview = true}) {
+  void _openProfilePage(LiveFeedCard feedCard) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ProfilePage(feedCard: feedCard),
+      ),
+    );
+  }
+
+  Widget _buildDiscoverLiveCard(
+    LiveFeedCard feedCard,
+    bool isTablet, {
+    bool showPreview = true,
+    VoidCallback? onTap,
+  }) {
     final bool joiningCurrentRoom = _joiningRoomId == feedCard.roomId;
     final double borderRadius = isTablet ? 44 : 34;
     final String localeLine = showPreview
@@ -1158,7 +1171,9 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(borderRadius),
         child: InkWell(
           borderRadius: BorderRadius.circular(borderRadius),
-          onTap: joiningCurrentRoom ? null : () => _enterRoom(feedCard),
+          onTap: joiningCurrentRoom
+              ? null
+              : onTap ?? () => _enterRoom(feedCard),
           child: Stack(
             children: <Widget>[
               // ── top-left status badge ──────────────────────────────
@@ -1234,11 +1249,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: Colors.black,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
-                      color: Colors.white70,
-                      size: 34,
-                    ),
+                    // LiveKit video widget mounts here when wired
                   ),
                 ),
               Positioned(
@@ -1309,7 +1320,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           itemCount: _feedCards.length,
           itemBuilder: (BuildContext context, int index) {
-            return _buildDiscoverLiveCard(_feedCards[index], isTablet, showPreview: false);
+            return _buildDiscoverLiveCard(_feedCards[index], isTablet,
+                showPreview: false,
+                onTap: () => _openProfilePage(_feedCards[index]));
           },
         ),
         Positioned(
@@ -1361,7 +1374,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           itemCount: followed.length,
           itemBuilder: (BuildContext context, int index) {
-            return _buildDiscoverLiveCard(followed[index], isTablet, showPreview: false);
+            return _buildDiscoverLiveCard(followed[index], isTablet,
+                showPreview: false,
+                onTap: () => _openProfilePage(followed[index]));
           },
         ),
         Positioned(
@@ -2403,6 +2418,289 @@ class _ShakeCallButtonState extends State<_ShakeCallButton>
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── ProfilePage ─────────────────────────────────────────────────────────────
+
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key, required this.feedCard});
+
+  final LiveFeedCard feedCard;
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  bool _following = false;
+
+  LiveFeedCard get _card => widget.feedCard;
+
+  Color get _statusColor => switch (_card.hostStatus) {
+        'live' => const Color(0xFFFF3B30),
+        'busy' => const Color(0xFFFF9500),
+        'offline' => const Color(0xFF8E8E93),
+        _ => const Color(0xFF34C759),
+      };
+
+  String get _statusLabel => switch (_card.hostStatus) {
+        'live' => 'Live',
+        'busy' => 'Busy',
+        'offline' => 'Offline',
+        _ => 'Online',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F2F7),
+      body: CustomScrollView(
+        slivers: <Widget>[
+          // ── hero header ──────────────────────────────────────────
+          SliverAppBar(
+            expandedHeight: 260,
+            pinned: true,
+            backgroundColor: const Color(0xFF1FA4EA),
+            flexibleSpace: FlexibleSpaceBar(
+              background: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  // cover photo placeholder (same blue as card)
+                  Container(color: const Color(0xFF1FA4EA)),
+                  // avatar centred in lower half
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 48,
+                    child: Center(
+                      child: CircleAvatar(
+                        radius: 48,
+                        backgroundColor: Colors.white24,
+                        backgroundImage: _card.hostAvatarUrl != null
+                            ? NetworkImage(_card.hostAvatarUrl!)
+                            : null,
+                        child: _card.hostAvatarUrl == null
+                            ? Text(
+                                _card.hostDisplayName.isNotEmpty
+                                    ? _card.hostDisplayName[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
+                  // live preview box — top-right (only when live), tappable
+                  if (_card.hostStatus == 'live')
+                    Positioned(
+                      top: 72,
+                      right: 16,
+                      child: GestureDetector(
+                        onTap: () => Navigator.of(context).pop(),
+                        child: Container(
+                          width: 100,
+                          height: 130,
+                          decoration: BoxDecoration(
+                            color: Colors.black,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          // LiveKit video widget mounts here when wired
+                        ),
+                      ),
+                    ),
+                  // status badge bottom-right of cover
+                  Positioned(
+                    right: 20,
+                    bottom: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: _statusColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _statusLabel,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  // ── name + flag ──────────────────────────────────
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          _card.hostDisplayName,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${CountryFlags.flagEmoji(_card.hostCountryCode)} ${_card.hostCountryCode}',
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _card.hostLanguage,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── stats row ────────────────────────────────────
+                  Row(
+                    children: <Widget>[
+                      _StatCell(
+                          label: 'Followers', value: '—'),
+                      const SizedBox(width: 32),
+                      _StatCell(
+                          label: 'Viewers',
+                          value: _card.audienceCount > 0
+                              ? '${_card.audienceCount}'
+                              : '—'),
+                      const SizedBox(width: 32),
+                      _StatCell(label: 'Gifts', value: '—'),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // ── follow + call buttons ────────────────────────
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () {
+                            setState(() => _following = !_following);
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _following
+                                ? Colors.grey.shade300
+                                : const Color(0xFF1FA4EA),
+                            foregroundColor: _following
+                                ? Colors.black87
+                                : Colors.white,
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: Text(
+                            _following ? 'Following' : 'Follow',
+                            style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton(
+                        onPressed: () {},
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF00A651),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 14, horizontal: 24),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Icon(Icons.call_rounded, size: 22),
+                      ),
+
+                    ],
+                  ),
+
+                  const SizedBox(height: 28),
+
+                  // ── bio placeholder ──────────────────────────────
+                  const Text(
+                    'About',
+                    style: TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'No bio yet.',
+                    style: TextStyle(
+                        fontSize: 14, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatCell extends StatelessWidget {
+  const _StatCell({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+        ),
+      ],
     );
   }
 }
