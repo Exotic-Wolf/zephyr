@@ -1,0 +1,86 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sparkGradient" x1="250" y1="180" x2="760" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFE76A"/>
+      <stop offset="45%" stop-color="#FF9F1C"/>
+      <stop offset="75%" stop-color="#FF3D81"/>
+      <stop offset="100%" stop-color="#7B2DFF"/>
+    </linearGradient>
+
+    <linearGradient id="coinGradient" x1="650" y1="650" x2="860" y2="860" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFF2A8"/>
+      <stop offset="50%" stop-color="#FFD447"/>
+      <stop offset="100%" stop-color="#F5A300"/>
+    </linearGradient>
+
+    <filter id="glow" x="0" y="0" width="1024" height="1024">
+      <feGaussianBlur stdDeviation="18" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="240" fill="#0B0B12"/>
+
+  <!-- Main Spark -->
+  <g filter="url(#glow)">
+    <path
+      d="M512 170
+      C560 340 690 460 854 512
+      C690 564 560 684 512 854
+      C464 684 334 564 170 512
+      C334 460 464 340 512 170Z"
+      fill="url(#sparkGradient)"
+    />
+  </g>
+
+  <!-- Inner Spark Highlight -->
+  <path
+    d="M512 290
+    C548 405 620 476 734 512
+    C620 548 548 620 512 734
+    C476 620 404 548 290 512
+    C404 476 476 405 512 290Z"
+    fill="white"
+    fill-opacity="0.18"
+  />
+
+  <!-- Coin -->
+  <g>
+    <circle cx="730" cy="730" r="118" fill="url(#coinGradient)"/>
+    <circle cx="730" cy="730" r="95" stroke="#FFF4B5" stroke-width="10" opacity="0.8"/>
+
+    <path
+      d="M730 660
+      C690 660 664 684 664 718
+      C664 754 692 770 726 780
+      C758 790 778 798 778 822
+      C778 844 760 860 730 860
+      C704 860 682 850 666 836"
+      stroke="#FFF8DB"
+      stroke-width="22"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      fill="none"
+    />
+
+    <line x1="730" y1="634" x2="730" y2="886" stroke="#FFF8DB" stroke-width="22" stroke-linecap="round"/>
+  </g>
+
+  <!-- Orbit Curve -->
+  <path
+    d="M320 700
+    C450 860 690 860 840 690"
+    stroke="url(#sparkGradient)"
+    stroke-width="28"
+    stroke-linecap="round"
+    opacity="0.8"
+  />
+
+  <!-- Small Sparkles -->
+  <path d="M250 300 L265 340 L305 355 L265 370 L250 410 L235 370 L195 355 L235 340 Z" fill="#FFE76A" opacity="0.9"/>
+
+  <path d="M800 260 L810 286 L836 296 L810 306 L800 332 L790 306 L764 296 L790 286 Z" fill="#FFD447" opacity="0.85"/>
+</svg>

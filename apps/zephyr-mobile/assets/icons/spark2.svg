@@ -1,0 +1,56 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFF56A" stop-opacity="0.65"/>
+      <stop offset="35%" stop-color="#FF9D1C" stop-opacity="0.35"/>
+      <stop offset="65%" stop-color="#FF2F93" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="spark" x1="330" y1="130" x2="710" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFF86A"/>
+      <stop offset="25%" stop-color="#FFD21F"/>
+      <stop offset="48%" stop-color="#FF8A1C"/>
+      <stop offset="70%" stop-color="#FF2F93"/>
+      <stop offset="100%" stop-color="#6C2DFF"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="455" y1="210" x2="570" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="36%" stop-color="#FFF9C4"/>
+      <stop offset="72%" stop-color="#FFD84A"/>
+      <stop offset="100%" stop-color="#FF7A1A"/>
+    </linearGradient>
+    <linearGradient id="purpleFold" x1="535" y1="455" x2="700" y2="820" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF62C7"/>
+      <stop offset="48%" stop-color="#9B2CFF"/>
+      <stop offset="100%" stop-color="#3518C9"/>
+    </linearGradient>
+    <linearGradient id="goldFold" x1="245" y1="355" x2="515" y2="555" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFF36D"/>
+      <stop offset="50%" stop-color="#FFC21F"/>
+      <stop offset="100%" stop-color="#FF6A1A"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="512" cy="520" r="390" fill="url(#halo)"/>
+  <circle cx="430" cy="645" r="230" fill="#8A2DFF" opacity="0.18"/>
+
+  <path d="M514 118 C550 304 650 414 880 512 C650 610 550 720 514 906 C478 720 378 610 148 512 C378 414 478 304 514 118Z" fill="url(#spark)"/>
+
+  <path d="M500 492 C410 458 310 466 148 512 C330 430 454 304 514 118 C482 310 472 415 500 492Z" fill="url(#goldFold)" opacity="0.92"/>
+
+  <path d="M528 492 C620 458 720 466 880 512 C720 558 620 566 528 532 C546 520 546 504 528 492Z" fill="#FF2F93" opacity="0.9"/>
+
+  <path d="M526 526 C584 588 600 708 514 906 C496 720 490 612 526 526Z" fill="url(#purpleFold)" opacity="0.95"/>
+
+  <path d="M514 220 C538 362 612 448 750 512 C612 576 538 662 514 804 C490 662 416 576 278 512 C416 448 490 362 514 220Z" fill="url(#shine)" opacity="0.96"/>
+
+  <path d="M514 420 C526 466 558 498 606 512 C558 526 526 558 514 606 C502 558 470 526 422 512 C470 498 502 466 514 420Z" fill="#FFFFFF" opacity="0.95"/>
+
+  <path d="M300 440 C380 405 435 360 480 285" fill="none" stroke="#FFD84A" stroke-width="13" stroke-linecap="round" opacity="0.72"/>
+  <path d="M620 355 C675 395 720 420 778 432" fill="none" stroke="#FF7A1A" stroke-width="12" stroke-linecap="round" opacity="0.65"/>
+  <path d="M338 628 C280 690 325 775 448 824" fill="none" stroke="#FF5A9F" stroke-width="18" stroke-linecap="round" opacity="0.62"/>
+
+  <path d="M300 245 C312 296 344 328 396 340 C344 352 312 384 300 436 C288 384 256 352 204 340 C256 328 288 296 300 245Z" fill="#FFD84A" opacity="0.94"/>
+
+  <path d="M742 635 C752 678 778 704 822 714 C778 724 752 750 742 794 C732 750 706 724 662 714 C706 704 732 678 742 635Z" fill="#FFB21F" opacity="0.9"/>
+</svg>
