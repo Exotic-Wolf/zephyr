@@ -2238,7 +2238,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ],
             ),
-            subtitle: Text(_me?.bio ?? 'Welcome to Zephyr'),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: _openMyProfilePage,
           ),
@@ -2590,10 +2589,16 @@ class _ShakeCallButtonState extends State<_ShakeCallButton>
 // ── ProfilePage ─────────────────────────────────────────────────────────────
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key, required this.feedCard, required this.onMessage});
+  const ProfilePage({
+    super.key,
+    required this.feedCard,
+    required this.onMessage,
+    this.isPreview = false,
+  });
 
   final LiveFeedCard feedCard;
   final VoidCallback onMessage;
+  final bool isPreview;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -2711,7 +2716,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final double bottomPad = MediaQuery.of(context).padding.bottom;
     return Scaffold(
       backgroundColor: const Color(0xFFF2F2F7),
-      bottomNavigationBar: Container(
+      bottomNavigationBar: widget.isPreview ? null : Container(
         color: Colors.white,
         padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
         child: Row(
@@ -2841,7 +2846,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
                   // live preview box — top-right (only when live), tappable
-                  if (_card.hostStatus == 'live')
+                  if (_card.hostStatus == 'live' && !widget.isPreview)
                     Positioned(
                       top: 72,
                       right: 16,
@@ -2859,6 +2864,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                   // status badge bottom-right of cover
+                  if (!widget.isPreview)
                   Positioned(
                     right: 20,
                     bottom: 16,
@@ -2944,6 +2950,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   const SizedBox(height: 24),
 
                   // ── follow button ─────────────────────────────────
+                  if (!widget.isPreview)
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
@@ -3385,6 +3392,41 @@ class _MyProfilePageState extends State<MyProfilePage> {
           Text(
             'Your ID is permanent and cannot be changed.',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+          ),
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            onPressed: () {
+              final UserProfile? me = widget.me;
+              final LiveFeedCard card = LiveFeedCard(
+                roomId: '',
+                title: '',
+                audienceCount: 0,
+                hostUserId: me?.id ?? '',
+                hostDisplayName: me?.displayName ?? '',
+                hostAvatarUrl: me?.avatarUrl,
+                hostCountryCode: me?.countryCode ?? '',
+                hostLanguage: me?.language ?? '',
+                hostStatus: 'online',
+                startedAt: DateTime.now(),
+              );
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ProfilePage(
+                    feedCard: card,
+                    onMessage: () {},
+                    isPreview: true,
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.person_search_rounded, size: 18),
+            label: const Text('View Public Profile'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
           ),
         ],
       ),
