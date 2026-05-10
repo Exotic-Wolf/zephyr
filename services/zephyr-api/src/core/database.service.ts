@@ -242,6 +242,30 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    // Backfill public_id for users where it is NULL (derived deterministically from UUID)
+    const nullIdRows = await this.pool.query<{ id: string }>(
+      `SELECT id FROM users WHERE public_id IS NULL`,
+    );
+    for (const row of nullIdRows.rows) {
+      const derived = derivePublicId(row.id);
+      try {
+        await this.pool.query(
+          `UPDATE users SET public_id = $1 WHERE id = $2 AND public_id IS NULL`,
+          [derived, row.id],
+        );
+      } catch {
+        // UNIQUE violation: skip (extremely rare hash collision)
+      }
+    }
+
     this.logger.log('Database schema is ready.');
   }
+}
+
+function derivePublicId(uuid: string): string {
+  let h = 5381;
+  for (let i = 0; i < uuid.length; i++) {
+    h = ((h << 5) + h + uuid.charCodeAt(i)) & 0x7fffffff;
+  }
+  return Math.abs(h).toString().padStart(8, '0').substring(0, 8);
 }

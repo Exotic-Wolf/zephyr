@@ -12,6 +12,14 @@ import { JWTPayload, createRemoteJWKSet, jwtVerify } from 'jose';
 import { JwtPayload, sign, verify } from 'jsonwebtoken';
 import { DatabaseService } from './database.service';
 
+function derivePublicId(uuid: string): string {
+  let h = 5381;
+  for (let i = 0; i < uuid.length; i++) {
+    h = ((h << 5) + h + uuid.charCodeAt(i)) & 0x7fffffff;
+  }
+  return Math.abs(h).toString().padStart(8, '0').substring(0, 8);
+}
+
 export interface UserProfile {
   id: string;
   publicId: string | null;
@@ -195,10 +203,10 @@ export class StoreService {
     if (this.databaseService?.isEnabled()) {
       await this.databaseService.query(
         `
-          INSERT INTO users (id, display_name, avatar_url, bio, created_at)
-          VALUES ($1, $2, $3, $4, $5)
+          INSERT INTO users (id, display_name, avatar_url, bio, public_id, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6)
         `,
-        [user.id, user.displayName, user.avatarUrl, user.bio, user.createdAt],
+        [user.id, user.displayName, user.avatarUrl, user.bio, derivePublicId(user.id), user.createdAt],
       );
       await this.databaseService.query(
         `
@@ -274,9 +282,10 @@ export class StoreService {
               provider_subject,
               avatar_url,
               bio,
+              public_id,
               created_at
             )
-            VALUES ($1, $2, $3, 'google', $4, $5, $6, $7)
+            VALUES ($1, $2, $3, 'google', $4, $5, $6, $7, $8)
           `,
           [
             userId,
@@ -285,6 +294,7 @@ export class StoreService {
             googleSubject,
             avatarUrl,
             null,
+            derivePublicId(userId),
             new Date().toISOString(),
           ],
         );
@@ -427,9 +437,10 @@ export class StoreService {
               provider_subject,
               avatar_url,
               bio,
+              public_id,
               created_at
             )
-            VALUES ($1, $2, $3, 'apple', $4, $5, $6, $7)
+            VALUES ($1, $2, $3, 'apple', $4, $5, $6, $7, $8)
           `,
           [
             userId,
@@ -438,6 +449,7 @@ export class StoreService {
             appleSubject,
             null,
             null,
+            derivePublicId(userId),
             new Date().toISOString(),
           ],
         );
