@@ -1299,7 +1299,7 @@ export class StoreService {
           FROM messages
           WHERE (sender_id = $1 AND receiver_id = $2)
              OR (sender_id = $2 AND receiver_id = $1)
-          ORDER BY created_at DESC
+          ORDER BY created_at ASC
           LIMIT $3
         `,
         [userId, partnerId, normalizedLimit],
@@ -1321,7 +1321,7 @@ export class StoreService {
           (m.senderId === userId && m.receiverId === partnerId) ||
           (m.senderId === partnerId && m.receiverId === userId),
       )
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .slice(0, normalizedLimit);
   }
 
