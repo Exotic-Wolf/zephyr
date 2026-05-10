@@ -3037,7 +3037,6 @@ class MyProfilePage extends StatefulWidget {
 
 class _MyProfilePageState extends State<MyProfilePage> {
   late final TextEditingController _nicknameCtrl;
-  late final TextEditingController _customIdCtrl;
   bool _saving = false;
 
   String _gender = 'Prefer not to say';
@@ -3064,7 +3063,6 @@ class _MyProfilePageState extends State<MyProfilePage> {
     super.initState();
     final UserProfile? me = widget.me;
     _nicknameCtrl = TextEditingController(text: me?.displayName ?? '');
-    _customIdCtrl = TextEditingController(text: me?.publicId ?? '');
     if (me?.gender != null) _gender = me!.gender!;
     if (me?.birthday != null) {
       _birthday = DateTime.tryParse(me!.birthday!);
@@ -3081,7 +3079,6 @@ class _MyProfilePageState extends State<MyProfilePage> {
   @override
   void dispose() {
     _nicknameCtrl.dispose();
-    _customIdCtrl.dispose();
     super.dispose();
   }
 
@@ -3121,9 +3118,6 @@ class _MyProfilePageState extends State<MyProfilePage> {
         birthday: birthdayStr,
         countryCode: _country?.countryCode,
         language: _language.isEmpty ? null : _language,
-        publicId: (widget.me?.isAdmin == true && _customIdCtrl.text.trim().length == 8)
-            ? _customIdCtrl.text.trim()
-            : null,
       );
 
       if (!mounted) return;
@@ -3336,49 +3330,6 @@ class _MyProfilePageState extends State<MyProfilePage> {
                       : Text(_language, style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
                   onTap: _pickLanguage,
                 ),
-
-                // Custom ID — admin only
-                if (widget.me?.isAdmin == true) ...<Widget>[
-                  const Divider(height: 1),
-                  ListTile(
-                    title: Row(
-                      children: <Widget>[
-                        const Text('Custom ID'),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: <Color>[Color(0xFFFFD700), Color(0xFFFF8C00)],
-                            ),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text('OWNER',
-                              style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800,
-                                  color: Colors.white, letterSpacing: 0.6)),
-                        ),
-                      ],
-                    ),
-                    trailing: SizedBox(
-                      width: 130,
-                      child: TextField(
-                        controller: _customIdCtrl,
-                        textAlign: TextAlign.end,
-                        style: const TextStyle(fontSize: 14),
-                        keyboardType: TextInputType.number,
-                        maxLength: 8,
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          hintText: '8 digits',
-                          hintStyle: TextStyle(color: Colors.grey.shade400),
-                          isDense: true,
-                          contentPadding: EdgeInsets.zero,
-                          counterText: '',
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
