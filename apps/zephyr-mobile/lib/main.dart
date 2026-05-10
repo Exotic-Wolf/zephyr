@@ -3913,6 +3913,16 @@ class _FlameGloryPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
+// ── Message cache (in-memory, survives navigation within session) ─────────────
+
+class _MessageCache {
+  _MessageCache._();
+  static final _MessageCache instance = _MessageCache._();
+
+  List<ZephyrConversation>? conversations;
+  final Map<String, List<ZephyrMessage>> threads = <String, List<ZephyrMessage>>{};
+}
+
 // ── InboxPage ─────────────────────────────────────────────────────────────────
 
 class InboxPage extends StatefulWidget {
@@ -3939,17 +3949,29 @@ class _InboxPageState extends State<InboxPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    // Show cache immediately — no spinner if we have data
+    final cached = _MessageCache.instance.conversations;
+    if (cached != null) {
+      _conversations = cached;
+      _loading = false;
+    }
+    _refresh();
   }
 
+  // Called by pull-to-refresh button — shows spinner only if no cache
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    if (_conversations.isEmpty) setState(() { _loading = true; _error = null; });
+    await _refresh();
+  }
+
+  Future<void> _refresh() async {
     try {
       final List<ZephyrConversation> convos =
           await widget.apiClient.getConversations(widget.accessToken);
+      _MessageCache.instance.conversations = convos;
       if (mounted) setState(() { _conversations = convos; _loading = false; });
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) setState(() { _error = _conversations.isEmpty ? e.toString() : null; _loading = false; });
     }
   }
 
@@ -4123,6 +4145,13 @@ class _ThreadPageState extends State<ThreadPage> {
   @override
   void initState() {
     super.initState();
+    // Show cached thread instantly if available
+    final cached = _MessageCache.instance.threads[widget.otherUserId];
+    if (cached != null) {
+      _messages = cached;
+      _loading = false;
+      _scrollToBottom();
+    }
     _load();
   }
 
@@ -4137,6 +4166,7 @@ class _ThreadPageState extends State<ThreadPage> {
     try {
       final List<ZephyrMessage> msgs = await widget.apiClient
           .getThread(widget.accessToken, widget.otherUserId);
+      _MessageCache.instance.threads[widget.otherUserId] = msgs;
       if (!mounted) return;
       setState(() { _messages = msgs; _loading = false; });
       // Mark unread incoming messages as read
@@ -4172,7 +4202,9 @@ class _ThreadPageState extends State<ThreadPage> {
       final ZephyrMessage msg = await widget.apiClient.sendMessage(
           widget.accessToken, widget.otherUserId, text);
       if (!mounted) return;
-      setState(() => _messages = <ZephyrMessage>[..._messages, msg]);
+      final updated = <ZephyrMessage>[..._messages, msg];
+      _MessageCache.instance.threads[widget.otherUserId] = updated;
+      setState(() => _messages = updated);
       _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
