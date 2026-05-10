@@ -1136,11 +1136,63 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _searchByPublicId(String query) async {
+    if (query.length != 8 || int.tryParse(query) == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Enter an exact 8-digit ID'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+    try {
+      final UserProfile profile =
+          await widget.apiClient.getUserByPublicId(query);
+      if (!mounted) return;
+      // Close search bar
+      setState(() { _searchActive = false; _searchCtrl.clear(); _searchQuery = ''; });
+      // Build a minimal LiveFeedCard to reuse ProfilePage
+      final LiveFeedCard card = LiveFeedCard(
+        roomId: '',
+        title: profile.displayName,
+        hostUserId: profile.id,
+        hostDisplayName: profile.displayName,
+        hostAvatarUrl: profile.avatarUrl,
+        hostCountryCode: profile.countryCode ?? 'XX',
+        hostLanguage: profile.language ?? '',
+        hostStatus: 'online',
+        audienceCount: 0,
+        startedAt: DateTime.now(),
+      );
+      if (!mounted) return;
+      Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => ProfilePage(
+          feedCard: card,
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          myUserId: _me?.id,
+          onMessage: () {
+            Navigator.of(context).pop();
+            setState(() => _selectedTabIndex = 3);
+          },
+        ),
+      ));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('No user found with that ID'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
   void _openProfilePage(LiveFeedCard feedCard) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ProfilePage(
           feedCard: feedCard,
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          myUserId: _me?.id,
           onMessage: () {
             Navigator.of(context).pop();
             setState(() => _selectedTabIndex = 3);
@@ -2315,11 +2367,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? TextField(
                     controller: _searchCtrl,
                     autofocus: true,
+                    keyboardType: TextInputType.number,
                     onChanged: (v) => setState(() => _searchQuery = v),
+                    onSubmitted: (v) => _searchByPublicId(v.trim()),
                     decoration: InputDecoration(
-                      hintText: 'Name or ID…',
+                      hintText: 'Search 8-digit ID…',
                       border: InputBorder.none,
                       isDense: true,
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.search_rounded, size: 20),
+                        onPressed: () => _searchByPublicId(_searchCtrl.text.trim()),
+                      ),
                     ),
                   )
                 : SingleChildScrollView(
@@ -2595,11 +2653,17 @@ class ProfilePage extends StatefulWidget {
     required this.feedCard,
     required this.onMessage,
     this.isPreview = false,
+    this.apiClient,
+    this.accessToken,
+    this.myUserId,
   });
 
   final LiveFeedCard feedCard;
   final VoidCallback onMessage;
   final bool isPreview;
+  final ZephyrApiClient? apiClient;
+  final String? accessToken;
+  final String? myUserId;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -2725,7 +2789,25 @@ class _ProfilePageState extends State<ProfilePage> {
             Expanded(
               flex: 1,
               child: OutlinedButton.icon(
-                onPressed: widget.onMessage,
+                onPressed: () {
+                  final api = widget.apiClient;
+                  final token = widget.accessToken;
+                  final me = widget.myUserId;
+                  if (api != null && token != null && me != null) {
+                    Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => ThreadPage(
+                        apiClient: api,
+                        accessToken: token,
+                        myUserId: me,
+                        otherUserId: _card.hostUserId,
+                        otherDisplayName: _card.hostDisplayName,
+                        otherAvatarUrl: _card.hostAvatarUrl,
+                      ),
+                    ));
+                  } else {
+                    widget.onMessage();
+                  }
+                },
                 icon: const Icon(
                     Icons.chat_bubble_outline_rounded,
                     size: 18),
@@ -5039,6 +5121,14 @@ class ZephyrApiClient {
     );
 
     return UserProfile.fromJson(data);
+  }
+
+  Future<UserProfile> getUserByPublicId(String publicId) async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/users/by-public-id/$publicId',
+    );
+    return UserProfile.fromJson(data as Map<String, dynamic>);
   }
 
   Future<List<ZephyrConversation>> getConversations(String accessToken) async {
