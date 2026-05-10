@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "724639603736",
+    "project_id": "zephyr-495115",
+    "storage_bucket": "zephyr-495115.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:724639603736:android:3ecd44a9778d059d44376d",
+        "android_client_info": {
+          "package_name": "com.zephyr.zephyr_mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "724639603736-08tovsj719dsb6atip932tqo1jg0gtl2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zephyr.zephyr_mobile",
+            "certificate_hash": "1060a868959087374ac77a39c6f848d4bf310766"
+          }
+        },
+        {
+          "client_id": "724639603736-f7v5k8112bjpfaq2igjm0b5fndlm8vc8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBPy9T8AQ5waPwp_zDAZk2GLjFFDJGNPG8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "724639603736-f7v5k8112bjpfaq2igjm0b5fndlm8vc8.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "724639603736-n8v2kjqfg40l7bqkt26kov8cmofhn2db.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.zephyr.zephyrMobile"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
