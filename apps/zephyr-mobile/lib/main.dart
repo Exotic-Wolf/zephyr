@@ -2298,10 +2298,10 @@ class _HomeScreenState extends State<HomeScreen> {
             0 => _buildHomeTab(isTablet),
             1 => _buildLiveRoomsTab(isTablet),
             2 => _buildCallPricingTab(isTablet),
-            3 => _buildPlaceholderTab(
-                icon: Icons.chat_bubble_rounded,
-                title: 'Inbox',
-                subtitle: 'Messages and notifications will appear here.',
+            3 => InboxPage(
+                apiClient: widget.apiClient,
+                accessToken: widget.accessToken,
+                myUserId: _me?.id ?? '',
               ),
             4 => _buildMeTab(),
             _ => const SizedBox.shrink(),
@@ -3913,6 +3913,457 @@ class _FlameGloryPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
+// ── InboxPage ─────────────────────────────────────────────────────────────────
+
+class InboxPage extends StatefulWidget {
+  const InboxPage({
+    super.key,
+    required this.apiClient,
+    required this.accessToken,
+    required this.myUserId,
+  });
+
+  final ZephyrApiClient apiClient;
+  final String accessToken;
+  final String myUserId;
+
+  @override
+  State<InboxPage> createState() => _InboxPageState();
+}
+
+class _InboxPageState extends State<InboxPage> {
+  List<ZephyrConversation> _conversations = <ZephyrConversation>[];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final List<ZephyrConversation> convos =
+          await widget.apiClient.getConversations(widget.accessToken);
+      if (mounted) setState(() { _conversations = convos; _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  String _timeAgo(DateTime dt) {
+    final Duration diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F2F7),
+      appBar: AppBar(
+        title: const Text('Inbox'),
+        actions: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _load,
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
+              : _conversations.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Icon(Icons.chat_bubble_outline_rounded,
+                              size: 56, color: Colors.grey.shade300),
+                          const SizedBox(height: 12),
+                          Text('No messages yet',
+                              style: TextStyle(
+                                  fontSize: 16, color: Colors.grey.shade500)),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: _conversations.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1, indent: 72),
+                      itemBuilder: (BuildContext ctx, int i) {
+                        final ZephyrConversation c = _conversations[i];
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          leading: CircleAvatar(
+                            radius: 26,
+                            backgroundColor:
+                                const Color(0xFF1FA4EA).withValues(alpha: 0.15),
+                            backgroundImage: c.avatarUrl != null
+                                ? NetworkImage(c.avatarUrl!)
+                                : null,
+                            child: c.avatarUrl == null
+                                ? Text(
+                                    c.displayName.isNotEmpty
+                                        ? c.displayName[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                        color: Color(0xFF1FA4EA),
+                                        fontWeight: FontWeight.w700),
+                                  )
+                                : null,
+                          ),
+                          title: Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: Text(c.displayName,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600)),
+                              ),
+                              Text(_timeAgo(c.lastMessageAt),
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade400)),
+                            ],
+                          ),
+                          subtitle: Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: Text(
+                                  c.lastMessage,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      color: c.unreadCount > 0
+                                          ? Colors.black87
+                                          : Colors.grey.shade500,
+                                      fontWeight: c.unreadCount > 0
+                                          ? FontWeight.w500
+                                          : FontWeight.normal),
+                                ),
+                              ),
+                              if (c.unreadCount > 0)
+                                Container(
+                                  margin: const EdgeInsets.only(left: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF1FA4EA),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    '${c.unreadCount}',
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          onTap: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ThreadPage(
+                                  apiClient: widget.apiClient,
+                                  accessToken: widget.accessToken,
+                                  myUserId: widget.myUserId,
+                                  otherUserId: c.userId,
+                                  otherDisplayName: c.displayName,
+                                  otherAvatarUrl: c.avatarUrl,
+                                ),
+                              ),
+                            );
+                            _load(); // refresh unread counts on return
+                          },
+                        );
+                      },
+                    ),
+    );
+  }
+}
+
+// ── ThreadPage ────────────────────────────────────────────────────────────────
+
+class ThreadPage extends StatefulWidget {
+  const ThreadPage({
+    super.key,
+    required this.apiClient,
+    required this.accessToken,
+    required this.myUserId,
+    required this.otherUserId,
+    required this.otherDisplayName,
+    this.otherAvatarUrl,
+  });
+
+  final ZephyrApiClient apiClient;
+  final String accessToken;
+  final String myUserId;
+  final String otherUserId;
+  final String otherDisplayName;
+  final String? otherAvatarUrl;
+
+  @override
+  State<ThreadPage> createState() => _ThreadPageState();
+}
+
+class _ThreadPageState extends State<ThreadPage> {
+  List<ZephyrMessage> _messages = <ZephyrMessage>[];
+  bool _loading = true;
+  bool _sending = false;
+  final TextEditingController _inputCtrl = TextEditingController();
+  final ScrollController _scrollCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _inputCtrl.dispose();
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final List<ZephyrMessage> msgs = await widget.apiClient
+          .getThread(widget.accessToken, widget.otherUserId);
+      if (!mounted) return;
+      setState(() { _messages = msgs; _loading = false; });
+      // Mark unread incoming messages as read
+      for (final ZephyrMessage m in msgs) {
+        if (m.receiverId == widget.myUserId && m.readAt == null) {
+          widget.apiClient.markMessageRead(widget.accessToken, m.id);
+        }
+      }
+      _scrollToBottom();
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(
+          _scrollCtrl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _send() async {
+    final String text = _inputCtrl.text.trim();
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    _inputCtrl.clear();
+    try {
+      final ZephyrMessage msg = await widget.apiClient.sendMessage(
+          widget.accessToken, widget.otherUserId, text);
+      if (!mounted) return;
+      setState(() => _messages = <ZephyrMessage>[..._messages, msg]);
+      _scrollToBottom();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  String _formatTime(DateTime dt) {
+    final String h = dt.hour.toString().padLeft(2, '0');
+    final String m = dt.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double bottomPad = MediaQuery.of(context).padding.bottom;
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F2F7),
+      appBar: AppBar(
+        leadingWidth: 40,
+        title: Row(
+          children: <Widget>[
+            CircleAvatar(
+              radius: 18,
+              backgroundColor:
+                  const Color(0xFF1FA4EA).withValues(alpha: 0.15),
+              backgroundImage: widget.otherAvatarUrl != null
+                  ? NetworkImage(widget.otherAvatarUrl!)
+                  : null,
+              child: widget.otherAvatarUrl == null
+                  ? Text(
+                      widget.otherDisplayName.isNotEmpty
+                          ? widget.otherDisplayName[0].toUpperCase()
+                          : '?',
+                      style: const TextStyle(
+                          color: Color(0xFF1FA4EA),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14),
+                    )
+                  : null,
+            ),
+            const SizedBox(width: 10),
+            Text(widget.otherDisplayName),
+          ],
+        ),
+      ),
+      body: Column(
+        children: <Widget>[
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _messages.isEmpty
+                    ? Center(
+                        child: Text('No messages yet. Say hello!',
+                            style: TextStyle(color: Colors.grey.shade500)),
+                      )
+                    : ListView.builder(
+                        controller: _scrollCtrl,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 16),
+                        itemCount: _messages.length,
+                        itemBuilder: (BuildContext ctx, int i) {
+                          final ZephyrMessage msg = _messages[i];
+                          final bool isMe =
+                              msg.senderId == widget.myUserId;
+                          return Align(
+                            alignment: isMe
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Container(
+                              margin:
+                                  const EdgeInsets.symmetric(vertical: 3),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              constraints: BoxConstraints(
+                                  maxWidth:
+                                      MediaQuery.sizeOf(ctx).width * 0.72),
+                              decoration: BoxDecoration(
+                                color: isMe
+                                    ? const Color(0xFF1FA4EA)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.only(
+                                  topLeft: const Radius.circular(18),
+                                  topRight: const Radius.circular(18),
+                                  bottomLeft: Radius.circular(isMe ? 18 : 4),
+                                  bottomRight: Radius.circular(isMe ? 4 : 18),
+                                ),
+                                boxShadow: <BoxShadow>[
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.06),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: isMe
+                                    ? CrossAxisAlignment.end
+                                    : CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(msg.body,
+                                      style: TextStyle(
+                                          fontSize: 15,
+                                          color: isMe
+                                              ? Colors.white
+                                              : Colors.black87)),
+                                  const SizedBox(height: 3),
+                                  Text(_formatTime(msg.createdAt),
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: isMe
+                                              ? Colors.white70
+                                              : Colors.grey.shade400)),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+          // ── Input bar ──────────────────────────────────────────
+          Container(
+            color: Colors.white,
+            padding: EdgeInsets.fromLTRB(12, 8, 12, 8 + bottomPad),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF2F2F7),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: TextField(
+                      controller: _inputCtrl,
+                      minLines: 1,
+                      maxLines: 4,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        hintText: 'Message…',
+                        isDense: true,
+                        contentPadding:
+                            EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onSubmitted: (_) => _send(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _sending
+                    ? const SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      )
+                    : GestureDetector(
+                        onTap: _send,
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color(0xFF1FA4EA),
+                          ),
+                          child: const Icon(Icons.send_rounded,
+                              color: Colors.white, size: 18),
+                        ),
+                      ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Spark icon — classic flame, Pantone Green 347C ──────────────────────────
 // ── _LanguagePickerSheet ──────────────────────────────────────────────────────
 
@@ -4567,6 +5018,50 @@ class ZephyrApiClient {
     return UserProfile.fromJson(data);
   }
 
+  Future<List<ZephyrConversation>> getConversations(String accessToken) async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/messages/conversations',
+      accessToken: accessToken,
+    );
+    if (data is! List<dynamic>) throw Exception('Invalid conversations response');
+    return data
+        .map((dynamic e) => ZephyrConversation.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<ZephyrMessage>> getThread(
+      String accessToken, String userId) async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/messages/conversations/$userId',
+      accessToken: accessToken,
+    );
+    if (data is! List<dynamic>) throw Exception('Invalid thread response');
+    return data
+        .map((dynamic e) => ZephyrMessage.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<ZephyrMessage> sendMessage(
+      String accessToken, String receiverId, String body) async {
+    final dynamic data = await _request(
+      method: 'POST',
+      path: '/v1/messages',
+      accessToken: accessToken,
+      body: <String, dynamic>{'receiverId': receiverId, 'body': body},
+    );
+    return ZephyrMessage.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<void> markMessageRead(String accessToken, String messageId) async {
+    await _request(
+      method: 'PATCH',
+      path: '/v1/messages/$messageId/read',
+      accessToken: accessToken,
+    );
+  }
+
   Future<List<Room>> listRooms() async {
     final dynamic data = await _request(method: 'GET', path: '/v1/rooms');
 
@@ -5005,6 +5500,66 @@ String _derivePublicId(String uuid) {
     h = ((h << 5) + h + c) & 0x7FFFFFFF;
   }
   return h.abs().toString().padLeft(8, '0').substring(0, 8);
+}
+
+// ── Message models ────────────────────────────────────────────────────────────
+
+class ZephyrMessage {
+  ZephyrMessage({
+    required this.id,
+    required this.senderId,
+    required this.receiverId,
+    required this.body,
+    required this.createdAt,
+    this.readAt,
+  });
+
+  final String id;
+  final String senderId;
+  final String receiverId;
+  final String body;
+  final DateTime createdAt;
+  final DateTime? readAt;
+
+  factory ZephyrMessage.fromJson(Map<String, dynamic> json) {
+    return ZephyrMessage(
+      id: json['id'] as String,
+      senderId: json['senderId'] as String,
+      receiverId: json['receiverId'] as String,
+      body: json['body'] as String,
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      readAt: json['readAt'] != null ? DateTime.parse(json['readAt'] as String) : null,
+    );
+  }
+}
+
+class ZephyrConversation {
+  ZephyrConversation({
+    required this.userId,
+    required this.displayName,
+    required this.lastMessage,
+    required this.lastMessageAt,
+    required this.unreadCount,
+    this.avatarUrl,
+  });
+
+  final String userId;
+  final String displayName;
+  final String? avatarUrl;
+  final String lastMessage;
+  final DateTime lastMessageAt;
+  final int unreadCount;
+
+  factory ZephyrConversation.fromJson(Map<String, dynamic> json) {
+    return ZephyrConversation(
+      userId: json['userId'] as String,
+      displayName: json['displayName'] as String,
+      avatarUrl: json['avatarUrl'] as String?,
+      lastMessage: json['lastMessage'] as String,
+      lastMessageAt: DateTime.parse(json['lastMessageAt'] as String),
+      unreadCount: (json['unreadCount'] as num?)?.toInt() ?? 0,
+    );
+  }
 }
 
 class UserProfile {
