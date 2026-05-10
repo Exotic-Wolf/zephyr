@@ -14,6 +14,7 @@ import { DatabaseService } from './database.service';
 
 export interface UserProfile {
   id: string;
+  publicId: string | null;
   displayName: string;
   avatarUrl: string | null;
   bio: string | null;
@@ -178,6 +179,7 @@ export class StoreService {
     const now = new Date().toISOString();
     const user: UserProfile = {
       id: userId,
+      publicId: null,
       displayName: displayName?.trim() || `zephyr_${userId.slice(0, 8)}`,
       avatarUrl: null,
       bio: null,
@@ -311,12 +313,13 @@ export class StoreService {
         birthday: string | null;
         country_code: string | null;
         language: string | null;
+        public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
-          SELECT id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, created_at
           FROM users
           WHERE id = $1
@@ -350,6 +353,7 @@ export class StoreService {
 
     const user: UserProfile = {
       id: userId,
+      publicId: null,
       displayName,
       avatarUrl,
       bio: null,
@@ -462,12 +466,13 @@ export class StoreService {
         birthday: string | null;
         country_code: string | null;
         language: string | null;
+        public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
-          SELECT id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, created_at
           FROM users
           WHERE id = $1
@@ -501,6 +506,7 @@ export class StoreService {
 
     const user: UserProfile = {
       id: userId,
+      publicId: null,
       displayName,
       avatarUrl: null,
       bio: null,
@@ -534,6 +540,7 @@ export class StoreService {
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{
         id: string;
+        public_id: string | null;
         display_name: string;
         avatar_url: string | null;
         bio: string | null;
@@ -546,7 +553,7 @@ export class StoreService {
         created_at: string;
       }>(
         `
-          SELECT u.id, u.display_name, u.avatar_url, u.bio, u.gender, u.birthday,
+          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.bio, u.gender, u.birthday,
                  u.country_code, u.language, u.is_admin, u.call_rate_coins_per_minute, u.created_at
           FROM sessions s
           INNER JOIN users u ON u.id = s.user_id
@@ -592,6 +599,7 @@ export class StoreService {
       countryCode?: string | null;
       language?: string | null;
       callRateCoinsPerMinute?: number | null;
+      publicId?: string | null;
     },
   ): Promise<UserProfile> {
     if (updates.displayName !== undefined && updates.displayName.trim().length < 2) {
@@ -608,12 +616,13 @@ export class StoreService {
         birthday: string | null;
         country_code: string | null;
         language: string | null;
+        public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
-          SELECT id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, created_at
           FROM users
           WHERE id = $1
@@ -635,9 +644,11 @@ export class StoreService {
       const nextCountryCode = updates.countryCode !== undefined ? updates.countryCode : currentUser.countryCode;
       const nextLanguage = updates.language !== undefined ? updates.language : currentUser.language;
       const nextCallRate = updates.callRateCoinsPerMinute !== undefined ? updates.callRateCoinsPerMinute : currentUser.callRateCoinsPerMinute;
+      const nextPublicId = updates.publicId !== undefined ? updates.publicId : currentUser.publicId;
 
       const updatedResult = await this.databaseService.query<{
         id: string;
+        public_id: string | null;
         display_name: string;
         avatar_url: string | null;
         bio: string | null;
@@ -653,12 +664,12 @@ export class StoreService {
           UPDATE users
           SET display_name = $2, avatar_url = $3, bio = $4,
               gender = $5, birthday = $6, country_code = $7, language = $8,
-              call_rate_coins_per_minute = $9
+              call_rate_coins_per_minute = $9, public_id = $10
           WHERE id = $1
-          RETURNING id, display_name, avatar_url, bio, gender, birthday,
+          RETURNING id, public_id, display_name, avatar_url, bio, gender, birthday,
                     country_code, language, is_admin, call_rate_coins_per_minute, created_at
         `,
-        [userId, nextDisplayName, nextAvatarUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate],
+        [userId, nextDisplayName, nextAvatarUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate, nextPublicId],
       );
 
       return this.toUserProfile(updatedResult.rows[0]);
@@ -679,6 +690,7 @@ export class StoreService {
       countryCode: updates.countryCode !== undefined ? updates.countryCode : user.countryCode,
       language: updates.language !== undefined ? updates.language : user.language,
       callRateCoinsPerMinute: updates.callRateCoinsPerMinute !== undefined ? updates.callRateCoinsPerMinute : user.callRateCoinsPerMinute,
+      publicId: updates.publicId !== undefined ? updates.publicId : user.publicId,
     };
 
     this.users.set(userId, nextUser);
@@ -941,12 +953,13 @@ export class StoreService {
         birthday: string | null;
         country_code: string | null;
         language: string | null;
+        public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
-          SELECT id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, created_at
           FROM users WHERE id = $1 LIMIT 1
         `,
@@ -2327,6 +2340,7 @@ export class StoreService {
 
   private toUserProfile(row: {
     id: string;
+    public_id?: string | null;
     display_name: string;
     avatar_url: string | null;
     bio: string | null;
@@ -2340,6 +2354,7 @@ export class StoreService {
   }): UserProfile {
     return {
       id: row.id,
+      publicId: row.public_id ?? null,
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
       bio: row.bio,

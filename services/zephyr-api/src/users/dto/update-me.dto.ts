@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
   MaxLength,
   MinLength,
   ValidateIf,
@@ -49,4 +50,9 @@ export class UpdateMeDto {
   @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsIn([2100, 3200, 4200, 5400, 6400, 8000, 27000])
   callRateCoinsPerMinute?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{8}$/, { message: 'publicId must be exactly 8 digits' })
+  publicId?: string | null;
 }

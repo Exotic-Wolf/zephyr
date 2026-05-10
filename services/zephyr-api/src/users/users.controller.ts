@@ -28,6 +28,8 @@ export class UsersController {
       countryCode: body?.countryCode,
       language: body?.language,
       callRateCoinsPerMinute: body?.callRateCoinsPerMinute,
+      // Only admins may claim a custom public ID
+      publicId: user.isAdmin ? body?.publicId : undefined,
     });
   }
 

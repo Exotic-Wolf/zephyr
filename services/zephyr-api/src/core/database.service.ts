@@ -78,7 +78,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ADD COLUMN IF NOT EXISTS country_code TEXT,
       ADD COLUMN IF NOT EXISTS language TEXT,
       ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE,
-      ADD COLUMN IF NOT EXISTS call_rate_coins_per_minute INT;
+      ADD COLUMN IF NOT EXISTS call_rate_coins_per_minute INT,
+      ADD COLUMN IF NOT EXISTS public_id TEXT;
+    `);
+
+    await this.pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_public_id_idx
+      ON users(public_id)
+      WHERE public_id IS NOT NULL;
     `);
 
     await this.pool.query(`
@@ -211,6 +218,16 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         created_at DESC
       );
     `);
+
+    // Seed: promote the owner account to admin based on env var.
+    // Safe to re-run — only updates if the email matches.
+    const ownerEmail = process.env.OWNER_GOOGLE_EMAIL?.trim();
+    if (ownerEmail) {
+      await this.pool.query(
+        `UPDATE users SET is_admin = TRUE WHERE email = $1 AND provider = 'google'`,
+        [ownerEmail],
+      );
+    }
 
     this.logger.log('Database schema is ready.');
   }
