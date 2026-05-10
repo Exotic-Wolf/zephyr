@@ -287,13 +287,15 @@ export class StoreService {
           ],
         );
       } else {
+        // On re-login, only sync email and avatarUrl — leave display_name (nickname) intact
+        // so users can customise it without it being reset by Google on every login.
         await this.databaseService.query(
           `
             UPDATE users
-            SET display_name = $2, email = $3, avatar_url = $4
+            SET email = $2, avatar_url = $3
             WHERE id = $1
           `,
-          [userId, displayName, email, avatarUrl],
+          [userId, email, avatarUrl],
         );
       }
 
@@ -436,13 +438,15 @@ export class StoreService {
           ],
         );
       } else {
+        // On re-login, only sync email — leave display_name (nickname) intact
+        // so users can customise it without Apple resetting it on every login.
         await this.databaseService.query(
           `
             UPDATE users
-            SET display_name = $2, email = COALESCE($3, email)
+            SET email = COALESCE($2, email)
             WHERE id = $1
           `,
-          [userId, displayName, email],
+          [userId, email],
         );
       }
 

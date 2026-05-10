@@ -2158,8 +2158,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openCallPricePage() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
+    final UserProfile? updated = await Navigator.of(context).push(
+      MaterialPageRoute<UserProfile>(
         builder: (_) => CallPricePage(
           userLevel: _userLevel,
           apiClient: widget.apiClient,
@@ -2168,6 +2168,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+    if (updated != null && mounted) {
+      setState(() => _me = updated);
+    }
   }
 
   Future<void> _openSettingsPage() async {
@@ -3355,7 +3358,7 @@ class _CallPricePageState extends State<CallPricePage> {
     if (_saving) return;
     setState(() => _saving = true);
     try {
-      await widget.apiClient.updateMe(
+      final UserProfile updated = await widget.apiClient.updateMe(
         widget.accessToken,
         callRateCoinsPerMinute: _selectedCoins,
       );
@@ -3367,6 +3370,7 @@ class _CallPricePageState extends State<CallPricePage> {
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: 2),
         ));
+      Navigator.of(context).pop(updated);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
