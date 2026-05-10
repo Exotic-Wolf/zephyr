@@ -2160,7 +2160,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openCallPricePage() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CallPricePage(userLevel: _userLevel),
+        builder: (_) => CallPricePage(
+          userLevel: _userLevel,
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          me: _me,
+        ),
       ),
     );
   }
@@ -3308,9 +3313,18 @@ const List<_CallTier> _kCallTiers = <_CallTier>[
 ];
 
 class CallPricePage extends StatefulWidget {
-  const CallPricePage({super.key, required this.userLevel});
+  const CallPricePage({
+    super.key,
+    required this.userLevel,
+    required this.apiClient,
+    required this.accessToken,
+    this.me,
+  });
 
   final int userLevel;
+  final ZephyrApiClient apiClient;
+  final String accessToken;
+  final UserProfile? me;
 
   @override
   State<CallPricePage> createState() => _CallPricePageState();
@@ -3319,14 +3333,78 @@ class CallPricePage extends StatefulWidget {
 class _CallPricePageState extends State<CallPricePage> {
   // default to highest tier the user qualifies for
   late int _selectedCoins = _kCallTiers
-      .lastWhere((t) => t.minLevel <= widget.userLevel,
-          orElse: () => _kCallTiers.first)
+      .lastWhere(
+        (t) => t.minLevel <= widget.userLevel,
+        orElse: () => _kCallTiers.first,
+      )
       .coinsPerMin;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-populate from saved rate if it matches a valid tier
+    final int? saved = widget.me?.callRateCoinsPerMinute;
+    if (saved != null &&
+        _kCallTiers.any((t) => t.coinsPerMin == saved && t.minLevel <= widget.userLevel)) {
+      _selectedCoins = saved;
+    }
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await widget.apiClient.updateMe(
+        widget.accessToken,
+        callRateCoinsPerMinute: _selectedCoins,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Call rate saved'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('Failed to save: $e'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red,
+        ));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Call Price')),
+      appBar: AppBar(
+        title: const Text('My Call Price'),
+        actions: <Widget>[
+          if (_saving)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else
+            TextButton(
+              onPressed: _save,
+              child: const Text('Save',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+        ],
+      ),
       backgroundColor: const Color(0xFFF2F2F7),
       body: Column(
         children: <Widget>[
@@ -3493,12 +3571,6 @@ class _CallPricePageState extends State<CallPricePage> {
                         onTap: unlocked
                             ? () {
                                 setState(() => _selectedCoins = tier.coinsPerMin);
-                                ScaffoldMessenger.of(context)
-                                  ..hideCurrentSnackBar()
-                                  ..showSnackBar(const SnackBar(
-                                      content: Text('Call rate saved'),
-                                      behavior: SnackBarBehavior.floating,
-                                      duration: Duration(seconds: 2)));
                               }
                             : null,
                         child: Container(
@@ -4305,6 +4377,7 @@ class ZephyrApiClient {
     String? birthday,
     String? countryCode,
     String? language,
+    int? callRateCoinsPerMinute,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{};
     if (displayName != null) body['displayName'] = displayName;
@@ -4312,6 +4385,7 @@ class ZephyrApiClient {
     if (birthday != null) body['birthday'] = birthday;
     if (countryCode != null) body['countryCode'] = countryCode;
     if (language != null) body['language'] = language;
+    if (callRateCoinsPerMinute != null) body['callRateCoinsPerMinute'] = callRateCoinsPerMinute;
 
     final Map<String, dynamic> data = await _request(
       method: 'PATCH',
@@ -4775,6 +4849,7 @@ class UserProfile {
     this.birthday,
     this.countryCode,
     this.language,
+    this.callRateCoinsPerMinute,
   }) : publicId = publicId ?? _derivePublicId(id);
 
   final String id;
@@ -4787,6 +4862,7 @@ class UserProfile {
   final String? birthday;   // ISO date string e.g. "1995-06-15"
   final String? countryCode;
   final String? language;
+  final int? callRateCoinsPerMinute;
   final DateTime createdAt;
 
   /// Derives a stable 8-digit numeric code from the DB UUID using a djb2 hash.
@@ -4805,6 +4881,7 @@ class UserProfile {
       birthday: json['birthday'] as String?,
       countryCode: json['countryCode'] as String?,
       language: json['language'] as String?,
+      callRateCoinsPerMinute: (json['callRateCoinsPerMinute'] as num?)?.toInt(),
       createdAt: DateTime.parse(json['createdAt'] as String),
     );
   }

@@ -27,6 +27,7 @@ export class UsersController {
       birthday: body?.birthday,
       countryCode: body?.countryCode,
       language: body?.language,
+      callRateCoinsPerMinute: body?.callRateCoinsPerMinute,
     });
   }
 

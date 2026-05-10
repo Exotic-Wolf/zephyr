@@ -1,6 +1,7 @@
 import {
   IsDateString,
   IsIn,
+  IsNumber,
   IsOptional,
   IsString,
   IsUrl,
@@ -44,4 +45,8 @@ export class UpdateMeDto {
   @IsString()
   @MaxLength(50)
   language?: string | null;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsIn([2100, 3200, 4200, 5400, 6400, 8000, 27000])
+  callRateCoinsPerMinute?: number | null;
 }

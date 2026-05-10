@@ -22,6 +22,7 @@ export interface UserProfile {
   countryCode: string | null;
   language: string | null;
   isAdmin: boolean;
+  callRateCoinsPerMinute: number | null;
   createdAt: string;
 }
 
@@ -185,6 +186,7 @@ export class StoreService {
       countryCode: null,
       language: null,
       isAdmin: false,
+      callRateCoinsPerMinute: null,
       createdAt: now,
     };
 
@@ -308,11 +310,12 @@ export class StoreService {
         country_code: string | null;
         language: string | null;
         is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
           SELECT id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -353,6 +356,7 @@ export class StoreService {
       countryCode: null,
       language: null,
       isAdmin: false,
+      callRateCoinsPerMinute: null,
       createdAt: this.users.get(userId)?.createdAt ?? new Date().toISOString(),
     };
 
@@ -455,11 +459,12 @@ export class StoreService {
         country_code: string | null;
         language: string | null;
         is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
           SELECT id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -500,6 +505,7 @@ export class StoreService {
       countryCode: null,
       language: null,
       isAdmin: false,
+      callRateCoinsPerMinute: null,
       createdAt: this.users.get(userId)?.createdAt ?? new Date().toISOString(),
     };
 
@@ -532,11 +538,12 @@ export class StoreService {
         country_code: string | null;
         language: string | null;
         is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
           SELECT u.id, u.display_name, u.avatar_url, u.bio, u.gender, u.birthday,
-                 u.country_code, u.language, u.is_admin, u.created_at
+                 u.country_code, u.language, u.is_admin, u.call_rate_coins_per_minute, u.created_at
           FROM sessions s
           INNER JOIN users u ON u.id = s.user_id
           WHERE s.token = $1 AND s.user_id = $2 AND s.expires_at > NOW()
@@ -580,6 +587,7 @@ export class StoreService {
       birthday?: string | null;
       countryCode?: string | null;
       language?: string | null;
+      callRateCoinsPerMinute?: number | null;
     },
   ): Promise<UserProfile> {
     if (updates.displayName !== undefined && updates.displayName.trim().length < 2) {
@@ -597,11 +605,12 @@ export class StoreService {
         country_code: string | null;
         language: string | null;
         is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
           SELECT id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -621,6 +630,7 @@ export class StoreService {
       const nextBirthday = updates.birthday !== undefined ? updates.birthday : currentUser.birthday;
       const nextCountryCode = updates.countryCode !== undefined ? updates.countryCode : currentUser.countryCode;
       const nextLanguage = updates.language !== undefined ? updates.language : currentUser.language;
+      const nextCallRate = updates.callRateCoinsPerMinute !== undefined ? updates.callRateCoinsPerMinute : currentUser.callRateCoinsPerMinute;
 
       const updatedResult = await this.databaseService.query<{
         id: string;
@@ -632,17 +642,19 @@ export class StoreService {
         country_code: string | null;
         language: string | null;
         is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
           UPDATE users
           SET display_name = $2, avatar_url = $3, bio = $4,
-              gender = $5, birthday = $6, country_code = $7, language = $8
+              gender = $5, birthday = $6, country_code = $7, language = $8,
+              call_rate_coins_per_minute = $9
           WHERE id = $1
           RETURNING id, display_name, avatar_url, bio, gender, birthday,
-                    country_code, language, is_admin, created_at
+                    country_code, language, is_admin, call_rate_coins_per_minute, created_at
         `,
-        [userId, nextDisplayName, nextAvatarUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage],
+        [userId, nextDisplayName, nextAvatarUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate],
       );
 
       return this.toUserProfile(updatedResult.rows[0]);
@@ -662,6 +674,7 @@ export class StoreService {
       birthday: updates.birthday !== undefined ? updates.birthday : user.birthday,
       countryCode: updates.countryCode !== undefined ? updates.countryCode : user.countryCode,
       language: updates.language !== undefined ? updates.language : user.language,
+      callRateCoinsPerMinute: updates.callRateCoinsPerMinute !== undefined ? updates.callRateCoinsPerMinute : user.callRateCoinsPerMinute,
     };
 
     this.users.set(userId, nextUser);
@@ -925,11 +938,12 @@ export class StoreService {
         country_code: string | null;
         language: string | null;
         is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
         created_at: string;
       }>(
         `
           SELECT id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
           FROM users WHERE id = $1 LIMIT 1
         `,
         [userId],
@@ -2317,6 +2331,7 @@ export class StoreService {
     country_code?: string | null;
     language?: string | null;
     is_admin?: boolean | null;
+    call_rate_coins_per_minute?: number | null;
     created_at: string;
   }): UserProfile {
     return {
@@ -2329,6 +2344,7 @@ export class StoreService {
       countryCode: row.country_code ?? null,
       language: row.language ?? null,
       isAdmin: row.is_admin ?? false,
+      callRateCoinsPerMinute: row.call_rate_coins_per_minute ?? null,
       createdAt: new Date(row.created_at).toISOString(),
     };
   }
