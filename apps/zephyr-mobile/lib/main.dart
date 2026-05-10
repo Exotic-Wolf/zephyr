@@ -4466,6 +4466,7 @@ class _InboxPageState extends State<InboxPage> {
   List<ZephyrConversation> _conversations = <ZephyrConversation>[];
   bool _loading = true;
   String? _error;
+  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -4477,6 +4478,13 @@ class _InboxPageState extends State<InboxPage> {
       _loading = false;
     }
     _refresh();
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   // Called by pull-to-refresh button — shows spinner only if no cache
