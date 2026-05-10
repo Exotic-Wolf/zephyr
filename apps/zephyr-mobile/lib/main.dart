@@ -1075,7 +1075,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return switch (_selectedTabIndex) {
       0 => 'Home',
       1 => 'Live',
-      2 => 'Calls',
+      2 => 'Explore',
       3 => 'Inbox',
       4 => 'Me',
       _ => 'Zephyr',
@@ -2349,7 +2349,11 @@ class _HomeScreenState extends State<HomeScreen> {
         : switch (_selectedTabIndex) {
             0 => _buildHomeTab(isTablet),
             1 => _buildLiveRoomsTab(isTablet),
-            2 => _buildCallPricingTab(isTablet),
+            2 => ExplorePage(
+                apiClient: widget.apiClient,
+                accessToken: widget.accessToken,
+                myUserId: _me?.id ?? '',
+              ),
             3 => InboxPage(
                 apiClient: widget.apiClient,
                 accessToken: widget.accessToken,
@@ -2367,17 +2371,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? TextField(
                     controller: _searchCtrl,
                     autofocus: true,
-                    keyboardType: TextInputType.number,
                     onChanged: (v) => setState(() => _searchQuery = v),
-                    onSubmitted: (v) => _searchByPublicId(v.trim()),
                     decoration: InputDecoration(
-                      hintText: 'Search 8-digit ID…',
+                      hintText: 'Name or ID…',
                       border: InputBorder.none,
                       isDense: true,
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.search_rounded, size: 20),
-                        onPressed: () => _searchByPublicId(_searchCtrl.text.trim()),
-                      ),
                     ),
                   )
                 : SingleChildScrollView(
@@ -2489,9 +2487,6 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _selectedTabIndex = index;
           });
-          if (index == 2 && _callQuote == null && !_quoteLoading) {
-            _loadCallQuote();
-          }
         },
         destinations: <NavigationDestination>[
           NavigationDestination(
@@ -2503,8 +2498,8 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Live',
           ),
           NavigationDestination(
-            icon: Icon(Icons.call_rounded),
-            label: 'Calls',
+            icon: Icon(Icons.explore_rounded),
+            label: 'Explore',
           ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_rounded),
@@ -3995,6 +3990,450 @@ class _FlameGloryPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
+// ── ExplorePage ───────────────────────────────────────────────────────────────
+
+class ExplorePage extends StatefulWidget {
+  const ExplorePage({
+    super.key,
+    required this.apiClient,
+    required this.accessToken,
+    required this.myUserId,
+  });
+
+  final ZephyrApiClient apiClient;
+  final String accessToken;
+  final String myUserId;
+
+  @override
+  State<ExplorePage> createState() => _ExplorePageState();
+}
+
+class _ExplorePageState extends State<ExplorePage> {
+  final TextEditingController _ctrl = TextEditingController();
+  List<UserProfile> _results = <UserProfile>[];
+  bool _searching = false;
+  bool _hasSearched = false;
+  String _lastQuery = '';
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search(String q) async {
+    q = q.trim();
+    if (q == _lastQuery) return;
+    _lastQuery = q;
+    if (q.length < 2) {
+      setState(() { _results = <UserProfile>[]; _hasSearched = false; });
+      return;
+    }
+    setState(() => _searching = true);
+    try {
+      final List<UserProfile> res = await widget.apiClient.searchUsers(q);
+      if (mounted && q == _lastQuery) {
+        setState(() { _results = res; _hasSearched = true; _searching = false; });
+      }
+    } catch (_) {
+      if (mounted) setState(() { _searching = false; _hasSearched = true; });
+    }
+  }
+
+  void _openProfile(UserProfile profile) {
+    final LiveFeedCard card = LiveFeedCard(
+      roomId: '',
+      title: profile.displayName,
+      hostUserId: profile.id,
+      hostDisplayName: profile.displayName,
+      hostAvatarUrl: profile.avatarUrl,
+      hostCountryCode: profile.countryCode ?? 'XX',
+      hostLanguage: profile.language ?? '',
+      hostStatus: 'online',
+      audienceCount: 0,
+      startedAt: DateTime.now(),
+    );
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ProfilePage(
+        feedCard: card,
+        apiClient: widget.apiClient,
+        accessToken: widget.accessToken,
+        myUserId: widget.myUserId,
+        onMessage: () => Navigator.of(context).pop(),
+      ),
+    ));
+  }
+
+  void _openThread(UserProfile profile) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ThreadPage(
+        apiClient: widget.apiClient,
+        accessToken: widget.accessToken,
+        myUserId: widget.myUserId,
+        otherUserId: profile.id,
+        otherDisplayName: profile.displayName,
+        otherAvatarUrl: profile.avatarUrl,
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F2F7),
+      body: CustomScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        slivers: <Widget>[
+          // ── Hero header ──────────────────────────────────────────────────
+          SliverToBoxAdapter(
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
+                ),
+              ),
+              padding: EdgeInsets.fromLTRB(
+                  20, MediaQuery.of(context).padding.top + 16, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Text(
+                    'Explore',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Find anyone by name or 8-digit ID',
+                    style: TextStyle(
+                        color: Colors.white70, fontSize: 14),
+                  ),
+                  const SizedBox(height: 16),
+                  // Search bar
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.12),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 14),
+                          child: Icon(Icons.search_rounded,
+                              color: Color(0xFF1FA4EA), size: 22),
+                        ),
+                        Expanded(
+                          child: TextField(
+                            controller: _ctrl,
+                            onChanged: _search,
+                            textInputAction: TextInputAction.search,
+                            onSubmitted: _search,
+                            decoration: const InputDecoration(
+                              hintText: 'Name or 8-digit ID…',
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding:
+                                  EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        if (_ctrl.text.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded,
+                                size: 18, color: Colors.grey),
+                            onPressed: () {
+                              _ctrl.clear();
+                              _search('');
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Results / states ─────────────────────────────────────────────
+          if (_searching)
+            const SliverFillRemaining(
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (!_hasSearched)
+            SliverFillRemaining(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: const LinearGradient(
+                          colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
+                        ),
+                      ),
+                      child: const Icon(Icons.explore_rounded,
+                          color: Colors.white, size: 40),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Discover people',
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Search by name or enter an\nexact 8-digit public ID',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 14, color: Colors.grey.shade500),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (_results.isEmpty)
+            SliverFillRemaining(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.person_search_rounded,
+                        size: 56, color: Colors.grey.shade300),
+                    const SizedBox(height: 12),
+                    Text('No users found',
+                        style: TextStyle(
+                            fontSize: 16, color: Colors.grey.shade500)),
+                    const SizedBox(height: 4),
+                    Text('Try a different name or ID',
+                        style: TextStyle(
+                            fontSize: 13, color: Colors.grey.shade400)),
+                  ],
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (BuildContext ctx, int i) {
+                    final UserProfile p = _results[i];
+                    return _ExploreUserCard(
+                      profile: p,
+                      onProfile: () => _openProfile(p),
+                      onMessage: () => _openThread(p),
+                    );
+                  },
+                  childCount: _results.length,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExploreUserCard extends StatelessWidget {
+  const _ExploreUserCard({
+    required this.profile,
+    required this.onProfile,
+    required this.onMessage,
+  });
+
+  final UserProfile profile;
+  final VoidCallback onProfile;
+  final VoidCallback onMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onProfile,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: <Widget>[
+                // Avatar
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor:
+                      const Color(0xFF1FA4EA).withValues(alpha: 0.15),
+                  backgroundImage: profile.avatarUrl != null
+                      ? NetworkImage(profile.avatarUrl!)
+                      : null,
+                  child: profile.avatarUrl == null
+                      ? Text(
+                          profile.displayName.isNotEmpty
+                              ? profile.displayName[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                              color: Color(0xFF1FA4EA),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 18),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 14),
+                // Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Flexible(
+                            child: Text(
+                              profile.displayName,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (profile.isAdmin) ...<Widget>[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(colors: <Color>[
+                                  Color(0xFFFFD700),
+                                  Color(0xFFFFA500)
+                                ]),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text('OWNER',
+                                  style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white)),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: <Widget>[
+                          // ID pill
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1FA4EA)
+                                  .withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              'ID: ${profile.publicId}',
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF1FA4EA),
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          if (profile.countryCode != null) ...<Widget>[
+                            const SizedBox(width: 8),
+                            Text(
+                              profile.countryCode!,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade500),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Action buttons
+                Column(
+                  children: <Widget>[
+                    _ActionBtn(
+                      icon: Icons.chat_bubble_rounded,
+                      color: const Color(0xFF1FA4EA),
+                      onTap: onMessage,
+                    ),
+                    const SizedBox(height: 8),
+                    _ActionBtn(
+                      icon: Icons.person_rounded,
+                      color: const Color(0xFF7B5EA7),
+                      onTap: onProfile,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionBtn extends StatelessWidget {
+  const _ActionBtn({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: color, size: 18),
+      ),
+    );
+  }
+}
+
 // ── Message cache (in-memory, survives navigation within session) ─────────────
 
 class _MessageCache {
@@ -5129,6 +5568,17 @@ class ZephyrApiClient {
       path: '/v1/users/by-public-id/$publicId',
     );
     return UserProfile.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<List<UserProfile>> searchUsers(String q) async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/users/search?q=${Uri.encodeQueryComponent(q)}',
+    );
+    if (data is! List<dynamic>) return <UserProfile>[];
+    return data
+        .map((dynamic e) => UserProfile.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<List<ZephyrConversation>> getConversations(String accessToken) async {

@@ -1014,6 +1014,47 @@ export class StoreService {
     return user;
   }
 
+  async searchUsers(q: string): Promise<UserProfile[]> {
+    if (!q || q.length < 2) return [];
+
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        id: string;
+        display_name: string;
+        avatar_url: string | null;
+        bio: string | null;
+        gender: string | null;
+        birthday: string | null;
+        country_code: string | null;
+        language: string | null;
+        public_id: string | null;
+        is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
+        created_at: string;
+      }>(
+        `
+          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
+          FROM users
+          WHERE display_name ILIKE $1
+             OR public_id = $2
+          ORDER BY display_name
+          LIMIT 30
+        `,
+        [`%${q}%`, q],
+      );
+      return result.rows.map(row => this.toUserProfile(row));
+    }
+
+    const lower = q.toLowerCase();
+    return [...this.users.values()]
+      .filter(u =>
+        u.displayName.toLowerCase().includes(lower) ||
+        u.publicId === q,
+      )
+      .slice(0, 30);
+  }
+
   async followUser(followerId: string, followingId: string): Promise<void> {
     if (followerId === followingId) {
       throw new BadRequestException('Cannot follow yourself');

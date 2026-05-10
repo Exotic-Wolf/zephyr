@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { StoreService } from '../core/store.service';
 import type { UserProfile } from '../core/store.service';
 import { UpdateMeDto } from './dto/update-me.dto';
@@ -37,6 +37,13 @@ export class UsersController {
   async getFollowing(@Headers('authorization') authorization?: string): Promise<string[]> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     return this.storeService.getFollowing(user.id);
+  }
+
+  @Get('search')
+  async searchUsers(
+    @Query('q') q: string,
+  ): Promise<UserProfile[]> {
+    return this.storeService.searchUsers(q?.trim() ?? '');
   }
 
   @Get('by-public-id/:publicId')
