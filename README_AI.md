@@ -14,6 +14,119 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 - Mobile app: `apps/zephyr-mobile` (Flutter)
 - Backend API: `services/zephyr-api` (NestJS)
 - API contract: `packages/zephyr-contracts/openapi.yaml`
+- Deploy: Render auto-deploys from `main` branch
+
+## Current status (as of 11 May 2026)
+
+### Critical handoff for next session (11 May 2026, end-of-day)
+
+- ✅ Latest pushed commit: `b4603c1e`
+- ✅ Branch state: `main` synced to `origin/main`
+- ✅ iOS simulator confirmed running (iPhone 17 Pro Max `8B6780BE-FC4B-47F0-8980-3D9D7504004A`)
+- ✅ Android emulator: `google-services.json` added + Gradle plugin wired — Google Sign-In may now work but needs validation tomorrow
+- ⚠️ Inbox message entry point issue reported by user — to be debugged next session
+- ⚠️ Mock cards (`SarahBusy`, `TaniaOnline`, `MikeOffline`) injected into `_feedCards` — remove before production
+- ⚠️ Mock `_followingIds` set hardcoded in `_loadData` — remove before production
+- ⚠️ `lib/flags.dart` (`CountryFlags`) is in use — do not delete
+
+### Next session priority order
+
+1. Debug Inbox message entry point issue (user reported it, details coming)
+2. Test Android Google Sign-In with new `google-services.json` (SHA-1 registered in Firebase)
+3. Add Search by public ID (8-digit) UI — backend `GET /v1/users/by-public-id/:publicId` already deployed
+4. Remove all mock cards + mock `_followingIds` once API sends real `hostStatus`
+5. Push notifications (Firebase Cloud Messaging — Firebase project now exists)
+6. Wire LiveKit RTC for real video/audio
+
+### Messaging (completed 11 May 2026)
+
+- ✅ `ZephyrMessage` + `ZephyrConversation` Flutter models added
+- ✅ API client methods: `getConversations`, `getThread`, `sendMessage`, `markMessageRead`
+- ✅ `InboxPage`: conversation list, avatars, unread badge, relative timestamps, empty state
+- ✅ `ThreadPage`: chat bubbles (sent=right/blue, received=left/white), send bar, auto-scroll, mark-read on open
+- ✅ Tab 3 wired to `InboxPage`
+- ✅ `_MessageCache` singleton: cache-first load — instant back/forward navigation within session
+- ✅ Backend endpoints: `POST /v1/messages`, `GET /v1/messages/conversations`, `GET /v1/messages/conversations/:userId`, `PATCH /v1/messages/:messageId/read`
+- ✅ API tested end-to-end with curl (two guest accounts, bidirectional messaging confirmed)
+
+### Owner account + profile UX (completed 10 May 2026)
+
+- ✅ Owner Google email: `mr.gopaul.akshay@gmail.com` → `is_admin=TRUE`, `level=10` seeded on startup via `OWNER_GOOGLE_EMAIL` env var
+- ✅ Custom `publicId = 28282828` set and persisted in DB
+- ✅ Gold OWNER badge shown in Me tab + My Profile when `isAdmin=true`
+- ✅ My Profile: view/edit mode toggle (Edit/Save in appBar)
+- ✅ My Profile: tap-to-copy ID (Clipboard + snackbar)
+- ✅ My Profile: "View Public Profile" preview button
+- ✅ `GET /v1/users/by-public-id/:publicId` endpoint deployed (useful for search + test tooling)
+- ✅ Nickname persistence fixed — Google/Apple re-login no longer overwrites `display_name`
+- ✅ CallPricePage: stale `_me` fix (returns updated `UserProfile` on pop)
+
+### Android Google Sign-In setup (11 May 2026)
+
+- ✅ Firebase project created (linked to existing Google Cloud `zephyr-495115`)
+- ✅ Android app registered in Firebase: package `com.zephyr.zephyr_mobile`
+- ✅ SHA-1 fingerprint added: `10:60:A8:68:95:90:87:37:4A:C7:7A:39:C6:F8:48:D4:BF:31:07:66`
+- ✅ `google-services.json` placed at `apps/zephyr-mobile/android/app/google-services.json`
+- ✅ `com.google.gms.google-services` plugin added to `app/build.gradle.kts` + `settings.gradle.kts`
+- ⚠️ Android Sign-In not yet confirmed working — needs test next session
+
+### Key OAuth / IDs reference
+
+- iOS Google client ID: `724639603736-n8v2kjqfg40l7bqkt26kov8cmofhn2db.apps.googleusercontent.com`
+- Android Google client ID: `724639603736-08tovsj719dsb6atip932tqo1jg0gtl2.apps.googleusercontent.com`
+- Web Google client ID (`GOOGLE_SERVER_CLIENT_ID`): `724639603736-f7v5k8112bjpfaq2igjm0b5fndlm8vc8.apps.googleusercontent.com`
+- Owner UUID: `4a21364d-d84c-4ac2-8d57-1e7ce033b0dc`
+- Owner publicId: `28282828`
+- Android debug keystore SHA-1: `10:60:A8:68:95:90:87:37:4A:C7:7A:39:C6:F8:48:D4:BF:31:07:66`
+- Java (for keytool): `/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/keytool`
+
+### Run commands
+
+- iOS: `cd apps/zephyr-mobile && flutter run -d "8B6780BE-FC4B-47F0-8980-3D9D7504004A" --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com`
+- Android: `cd apps/zephyr-mobile && flutter run -d emulator-5554 --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com`
+- Android emulator ID: `Medium_Phone_API_36.1` (launch with `flutter emulators --launch Medium_Phone_API_36.1`)
+
+### Backend endpoints (all deployed)
+
+- `GET /v1/health/live` + `/v1/health/ready`
+- `POST /v1/auth/guest-login`, `/google-login`, `/apple-login`
+- `GET /v1/users/me`, `PATCH /v1/users/me`
+- `GET /v1/users/by-public-id/:publicId` ← new
+- `GET /v1/users/:userId`, `POST /v1/users/:userId/follow`, `DELETE /v1/users/:userId/follow`
+- `GET /v1/rooms`, `POST /v1/rooms`, `POST /v1/rooms/:roomId/join`, `DELETE /v1/rooms/:roomId`
+- `GET /v1/feed/live`
+- `GET /v1/economy/config`, `/coin-packs`, `/wallet`, `POST /purchase-coins`
+- `GET /v1/economy/private-call/quote`
+- `GET /v1/economy/gifts/catalog`
+- `POST /v1/economy/calls/start`, `/tick`, `/end`, `/rtc-token`
+- `POST /v1/messages`
+- `GET /v1/messages/conversations`
+- `GET /v1/messages/conversations/:userId`
+- `PATCH /v1/messages/:messageId/read`
+
+### DB schema (Postgres, Render)
+
+Tables: `users`, `wallets`, `user_revenue`, `wallet_transactions`, `user_following`, `rooms`, `messages`
+Key columns: `users.public_id TEXT UNIQUE`, `users.is_admin BOOL`, `users.call_rate_coins_per_minute INT`
+
+### Flutter packages in use
+
+`country_picker: ^2.0.27`, `flutter_svg`, `flutter/services.dart` (Clipboard), `google_sign_in`, `sign_in_with_apple`
+
+
+
+## Product aim
+
+- Build a **minimal Chamet-like MVP** in Flutter + NestJS.
+- Ship fast with strong backend direction (contract-first, test-backed, scalable).
+- Budget now: **$50–$100/month**, scale infra spending after revenue.
+
+## Current architecture
+
+- Monorepo root: `/Users/wolf/dev/zephyr`
+- Mobile app: `apps/zephyr-mobile` (Flutter)
+- Backend API: `services/zephyr-api` (NestJS)
+- API contract: `packages/zephyr-contracts/openapi.yaml`
 - Deploy prep: `render.yaml`, `docs/api/deploy-checklist.md`
 
 ## Current status (as of 9 May 2026, latest update)
