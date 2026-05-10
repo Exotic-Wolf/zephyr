@@ -4653,6 +4653,7 @@ class _ThreadPageState extends State<ThreadPage> {
   bool _sending = false;
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
+  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -4665,10 +4666,13 @@ class _ThreadPageState extends State<ThreadPage> {
       _scrollToBottom();
     }
     _load();
+    // Poll for new messages every 4 seconds
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => _poll());
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -4690,6 +4694,31 @@ class _ThreadPageState extends State<ThreadPage> {
       _scrollToBottom();
     } catch (_) {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _poll() async {
+    if (!mounted || _sending) return;
+    try {
+      final List<ZephyrMessage> msgs = await widget.apiClient
+          .getThread(widget.accessToken, widget.otherUserId);
+      if (!mounted) return;
+      final bool hasNew = msgs.length != _messages.length ||
+          (msgs.isNotEmpty && _messages.isNotEmpty &&
+           msgs.last.id != _messages.last.id);
+      _MessageCache.instance.threads[widget.otherUserId] = msgs;
+      setState(() => _messages = msgs);
+      if (hasNew) {
+        // Mark newly received messages as read
+        for (final ZephyrMessage m in msgs) {
+          if (m.receiverId == widget.myUserId && m.readAt == null) {
+            widget.apiClient.markMessageRead(widget.accessToken, m.id);
+          }
+        }
+        _scrollToBottom();
+      }
+    } catch (_) {
+      // silently ignore poll errors
     }
   }
 
