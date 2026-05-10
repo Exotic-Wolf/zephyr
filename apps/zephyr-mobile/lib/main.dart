@@ -2212,7 +2212,32 @@ class _HomeScreenState extends State<HomeScreen> {
         Card(
           child: ListTile(
             leading: const CircleAvatar(child: Icon(Icons.person_rounded)),
-            title: Text(_me?.displayName ?? 'Me'),
+            title: Row(
+              children: <Widget>[
+                Text(_me?.displayName ?? 'Me'),
+                if (_me?.isAdmin == true) ...<Widget>[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: <Color>[Color(0xFFFFD700), Color(0xFFFF8C00)],
+                      ),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'OWNER',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
             subtitle: Text(_me?.bio ?? 'Welcome to Zephyr'),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: _openMyProfilePage,
@@ -3012,6 +3037,7 @@ class MyProfilePage extends StatefulWidget {
 
 class _MyProfilePageState extends State<MyProfilePage> {
   late final TextEditingController _nicknameCtrl;
+  late final TextEditingController _customIdCtrl;
   bool _saving = false;
 
   String _gender = 'Prefer not to say';
@@ -3038,6 +3064,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
     super.initState();
     final UserProfile? me = widget.me;
     _nicknameCtrl = TextEditingController(text: me?.displayName ?? '');
+    _customIdCtrl = TextEditingController(text: me?.publicId ?? '');
     if (me?.gender != null) _gender = me!.gender!;
     if (me?.birthday != null) {
       _birthday = DateTime.tryParse(me!.birthday!);
@@ -3054,6 +3081,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
   @override
   void dispose() {
     _nicknameCtrl.dispose();
+    _customIdCtrl.dispose();
     super.dispose();
   }
 
@@ -3093,6 +3121,9 @@ class _MyProfilePageState extends State<MyProfilePage> {
         birthday: birthdayStr,
         countryCode: _country?.countryCode,
         language: _language.isEmpty ? null : _language,
+        publicId: (widget.me?.isAdmin == true && _customIdCtrl.text.trim().length == 8)
+            ? _customIdCtrl.text.trim()
+            : null,
       );
 
       if (!mounted) return;
@@ -3148,30 +3179,59 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
           // ── Avatar ───────────────────────────────────────────
           Center(
-            child: Stack(
+            child: Column(
               children: <Widget>[
-                CircleAvatar(
-                  radius: 48,
-                  backgroundColor: const Color(0xFF1FA4EA).withValues(alpha: 0.15),
-                  child: Text(
-                    (widget.me?.displayName ?? 'M').substring(0, 1).toUpperCase(),
-                    style: const TextStyle(
-                        fontSize: 40, fontWeight: FontWeight.w700,
-                        color: Color(0xFF1FA4EA)),
-                  ),
-                ),
-                Positioned(
-                  bottom: 0, right: 0,
-                  child: Container(
-                    width: 30, height: 30,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Color(0xFF1FA4EA),
+                Stack(
+                  children: <Widget>[
+                    CircleAvatar(
+                      radius: 48,
+                      backgroundColor: widget.me?.isAdmin == true
+                          ? const Color(0xFFFFD700).withValues(alpha: 0.18)
+                          : const Color(0xFF1FA4EA).withValues(alpha: 0.15),
+                      child: Text(
+                        (widget.me?.displayName ?? 'M').substring(0, 1).toUpperCase(),
+                        style: TextStyle(
+                            fontSize: 40, fontWeight: FontWeight.w700,
+                            color: widget.me?.isAdmin == true
+                                ? const Color(0xFFB8860B)
+                                : const Color(0xFF1FA4EA)),
+                      ),
                     ),
-                    child: const Icon(Icons.camera_alt_rounded,
-                        size: 16, color: Colors.white),
-                  ),
+                    Positioned(
+                      bottom: 0, right: 0,
+                      child: Container(
+                        width: 30, height: 30,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Color(0xFF1FA4EA),
+                        ),
+                        child: const Icon(Icons.camera_alt_rounded,
+                            size: 16, color: Colors.white),
+                      ),
+                    ),
+                  ],
                 ),
+                if (widget.me?.isAdmin == true) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: <Color>[Color(0xFFFFD700), Color(0xFFFF8C00)],
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      '👑  OWNER',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -3276,6 +3336,49 @@ class _MyProfilePageState extends State<MyProfilePage> {
                       : Text(_language, style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
                   onTap: _pickLanguage,
                 ),
+
+                // Custom ID — admin only
+                if (widget.me?.isAdmin == true) ...<Widget>[
+                  const Divider(height: 1),
+                  ListTile(
+                    title: Row(
+                      children: <Widget>[
+                        const Text('Custom ID'),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: <Color>[Color(0xFFFFD700), Color(0xFFFF8C00)],
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text('OWNER',
+                              style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800,
+                                  color: Colors.white, letterSpacing: 0.6)),
+                        ),
+                      ],
+                    ),
+                    trailing: SizedBox(
+                      width: 130,
+                      child: TextField(
+                        controller: _customIdCtrl,
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(fontSize: 14),
+                        keyboardType: TextInputType.number,
+                        maxLength: 8,
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          hintText: '8 digits',
+                          hintStyle: TextStyle(color: Colors.grey.shade400),
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                          counterText: '',
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -4382,6 +4485,7 @@ class ZephyrApiClient {
     String? countryCode,
     String? language,
     int? callRateCoinsPerMinute,
+    String? publicId,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{};
     if (displayName != null) body['displayName'] = displayName;
@@ -4390,6 +4494,7 @@ class ZephyrApiClient {
     if (countryCode != null) body['countryCode'] = countryCode;
     if (language != null) body['language'] = language;
     if (callRateCoinsPerMinute != null) body['callRateCoinsPerMinute'] = callRateCoinsPerMinute;
+    if (publicId != null && publicId.isNotEmpty) body['publicId'] = publicId;
 
     final Map<String, dynamic> data = await _request(
       method: 'PATCH',
@@ -4849,6 +4954,7 @@ class UserProfile {
     required this.bio,
     required this.createdAt,
     String? publicId,
+    this.isAdmin = false,
     this.gender,
     this.birthday,
     this.countryCode,
@@ -4859,6 +4965,7 @@ class UserProfile {
   final String id;
   /// Short 8-digit public ID shown to users. Safe to share; does not expose the DB UUID.
   final String publicId;
+  final bool isAdmin;
   final String displayName;
   final String? avatarUrl;
   final String? bio;
@@ -4878,6 +4985,7 @@ class UserProfile {
     return UserProfile(
       id: json['id'] as String,
       publicId: json['publicId'] as String?,
+      isAdmin: (json['isAdmin'] as bool?) ?? false,
       displayName: json['displayName'] as String,
       avatarUrl: json['avatarUrl'] as String?,
       bio: json['bio'] as String?,
