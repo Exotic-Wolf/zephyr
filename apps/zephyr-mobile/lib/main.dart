@@ -5,6 +5,7 @@ import 'dart:math' show cos, pi, sin;
 import 'package:country_picker/country_picker.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -3260,8 +3261,27 @@ class _MyProfilePageState extends State<MyProfilePage> {
                 // ID — always read-only
                 ListTile(
                   title: const Text('ID'),
-                  trailing: Text(_userId,
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
+                  trailing: GestureDetector(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: _userId));
+                      ScaffoldMessenger.of(context)
+                        ..hideCurrentSnackBar()
+                        ..showSnackBar(const SnackBar(
+                          content: Text('ID copied to clipboard'),
+                          behavior: SnackBarBehavior.floating,
+                          duration: Duration(seconds: 2),
+                        ));
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(_userId,
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
+                        const SizedBox(width: 6),
+                        Icon(Icons.copy_rounded, size: 15, color: Colors.grey.shade400),
+                      ],
+                    ),
+                  ),
                 ),
                 const Divider(height: 1),
 
