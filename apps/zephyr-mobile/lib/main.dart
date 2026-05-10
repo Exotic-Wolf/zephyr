@@ -2143,11 +2143,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openMyProfilePage() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => MyProfilePage(me: _me),
+    final UserProfile? updated = await Navigator.of(context).push(
+      MaterialPageRoute<UserProfile>(
+        builder: (_) => MyProfilePage(
+          me: _me,
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+        ),
       ),
     );
+    if (updated != null && mounted) {
+      setState(() => _me = updated);
+    }
   }
 
   Future<void> _openCallPricePage() async {
@@ -2981,8 +2988,15 @@ class _ProfilePageState extends State<ProfilePage> {
 // ── MyProfilePage ─────────────────────────────────────────────────────────────
 
 class MyProfilePage extends StatefulWidget {
-  const MyProfilePage({super.key, required this.me});
+  const MyProfilePage({
+    super.key,
+    required this.me,
+    required this.apiClient,
+    required this.accessToken,
+  });
   final UserProfile? me;
+  final ZephyrApiClient apiClient;
+  final String accessToken;
 
   @override
   State<MyProfilePage> createState() => _MyProfilePageState();
@@ -2990,8 +3004,8 @@ class MyProfilePage extends StatefulWidget {
 
 class _MyProfilePageState extends State<MyProfilePage> {
   late final TextEditingController _nicknameCtrl;
+  bool _saving = false;
 
-  // mock local state — wire to API later
   String _gender = 'Prefer not to say';
   DateTime? _birthday;
   Country? _country;
@@ -3014,7 +3028,19 @@ class _MyProfilePageState extends State<MyProfilePage> {
   @override
   void initState() {
     super.initState();
-    _nicknameCtrl = TextEditingController(text: widget.me?.displayName ?? '');
+    final UserProfile? me = widget.me;
+    _nicknameCtrl = TextEditingController(text: me?.displayName ?? '');
+    if (me?.gender != null) _gender = me!.gender!;
+    if (me?.birthday != null) {
+      _birthday = DateTime.tryParse(me!.birthday!);
+    }
+    if (me?.countryCode != null) {
+      // Pre-select country from saved countryCode
+      _country = CountryService().findByCode(me!.countryCode!);
+    }
+    if (me?.language != null && me!.language!.isNotEmpty) {
+      _language = me.language!;
+    }
   }
 
   @override
@@ -3040,15 +3066,48 @@ class _MyProfilePageState extends State<MyProfilePage> {
     return '${_birthday!.day}/${_birthday!.month}/${_birthday!.year}';
   }
 
-  void _save() {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(
-        content: Text('Profile saved'),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
-      ));
-    Navigator.of(context).pop();
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final String? birthdayStr = _birthday != null
+          ? '${_birthday!.year.toString().padLeft(4, '0')}-'
+            '${_birthday!.month.toString().padLeft(2, '0')}-'
+            '${_birthday!.day.toString().padLeft(2, '0')}'
+          : null;
+
+      final UserProfile updated = await widget.apiClient.updateMe(
+        widget.accessToken,
+        displayName: _nicknameCtrl.text.trim().isEmpty
+            ? null
+            : _nicknameCtrl.text.trim(),
+        gender: _gender,
+        birthday: birthdayStr,
+        countryCode: _country?.countryCode,
+        language: _language.isEmpty ? null : _language,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Profile saved'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ));
+      Navigator.of(context).pop(updated);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('Failed to save: $e'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red,
+        ));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -3058,10 +3117,21 @@ class _MyProfilePageState extends State<MyProfilePage> {
       appBar: AppBar(
         title: const Text('My Profile'),
         actions: <Widget>[
-          TextButton(
-            onPressed: _save,
-            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
-          ),
+          if (_saving)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else
+            TextButton(
+              onPressed: _save,
+              child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
         ],
       ),
       body: ListView(
@@ -4228,6 +4298,31 @@ class ZephyrApiClient {
     return UserProfile.fromJson(data);
   }
 
+  Future<UserProfile> updateMe(
+    String accessToken, {
+    String? displayName,
+    String? gender,
+    String? birthday,
+    String? countryCode,
+    String? language,
+  }) async {
+    final Map<String, dynamic> body = <String, dynamic>{};
+    if (displayName != null) body['displayName'] = displayName;
+    if (gender != null) body['gender'] = gender;
+    if (birthday != null) body['birthday'] = birthday;
+    if (countryCode != null) body['countryCode'] = countryCode;
+    if (language != null) body['language'] = language;
+
+    final Map<String, dynamic> data = await _request(
+      method: 'PATCH',
+      path: '/v1/users/me',
+      accessToken: accessToken,
+      body: body,
+    );
+
+    return UserProfile.fromJson(data);
+  }
+
   Future<List<Room>> listRooms() async {
     final dynamic data = await _request(method: 'GET', path: '/v1/rooms');
 
@@ -4676,6 +4771,10 @@ class UserProfile {
     required this.bio,
     required this.createdAt,
     String? publicId,
+    this.gender,
+    this.birthday,
+    this.countryCode,
+    this.language,
   }) : publicId = publicId ?? _derivePublicId(id);
 
   final String id;
@@ -4684,6 +4783,10 @@ class UserProfile {
   final String displayName;
   final String? avatarUrl;
   final String? bio;
+  final String? gender;
+  final String? birthday;   // ISO date string e.g. "1995-06-15"
+  final String? countryCode;
+  final String? language;
   final DateTime createdAt;
 
   /// Derives a stable 8-digit numeric code from the DB UUID using a djb2 hash.
@@ -4698,6 +4801,10 @@ class UserProfile {
       displayName: json['displayName'] as String,
       avatarUrl: json['avatarUrl'] as String?,
       bio: json['bio'] as String?,
+      gender: json['gender'] as String?,
+      birthday: json['birthday'] as String?,
+      countryCode: json['countryCode'] as String?,
+      language: json['language'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
     );
   }
