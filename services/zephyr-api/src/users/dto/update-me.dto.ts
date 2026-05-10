@@ -1,4 +1,6 @@
 import {
+  IsDateString,
+  IsIn,
   IsOptional,
   IsString,
   IsUrl,
@@ -6,6 +8,8 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
+
+const GENDERS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'] as const;
 
 export class UpdateMeDto {
   @IsOptional()
@@ -22,4 +26,22 @@ export class UpdateMeDto {
   @IsString()
   @MaxLength(160)
   bio?: string | null;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsIn(GENDERS)
+  gender?: string | null;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsDateString()
+  birthday?: string | null;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsString()
+  @MaxLength(2)
+  countryCode?: string | null;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsString()
+  @MaxLength(50)
+  language?: string | null;
 }

@@ -72,6 +72,15 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     await this.pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS gender TEXT,
+      ADD COLUMN IF NOT EXISTS birthday DATE,
+      ADD COLUMN IF NOT EXISTS country_code TEXT,
+      ADD COLUMN IF NOT EXISTS language TEXT,
+      ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+
+    await this.pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS users_provider_subject_idx
       ON users(provider, provider_subject)
       WHERE provider IS NOT NULL AND provider_subject IS NOT NULL;
@@ -161,6 +170,45 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS call_sessions_caller_status_idx
       ON call_sessions(caller_user_id, status, updated_at DESC);
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS user_following (
+        follower_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        following_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (follower_id, following_id)
+      );
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS user_following_follower_idx
+      ON user_following(follower_id, created_at DESC);
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id UUID PRIMARY KEY,
+        sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        receiver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body TEXT NOT NULL,
+        read_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS messages_receiver_created_idx
+      ON messages(receiver_id, created_at DESC);
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS messages_thread_idx
+      ON messages(
+        LEAST(sender_id, receiver_id),
+        GREATEST(sender_id, receiver_id),
+        created_at DESC
+      );
     `);
 
     this.logger.log('Database schema is ready.');

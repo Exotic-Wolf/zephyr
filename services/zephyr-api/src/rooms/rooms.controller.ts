@@ -4,6 +4,8 @@ import {
   Delete,
   Get,
   Headers,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
@@ -37,6 +39,16 @@ export class RoomsController {
   ): Promise<Room> {
     await this.storeService.getUserFromAuthHeader(authorization);
     return this.storeService.joinRoom(roomId);
+  }
+
+  @Post(':roomId/leave')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async leaveRoom(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomId', new ParseUUIDPipe()) roomId: string,
+  ): Promise<void> {
+    await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.leaveRoom(roomId);
   }
 
   @Delete(':roomId')

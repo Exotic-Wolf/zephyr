@@ -119,6 +119,15 @@ export class EconomyController {
     });
   }
 
+  @Get('calls')
+  async getCallHistory(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+  ): Promise<CallSession[]> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    return this.storeService.getCallHistory(user.id, limit);
+  }
+
   @Post('calls/start')
   async startCallSession(
     @Headers('authorization') authorization: string | undefined,

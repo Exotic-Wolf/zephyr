@@ -10,6 +10,7 @@ import { RoomsModule } from './rooms/rooms.module';
 import { HealthModule } from './health/health.module';
 import { FeedModule } from './feed/feed.module';
 import { EconomyModule } from './economy/economy.module';
+import { MessagesModule } from './messages/messages.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { EconomyModule } from './economy/economy.module';
     RoomsModule,
     FeedModule,
     EconomyModule,
+    MessagesModule,
     HealthModule,
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
   ],

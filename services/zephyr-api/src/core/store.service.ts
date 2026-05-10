@@ -17,6 +17,11 @@ export interface UserProfile {
   displayName: string;
   avatarUrl: string | null;
   bio: string | null;
+  gender: string | null;
+  birthday: string | null;
+  countryCode: string | null;
+  language: string | null;
+  isAdmin: boolean;
   createdAt: string;
 }
 
@@ -36,7 +41,28 @@ export interface LiveFeedCard {
   hostUserId: string;
   hostDisplayName: string;
   hostAvatarUrl: string | null;
+  hostCountryCode: string;
+  hostLanguage: string;
+  hostStatus: string;
   startedAt: string;
+}
+
+export interface Message {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface Conversation {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  lastMessage: string;
+  lastMessageAt: string;
+  unreadCount: number;
 }
 
 export interface CoinPack {
@@ -154,6 +180,11 @@ export class StoreService {
       displayName: displayName?.trim() || `zephyr_${userId.slice(0, 8)}`,
       avatarUrl: null,
       bio: null,
+      gender: null,
+      birthday: null,
+      countryCode: null,
+      language: null,
+      isAdmin: false,
       createdAt: now,
     };
 
@@ -216,13 +247,9 @@ export class StoreService {
     if (this.databaseService?.isEnabled()) {
       const existingUserResult = await this.databaseService.query<{
         id: string;
-        display_name: string;
-        avatar_url: string | null;
-        bio: string | null;
-        created_at: string;
       }>(
         `
-          SELECT id, display_name, avatar_url, bio, created_at
+          SELECT id
           FROM users
           WHERE provider = 'google' AND provider_subject = $1
           LIMIT 1
@@ -276,10 +303,16 @@ export class StoreService {
         display_name: string;
         avatar_url: string | null;
         bio: string | null;
+        gender: string | null;
+        birthday: string | null;
+        country_code: string | null;
+        language: string | null;
+        is_admin: boolean;
         created_at: string;
       }>(
         `
-          SELECT id, display_name, avatar_url, bio, created_at
+          SELECT id, display_name, avatar_url, bio, gender, birthday,
+                 country_code, language, is_admin, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -315,6 +348,11 @@ export class StoreService {
       displayName,
       avatarUrl,
       bio: null,
+      gender: null,
+      birthday: null,
+      countryCode: null,
+      language: null,
+      isAdmin: false,
       createdAt: this.users.get(userId)?.createdAt ?? new Date().toISOString(),
     };
 
@@ -412,10 +450,16 @@ export class StoreService {
         display_name: string;
         avatar_url: string | null;
         bio: string | null;
+        gender: string | null;
+        birthday: string | null;
+        country_code: string | null;
+        language: string | null;
+        is_admin: boolean;
         created_at: string;
       }>(
         `
-          SELECT id, display_name, avatar_url, bio, created_at
+          SELECT id, display_name, avatar_url, bio, gender, birthday,
+                 country_code, language, is_admin, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -451,6 +495,11 @@ export class StoreService {
       displayName,
       avatarUrl: null,
       bio: null,
+      gender: null,
+      birthday: null,
+      countryCode: null,
+      language: null,
+      isAdmin: false,
       createdAt: this.users.get(userId)?.createdAt ?? new Date().toISOString(),
     };
 
@@ -478,10 +527,16 @@ export class StoreService {
         display_name: string;
         avatar_url: string | null;
         bio: string | null;
+        gender: string | null;
+        birthday: string | null;
+        country_code: string | null;
+        language: string | null;
+        is_admin: boolean;
         created_at: string;
       }>(
         `
-          SELECT u.id, u.display_name, u.avatar_url, u.bio, u.created_at
+          SELECT u.id, u.display_name, u.avatar_url, u.bio, u.gender, u.birthday,
+                 u.country_code, u.language, u.is_admin, u.created_at
           FROM sessions s
           INNER JOIN users u ON u.id = s.user_id
           WHERE s.token = $1 AND s.user_id = $2 AND s.expires_at > NOW()
@@ -517,7 +572,15 @@ export class StoreService {
 
   async updateUser(
     userId: string,
-    updates: { displayName?: string; avatarUrl?: string | null; bio?: string | null },
+    updates: {
+      displayName?: string;
+      avatarUrl?: string | null;
+      bio?: string | null;
+      gender?: string | null;
+      birthday?: string | null;
+      countryCode?: string | null;
+      language?: string | null;
+    },
   ): Promise<UserProfile> {
     if (updates.displayName !== undefined && updates.displayName.trim().length < 2) {
       throw new BadRequestException('displayName must be at least 2 characters');
@@ -529,10 +592,16 @@ export class StoreService {
         display_name: string;
         avatar_url: string | null;
         bio: string | null;
+        gender: string | null;
+        birthday: string | null;
+        country_code: string | null;
+        language: string | null;
+        is_admin: boolean;
         created_at: string;
       }>(
         `
-          SELECT id, display_name, avatar_url, bio, created_at
+          SELECT id, display_name, avatar_url, bio, gender, birthday,
+                 country_code, language, is_admin, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -548,21 +617,32 @@ export class StoreService {
       const nextDisplayName = updates.displayName?.trim() || currentUser.displayName;
       const nextAvatarUrl = updates.avatarUrl !== undefined ? updates.avatarUrl : currentUser.avatarUrl;
       const nextBio = updates.bio !== undefined ? updates.bio : currentUser.bio;
+      const nextGender = updates.gender !== undefined ? updates.gender : currentUser.gender;
+      const nextBirthday = updates.birthday !== undefined ? updates.birthday : currentUser.birthday;
+      const nextCountryCode = updates.countryCode !== undefined ? updates.countryCode : currentUser.countryCode;
+      const nextLanguage = updates.language !== undefined ? updates.language : currentUser.language;
 
       const updatedResult = await this.databaseService.query<{
         id: string;
         display_name: string;
         avatar_url: string | null;
         bio: string | null;
+        gender: string | null;
+        birthday: string | null;
+        country_code: string | null;
+        language: string | null;
+        is_admin: boolean;
         created_at: string;
       }>(
         `
           UPDATE users
-          SET display_name = $2, avatar_url = $3, bio = $4
+          SET display_name = $2, avatar_url = $3, bio = $4,
+              gender = $5, birthday = $6, country_code = $7, language = $8
           WHERE id = $1
-          RETURNING id, display_name, avatar_url, bio, created_at
+          RETURNING id, display_name, avatar_url, bio, gender, birthday,
+                    country_code, language, is_admin, created_at
         `,
-        [userId, nextDisplayName, nextAvatarUrl, nextBio],
+        [userId, nextDisplayName, nextAvatarUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage],
       );
 
       return this.toUserProfile(updatedResult.rows[0]);
@@ -578,6 +658,10 @@ export class StoreService {
       displayName: updates.displayName?.trim() || user.displayName,
       avatarUrl: updates.avatarUrl !== undefined ? updates.avatarUrl : user.avatarUrl,
       bio: updates.bio !== undefined ? updates.bio : user.bio,
+      gender: updates.gender !== undefined ? updates.gender : user.gender,
+      birthday: updates.birthday !== undefined ? updates.birthday : user.birthday,
+      countryCode: updates.countryCode !== undefined ? updates.countryCode : user.countryCode,
+      language: updates.language !== undefined ? updates.language : user.language,
     };
 
     this.users.set(userId, nextUser);
@@ -623,6 +707,8 @@ export class StoreService {
         host_user_id: string;
         host_display_name: string;
         host_avatar_url: string | null;
+        host_country_code: string | null;
+        host_language: string | null;
         started_at: string;
       }>(
         `
@@ -633,6 +719,8 @@ export class StoreService {
             rooms.host_user_id,
             users.display_name AS host_display_name,
             users.avatar_url AS host_avatar_url,
+            users.country_code AS host_country_code,
+            users.language AS host_language,
             rooms.created_at AS started_at
           FROM rooms
           INNER JOIN users ON users.id = rooms.host_user_id
@@ -650,6 +738,9 @@ export class StoreService {
         hostUserId: row.host_user_id,
         hostDisplayName: row.host_display_name,
         hostAvatarUrl: row.host_avatar_url,
+        hostCountryCode: row.host_country_code ?? 'PH',
+        hostLanguage: row.host_language ?? 'English',
+        hostStatus: 'live',
         startedAt: new Date(row.started_at).toISOString(),
       }));
     }
@@ -673,6 +764,9 @@ export class StoreService {
         hostUserId: room.hostUserId,
         hostDisplayName: hostUser?.displayName ?? `host_${room.hostUserId.slice(0, 8)}`,
         hostAvatarUrl: hostUser?.avatarUrl ?? null,
+        hostCountryCode: hostUser?.countryCode ?? 'PH',
+        hostLanguage: hostUser?.language ?? 'English',
+        hostStatus: 'live',
         startedAt: room.createdAt,
       };
     });
@@ -795,6 +889,363 @@ export class StoreService {
     }
 
     this.rooms.delete(roomId);
+  }
+
+  async leaveRoom(roomId: string): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `
+          UPDATE rooms
+          SET audience_count = GREATEST(audience_count - 1, 0)
+          WHERE id = $1 AND status = 'live'
+        `,
+        [roomId],
+      );
+      return;
+    }
+
+    const room = this.rooms.get(roomId);
+    if (room) {
+      this.rooms.set(roomId, {
+        ...room,
+        audienceCount: Math.max(room.audienceCount - 1, 0),
+      });
+    }
+  }
+
+  async getUserById(userId: string): Promise<UserProfile> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        id: string;
+        display_name: string;
+        avatar_url: string | null;
+        bio: string | null;
+        gender: string | null;
+        birthday: string | null;
+        country_code: string | null;
+        language: string | null;
+        is_admin: boolean;
+        created_at: string;
+      }>(
+        `
+          SELECT id, display_name, avatar_url, bio, gender, birthday,
+                 country_code, language, is_admin, created_at
+          FROM users WHERE id = $1 LIMIT 1
+        `,
+        [userId],
+      );
+
+      if (result.rowCount === 0) {
+        throw new NotFoundException('User not found');
+      }
+
+      return this.toUserProfile(result.rows[0]);
+    }
+
+    const user = this.users.get(userId);
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
+  async followUser(followerId: string, followingId: string): Promise<void> {
+    if (followerId === followingId) {
+      throw new BadRequestException('Cannot follow yourself');
+    }
+
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `
+          INSERT INTO user_following (follower_id, following_id)
+          VALUES ($1, $2)
+          ON CONFLICT DO NOTHING
+        `,
+        [followerId, followingId],
+      );
+      return;
+    }
+
+    // in-memory: no-op (following is a mock in the client)
+  }
+
+  async unfollowUser(followerId: string, followingId: string): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `
+          DELETE FROM user_following
+          WHERE follower_id = $1 AND following_id = $2
+        `,
+        [followerId, followingId],
+      );
+      return;
+    }
+    // in-memory: no-op
+  }
+
+  async getFollowing(userId: string): Promise<string[]> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{ following_id: string }>(
+        `
+          SELECT following_id FROM user_following
+          WHERE follower_id = $1
+          ORDER BY created_at DESC
+        `,
+        [userId],
+      );
+
+      return result.rows.map((r) => r.following_id);
+    }
+
+    return [];
+  }
+
+  async getCallHistory(userId: string, limit = 20): Promise<CallSession[]> {
+    const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
+
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        id: string;
+        caller_user_id: string;
+        receiver_user_id: string | null;
+        mode: 'direct' | 'random';
+        rate_coins_per_minute: number;
+        receiver_share_bps: number;
+        coins_per_usd_receiver: number;
+        spark_per_usd: number;
+        total_billed_coins: number;
+        total_receiver_coins: number;
+        total_receiver_usd: string;
+        total_receiver_spark: number;
+        status: 'live' | 'ended';
+        end_reason: string | null;
+        started_at: string;
+        updated_at: string;
+        ended_at: string | null;
+      }>(
+        `
+          SELECT * FROM call_sessions
+          WHERE caller_user_id = $1 OR receiver_user_id = $1
+          ORDER BY started_at DESC
+          LIMIT $2
+        `,
+        [userId, normalizedLimit],
+      );
+
+      return result.rows.map((row) => this.toCallSession(row));
+    }
+
+    return [...this.callSessions.values()]
+      .filter((s) => s.callerUserId === userId || s.receiverUserId === userId)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .slice(0, normalizedLimit);
+  }
+
+  // ── Messaging ────────────────────────────────────────────────────────────────
+
+  private readonly inMemoryMessages = new Map<string, Message>();
+
+  async sendMessage(senderId: string, receiverId: string, body: string): Promise<Message> {
+    if (!body?.trim()) {
+      throw new BadRequestException('Message body cannot be empty');
+    }
+    if (body.trim().length > 2000) {
+      throw new BadRequestException('Message body too long (max 2000 chars)');
+    }
+
+    const msg: Message = {
+      id: randomUUID(),
+      senderId,
+      receiverId,
+      body: body.trim(),
+      readAt: null,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `
+          INSERT INTO messages (id, sender_id, receiver_id, body, created_at)
+          VALUES ($1, $2, $3, $4, $5)
+        `,
+        [msg.id, msg.senderId, msg.receiverId, msg.body, msg.createdAt],
+      );
+      return msg;
+    }
+
+    this.inMemoryMessages.set(msg.id, msg);
+    return msg;
+  }
+
+  async getConversations(userId: string): Promise<Conversation[]> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        other_id: string;
+        display_name: string;
+        avatar_url: string | null;
+        last_message: string;
+        last_message_at: string;
+        unread_count: string;
+      }>(
+        `
+          SELECT
+            other_users.id AS other_id,
+            other_users.display_name,
+            other_users.avatar_url,
+            last_msg.body AS last_message,
+            last_msg.created_at AS last_message_at,
+            COALESCE(unread.cnt, 0) AS unread_count
+          FROM (
+            SELECT DISTINCT
+              CASE WHEN sender_id = $1 THEN receiver_id ELSE sender_id END AS partner_id
+            FROM messages
+            WHERE sender_id = $1 OR receiver_id = $1
+          ) AS partners
+          INNER JOIN users other_users ON other_users.id = partners.partner_id
+          CROSS JOIN LATERAL (
+            SELECT body, created_at FROM messages
+            WHERE (sender_id = $1 AND receiver_id = partners.partner_id)
+               OR (sender_id = partners.partner_id AND receiver_id = $1)
+            ORDER BY created_at DESC LIMIT 1
+          ) AS last_msg
+          LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS cnt FROM messages
+            WHERE sender_id = partners.partner_id AND receiver_id = $1 AND read_at IS NULL
+          ) AS unread ON TRUE
+          ORDER BY last_msg.created_at DESC
+        `,
+        [userId],
+      );
+
+      return result.rows.map((row) => ({
+        userId: row.other_id,
+        displayName: row.display_name,
+        avatarUrl: row.avatar_url,
+        lastMessage: row.last_message,
+        lastMessageAt: new Date(row.last_message_at).toISOString(),
+        unreadCount: parseInt(row.unread_count, 10),
+      }));
+    }
+
+    // in-memory fallback
+    const partnerIds = new Set<string>();
+    for (const m of this.inMemoryMessages.values()) {
+      if (m.senderId === userId) partnerIds.add(m.receiverId);
+      if (m.receiverId === userId) partnerIds.add(m.senderId);
+    }
+
+    const convos: Conversation[] = [];
+    for (const partnerId of partnerIds) {
+      const thread = [...this.inMemoryMessages.values()]
+        .filter(
+          (m) =>
+            (m.senderId === userId && m.receiverId === partnerId) ||
+            (m.senderId === partnerId && m.receiverId === userId),
+        )
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+      const partner = this.users.get(partnerId);
+      const unreadCount = thread.filter(
+        (m) => m.receiverId === userId && !m.readAt,
+      ).length;
+
+      if (thread[0]) {
+        convos.push({
+          userId: partnerId,
+          displayName: partner?.displayName ?? partnerId,
+          avatarUrl: partner?.avatarUrl ?? null,
+          lastMessage: thread[0].body,
+          lastMessageAt: thread[0].createdAt,
+          unreadCount,
+        });
+      }
+    }
+
+    return convos.sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
+  }
+
+  async getThread(userId: string, partnerId: string, limit = 50): Promise<Message[]> {
+    const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
+
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        id: string;
+        sender_id: string;
+        receiver_id: string;
+        body: string;
+        read_at: string | null;
+        created_at: string;
+      }>(
+        `
+          SELECT id, sender_id, receiver_id, body, read_at, created_at
+          FROM messages
+          WHERE (sender_id = $1 AND receiver_id = $2)
+             OR (sender_id = $2 AND receiver_id = $1)
+          ORDER BY created_at DESC
+          LIMIT $3
+        `,
+        [userId, partnerId, normalizedLimit],
+      );
+
+      return result.rows.map((row) => ({
+        id: row.id,
+        senderId: row.sender_id,
+        receiverId: row.receiver_id,
+        body: row.body,
+        readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
+        createdAt: new Date(row.created_at).toISOString(),
+      }));
+    }
+
+    return [...this.inMemoryMessages.values()]
+      .filter(
+        (m) =>
+          (m.senderId === userId && m.receiverId === partnerId) ||
+          (m.senderId === partnerId && m.receiverId === userId),
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, normalizedLimit);
+  }
+
+  async markMessageRead(messageId: string, userId: string): Promise<Message> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        id: string;
+        sender_id: string;
+        receiver_id: string;
+        body: string;
+        read_at: string | null;
+        created_at: string;
+      }>(
+        `
+          UPDATE messages
+          SET read_at = NOW()
+          WHERE id = $1 AND receiver_id = $2 AND read_at IS NULL
+          RETURNING id, sender_id, receiver_id, body, read_at, created_at
+        `,
+        [messageId, userId],
+      );
+
+      if (result.rowCount === 0) {
+        throw new NotFoundException('Message not found');
+      }
+
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        senderId: row.sender_id,
+        receiverId: row.receiver_id,
+        body: row.body,
+        readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
+        createdAt: new Date(row.created_at).toISOString(),
+      };
+    }
+
+    const msg = this.inMemoryMessages.get(messageId);
+    if (!msg || msg.receiverId !== userId) {
+      throw new NotFoundException('Message not found');
+    }
+    const updated = { ...msg, readAt: new Date().toISOString() };
+    this.inMemoryMessages.set(messageId, updated);
+    return updated;
   }
 
   getEconomyConfig(): EconomyConfig {
@@ -1861,6 +2312,11 @@ export class StoreService {
     display_name: string;
     avatar_url: string | null;
     bio: string | null;
+    gender?: string | null;
+    birthday?: string | Date | null;
+    country_code?: string | null;
+    language?: string | null;
+    is_admin?: boolean | null;
     created_at: string;
   }): UserProfile {
     return {
@@ -1868,6 +2324,11 @@ export class StoreService {
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
       bio: row.bio,
+      gender: row.gender ?? null,
+      birthday: row.birthday ? new Date(row.birthday).toISOString().split('T')[0] : null,
+      countryCode: row.country_code ?? null,
+      language: row.language ?? null,
+      isAdmin: row.is_admin ?? false,
       createdAt: new Date(row.created_at).toISOString(),
     };
   }
@@ -1887,6 +2348,46 @@ export class StoreService {
       audienceCount: row.audience_count,
       status: row.status,
       createdAt: new Date(row.created_at).toISOString(),
+    };
+  }
+
+  private toCallSession(row: {
+    id: string;
+    caller_user_id: string;
+    receiver_user_id: string | null;
+    mode: 'direct' | 'random';
+    rate_coins_per_minute: number;
+    receiver_share_bps: number;
+    coins_per_usd_receiver: number;
+    spark_per_usd: number;
+    total_billed_coins: number;
+    total_receiver_coins: number;
+    total_receiver_usd: string | number;
+    total_receiver_spark: number;
+    status: 'live' | 'ended';
+    end_reason: string | null;
+    started_at: string;
+    updated_at: string;
+    ended_at: string | null;
+  }): CallSession {
+    return {
+      id: row.id,
+      callerUserId: row.caller_user_id,
+      receiverUserId: row.receiver_user_id,
+      mode: row.mode,
+      rateCoinsPerMinute: row.rate_coins_per_minute,
+      receiverShareBps: row.receiver_share_bps,
+      coinsPerUsdReceiver: row.coins_per_usd_receiver,
+      sparkPerUsd: row.spark_per_usd,
+      totalBilledCoins: row.total_billed_coins,
+      totalReceiverCoins: row.total_receiver_coins,
+      totalReceiverUsd: Number.parseFloat(String(row.total_receiver_usd)) || 0,
+      totalReceiverSpark: row.total_receiver_spark,
+      status: row.status,
+      endReason: row.end_reason,
+      startedAt: new Date(row.started_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
+      endedAt: row.ended_at ? new Date(row.ended_at).toISOString() : null,
     };
   }
 
