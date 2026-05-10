@@ -39,6 +39,13 @@ export class UsersController {
     return this.storeService.getFollowing(user.id);
   }
 
+  @Get('by-public-id/:publicId')
+  async getUserByPublicId(
+    @Param('publicId') publicId: string,
+  ): Promise<UserProfile> {
+    return this.storeService.getUserByPublicId(publicId);
+  }
+
   @Get(':userId')
   async getUserById(
     @Param('userId', new ParseUUIDPipe()) userId: string,

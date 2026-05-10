@@ -978,6 +978,42 @@ export class StoreService {
     return user;
   }
 
+  async getUserByPublicId(publicId: string): Promise<UserProfile> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        id: string;
+        display_name: string;
+        avatar_url: string | null;
+        bio: string | null;
+        gender: string | null;
+        birthday: string | null;
+        country_code: string | null;
+        language: string | null;
+        public_id: string | null;
+        is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
+        created_at: string;
+      }>(
+        `
+          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
+          FROM users WHERE public_id = $1 LIMIT 1
+        `,
+        [publicId],
+      );
+
+      if (result.rowCount === 0) {
+        throw new NotFoundException('User not found');
+      }
+
+      return this.toUserProfile(result.rows[0]);
+    }
+
+    const user = [...this.users.values()].find(u => u.publicId === publicId);
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
   async followUser(followerId: string, followingId: string): Promise<void> {
     if (followerId === followingId) {
       throw new BadRequestException('Cannot follow yourself');
