@@ -3037,6 +3037,7 @@ class MyProfilePage extends StatefulWidget {
 
 class _MyProfilePageState extends State<MyProfilePage> {
   late final TextEditingController _nicknameCtrl;
+  bool _editing = false;
   bool _saving = false;
 
   String _gender = 'Prefer not to say';
@@ -3068,7 +3069,6 @@ class _MyProfilePageState extends State<MyProfilePage> {
       _birthday = DateTime.tryParse(me!.birthday!);
     }
     if (me?.countryCode != null) {
-      // Pre-select country from saved countryCode
       _country = CountryService().findByCode(me!.countryCode!);
     }
     if (me?.language != null && me!.language!.isNotEmpty) {
@@ -3085,6 +3085,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
   String get _userId => widget.me?.publicId ?? '—';
 
   Future<void> _pickBirthday() async {
+    if (!_editing) return;
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _birthday ?? DateTime(2000),
@@ -3145,6 +3146,9 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final Color valueColor = Colors.grey.shade600;
+    const TextStyle valueStyle = TextStyle(fontSize: 14);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF2F2F7),
       appBar: AppBar(
@@ -3160,10 +3164,15 @@ class _MyProfilePageState extends State<MyProfilePage> {
                 ),
               ),
             )
-          else
+          else if (_editing)
             TextButton(
               onPressed: _save,
               child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
+            )
+          else
+            TextButton(
+              onPressed: () => setState(() => _editing = true),
+              child: const Text('Edit', style: TextStyle(fontWeight: FontWeight.w700)),
             ),
         ],
       ),
@@ -3191,18 +3200,19 @@ class _MyProfilePageState extends State<MyProfilePage> {
                                 : const Color(0xFF1FA4EA)),
                       ),
                     ),
-                    Positioned(
-                      bottom: 0, right: 0,
-                      child: Container(
-                        width: 30, height: 30,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color(0xFF1FA4EA),
+                    if (_editing)
+                      Positioned(
+                        bottom: 0, right: 0,
+                        child: Container(
+                          width: 30, height: 30,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color(0xFF1FA4EA),
+                          ),
+                          child: const Icon(Icons.camera_alt_rounded,
+                              size: 16, color: Colors.white),
                         ),
-                        child: const Icon(Icons.camera_alt_rounded,
-                            size: 16, color: Colors.white),
                       ),
-                    ),
                   ],
                 ),
                 if (widget.me?.isAdmin == true) ...<Widget>[
@@ -3240,7 +3250,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
             child: Column(
               children: <Widget>[
 
-                // ID — fixed
+                // ID — always read-only
                 ListTile(
                   title: const Text('ID'),
                   trailing: Text(_userId,
@@ -3251,56 +3261,71 @@ class _MyProfilePageState extends State<MyProfilePage> {
                 // Nickname
                 ListTile(
                   title: const Text('Nickname'),
-                  trailing: SizedBox(
-                    width: 160,
-                    child: TextField(
-                      controller: _nicknameCtrl,
-                      textAlign: TextAlign.end,
-                      style: const TextStyle(fontSize: 14),
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        hintText: 'Enter nickname',
-                        hintStyle: TextStyle(color: Colors.grey),
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ),
+                  trailing: _editing
+                      ? SizedBox(
+                          width: 160,
+                          child: TextField(
+                            controller: _nicknameCtrl,
+                            textAlign: TextAlign.end,
+                            style: valueStyle,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              hintText: 'Enter nickname',
+                              hintStyle: TextStyle(color: Colors.grey),
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        )
+                      : Text(_nicknameCtrl.text.isEmpty ? '—' : _nicknameCtrl.text,
+                          style: TextStyle(fontSize: 14, color: valueColor)),
                 ),
                 const Divider(height: 1),
 
                 // Gender
                 ListTile(
                   title: const Text('Gender'),
-                  trailing: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _gender,
-                      isDense: true,
-                      isExpanded: false,
-                      alignment: AlignmentDirectional.centerEnd,
-                      style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                      selectedItemBuilder: (_) => _genders.map((String g) =>
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: Text(g, style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
-                        ),
-                      ).toList(),
-                      items: _genders.map((String g) => DropdownMenuItem<String>(
-                        value: g, child: Text(g),
-                      )).toList(),
-                      onChanged: (String? v) {
-                        if (v != null) setState(() => _gender = v);
-                      },
-                    ),
-                  ),
+                  trailing: _editing
+                      ? DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _gender,
+                            isDense: true,
+                            isExpanded: false,
+                            alignment: AlignmentDirectional.centerEnd,
+                            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                            selectedItemBuilder: (_) => _genders.map((String g) =>
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: Text(g, style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
+                              ),
+                            ).toList(),
+                            items: _genders.map((String g) => DropdownMenuItem<String>(
+                              value: g, child: Text(g),
+                            )).toList(),
+                            onChanged: (String? v) {
+                              if (v != null) setState(() => _gender = v);
+                            },
+                          ),
+                        )
+                      : Text(_gender, style: TextStyle(fontSize: 14, color: valueColor)),
                 ),
                 const Divider(height: 1),
 
                 // Birthday
                 ListTile(
                   title: const Text('Birthday'),
-                  trailing: Text(_formatBirthday(),
-                      style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(_formatBirthday(),
+                          style: TextStyle(fontSize: 14, color: valueColor)),
+                      if (_editing) ...<Widget>[
+                        const SizedBox(width: 4),
+                        Icon(Icons.edit_calendar_rounded,
+                            size: 16, color: Colors.grey.shade400),
+                      ],
+                    ],
+                  ),
                   onTap: _pickBirthday,
                 ),
                 const Divider(height: 1),
@@ -3308,27 +3333,50 @@ class _MyProfilePageState extends State<MyProfilePage> {
                 // Country
                 ListTile(
                   title: const Text('Country'),
-                  trailing: _country == null
-                      ? Text('Select', style: TextStyle(fontSize: 14, color: Colors.grey.shade400))
-                      : Text(
-                          '${_country!.flagEmoji} ${_country!.name}',
-                          style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                        ),
-                  onTap: () => showCountryPicker(
-                    context: context,
-                    showPhoneCode: false,
-                    onSelect: (Country c) => setState(() => _country = c),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      _country == null
+                          ? Text('Not set', style: TextStyle(fontSize: 14, color: Colors.grey.shade400))
+                          : Text('${_country!.flagEmoji} ${_country!.name}',
+                              style: TextStyle(fontSize: 14, color: valueColor)),
+                      if (_editing) ...<Widget>[
+                        const SizedBox(width: 4),
+                        Icon(Icons.chevron_right_rounded,
+                            size: 18, color: Colors.grey.shade400),
+                      ],
+                    ],
                   ),
+                  onTap: _editing
+                      ? () => showCountryPicker(
+                            context: context,
+                            showPhoneCode: false,
+                            onSelect: (Country c) => setState(() => _country = c),
+                          )
+                      : null,
                 ),
                 const Divider(height: 1),
 
                 // Language
                 ListTile(
                   title: const Text('Language'),
-                  trailing: _language.isEmpty
-                      ? Text('Select', style: TextStyle(fontSize: 14, color: Colors.grey.shade400))
-                      : Text(_language, style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
-                  onTap: _pickLanguage,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(_language.isEmpty ? 'Not set' : _language,
+                          style: TextStyle(
+                              fontSize: 14,
+                              color: _language.isEmpty
+                                  ? Colors.grey.shade400
+                                  : valueColor)),
+                      if (_editing) ...<Widget>[
+                        const SizedBox(width: 4),
+                        Icon(Icons.chevron_right_rounded,
+                            size: 18, color: Colors.grey.shade400),
+                      ],
+                    ],
+                  ),
+                  onTap: _editing ? _pickLanguage : null,
                 ),
               ],
             ),
