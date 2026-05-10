@@ -227,6 +227,19 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         `UPDATE users SET is_admin = TRUE WHERE email = $1 AND provider = 'google'`,
         [ownerEmail],
       );
+
+      // Seed: set owner wallet to level 10 so all call price tiers are unlocked.
+      await this.pool.query(
+        `
+          UPDATE wallets
+          SET level = 10
+          WHERE user_id = (
+            SELECT id FROM users WHERE email = $1 AND provider = 'google' LIMIT 1
+          )
+          AND level < 10
+        `,
+        [ownerEmail],
+      );
     }
 
     this.logger.log('Database schema is ready.');
