@@ -759,14 +759,14 @@ export class StoreService {
             users.avatar_url    AS host_avatar_url,
             users.country_code  AS host_country_code,
             users.language      AS host_language,
-            users.status        AS user_status,
+            COALESCE(users.status, 'online') AS user_status,
             rooms.id            AS room_id,
             rooms.audience_count,
             rooms.created_at    AS started_at
           FROM users
           LEFT JOIN rooms
             ON rooms.host_user_id = users.id AND rooms.status = 'live'
-          WHERE users.is_guest = FALSE
+          WHERE users.provider IS NOT NULL
           ORDER BY
             (rooms.id IS NOT NULL) DESC,
             rooms.audience_count DESC NULLS LAST,
