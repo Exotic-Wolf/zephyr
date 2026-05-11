@@ -175,19 +175,43 @@ Events emitted by server: `feed:room-created`, `feed:room-ended`, `feed:room-upd
 
 ---
 
+## MVP completion status (as of 12 May 2026)
+
+Overall: **~55%**
+
+| Area | Status | % |
+|------|--------|---|
+| Auth (Google/Apple/Guest) | ✅ Done | 100% |
+| Home feed (cards, status, real-time) | ✅ Done | 90% |
+| Go Live / Host screen | ✅ Done | 80% |
+| Viewer screen | ✅ Basic done | 60% |
+| Direct messages (real-time, WebSocket) | ✅ Done | 90% |
+| Explore / Search | ✅ Done | 85% |
+| My Profile | ✅ Done | 75% |
+| Persistent login | ✅ Done | 100% |
+| **Real video/audio (LiveKit)** | ❌ Missing | 0% |
+| Push notifications (FCM) | ❌ Missing | 0% |
+| Follow/unfollow UI | ❌ Missing | 20% |
+| Wallet / coins UI | ❌ Missing | 30% |
+| Gifts during live | ❌ Missing | 10% |
+| App icon + splash | ❌ Missing | 0% |
+| Pagination / lazy load | ❌ Missing | 0% |
+
+**Blockers to shipping**: Real video/audio (LiveKit) + Push notifications (FCM). Everything else is polish.
+
+---
+
 ## Backlog (priority order)
 
-See `BACKLOG.md` for full list. Top items:
-
-1. Unread badge on Inbox tab icon
-2. Remove debug logs + mock cards before production
-3. Follow/unfollow UI on ProfilePage
-4. Push notifications (Firebase Cloud Messaging)
-5. Profile editing / verification
-6. Onboarding flow
-7. Wallet UI
-8. App icon + splash screen
-9. Wire LiveKit RTC for real video/audio
+1. **LiveKit RTC** — real video/audio for live streams and private calls (biggest missing piece)
+2. **Push notifications** — Firebase Cloud Messaging (FCM), required for chat to be useful when app is closed
+3. Remove debug logs + mock cards before production
+4. Follow/unfollow UI on ProfilePage
+5. Wallet UI (coin balance, purchase, transaction history)
+6. Gifts during live stream
+7. App icon + splash screen
+8. Pagination / lazy load on home feed
+9. Onboarding flow
 
 ---
 
@@ -199,3 +223,5 @@ See `BACKLOG.md` for full list. Top items:
 - `double.infinity.toInt()` throws on Flutter native — use `999999` for "unlimited" reconnect attempts.
 - Owner startup seeding uses `OWNER_GOOGLE_EMAIL` env var on Render.
 - `catch (_) {}` silently swallows errors — always use `catch (e) { debugPrint(...) }` during development.
+- `InboxPage` is destroyed when navigating to `ThreadPage` — persistent sockets must live in `HomeScreenState`, not in page state.
+- `null == null` is `true` in Dart — always guard nullable ID comparisons with a non-null check first.
