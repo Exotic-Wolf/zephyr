@@ -4080,6 +4080,8 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _ticker?.cancel();
     _viewerPoll?.cancel();
     _pulseCtrl.dispose();
+    // End the room automatically if host navigates away or closes the app
+    widget.apiClient.endRoom(widget.accessToken, widget.room.id).ignore();
     super.dispose();
   }
 
