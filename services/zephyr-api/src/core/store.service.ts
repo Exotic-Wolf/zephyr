@@ -822,7 +822,7 @@ export class StoreService {
       id: randomUUID(),
       hostUserId,
       title: title.trim(),
-      audienceCount: 1,
+      audienceCount: 0,
       status: 'live',
       createdAt: new Date().toISOString(),
     };
