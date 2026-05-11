@@ -43,7 +43,7 @@ export class MessagesGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   emitNewMessage(message: Message): void {
+    // Only push to receiver — sender already appended optimistically in the app
     this.server.to(message.receiverId).emit('chat:message', { message });
-    this.server.to(message.senderId).emit('chat:message', { message });
   }
 }
