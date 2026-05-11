@@ -830,85 +830,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _showGoLiveSheet() async {
-    _roomTitleController.clear();
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext ctx) {
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Center(
-                  child: Container(
-                    width: 40, height: 4,
-                    decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                const Text('Start a Live Room',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 6),
-                Text('Give your stream a title',
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _roomTitleController,
-                  autofocus: true,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: InputDecoration(
-                    hintText: 'Night Talk, Music Chill, Q&A…',
-                    filled: true,
-                    fillColor: const Color(0xFFF2F2F7),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1FA4EA),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                    onPressed: () {
-                      Navigator.of(ctx).pop();
-                      _createRoom();
-                    },
-                    child: const Text('Go Live 🔴', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Future<void> _createRoom() async {
-    final String title = _roomTitleController.text.trim();
-    if (title.isEmpty) {
-      setState(() {
-        _error = 'Please add a room title.';
-      });
-      return;
-    }
+    final String title = _me?.displayName ?? 'Live';
 
     setState(() {
       _creating = true;
@@ -917,7 +840,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final Room room = await widget.apiClient.createRoom(widget.accessToken, title);
-      _roomTitleController.clear();
       _selectedDirectReceiverUserId = room.hostUserId;
       await _loadData();
       if (!mounted) return;
@@ -1673,7 +1595,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 36),
             GestureDetector(
-              onTap: _creating ? null : _showGoLiveSheet,
+              onTap: _creating ? null : _createRoom,
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 16),
