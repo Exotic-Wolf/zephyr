@@ -118,25 +118,46 @@ class _HomeScreenState extends State<HomeScreen> {
           final LiveFeedCard card = LiveFeedCard.fromJson(
               (payload['card'] as Map<dynamic, dynamic>)
                   .cast<String, dynamic>());
-          if (card.hostUserId == _me?.id) return; // skip own room
+          if (card.hostUserId == _me?.id) return;
           setState(() {
-            // Replace existing card with same roomId, or prepend
-            _feedCards = <LiveFeedCard>[
-              card,
-              ..._feedCards.where((LiveFeedCard c) => c.roomId != card.roomId),
-            ];
+            // Update existing card for this user to live, or prepend if new
+            final bool exists = _feedCards.any((LiveFeedCard c) => c.hostUserId == card.hostUserId);
+            if (exists) {
+              _feedCards = _feedCards.map((LiveFeedCard c) =>
+                c.hostUserId == card.hostUserId ? card : c).toList();
+            } else {
+              _feedCards = <LiveFeedCard>[card, ..._feedCards];
+            }
           });
         } catch (_) {}
       })
       ..on('feed:room-ended', (dynamic data) {
         if (!mounted) return;
         try {
-          final String roomId = ((data as Map<dynamic, dynamic>)
-              .cast<String, dynamic>())['roomId'] as String;
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final String hostUserId = payload['hostUserId'] as String;
           setState(() {
-            _feedCards = _feedCards
-                .where((LiveFeedCard c) => c.roomId != roomId)
-                .toList();
+            // Card stays — just flip status back to online
+            _feedCards = _feedCards.map((LiveFeedCard c) =>
+              c.hostUserId == hostUserId
+                  ? c.copyWith(hostStatus: 'online', roomId: null, audienceCount: 0)
+                  : c,
+            ).toList();
+          });
+        } catch (_) {}
+      })
+      ..on('feed:user-status', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final String hostUserId = payload['hostUserId'] as String;
+          final String status = payload['status'] as String;
+          setState(() {
+            _feedCards = _feedCards.map((LiveFeedCard c) =>
+              c.hostUserId == hostUserId ? c.copyWith(hostStatus: status) : c,
+            ).toList();
           });
         } catch (_) {}
       })
@@ -151,21 +172,9 @@ class _HomeScreenState extends State<HomeScreen> {
           final String roomId = payload['roomId'] as String;
           final int count = payload['audienceCount'] as int;
           setState(() {
-            _feedCards = _feedCards.map((LiveFeedCard c) {
-              if (c.roomId != roomId) return c;
-              return LiveFeedCard(
-                roomId: c.roomId,
-                title: c.title,
-                audienceCount: count,
-                hostUserId: c.hostUserId,
-                hostDisplayName: c.hostDisplayName,
-                hostAvatarUrl: c.hostAvatarUrl,
-                hostCountryCode: c.hostCountryCode,
-                hostLanguage: c.hostLanguage,
-                hostStatus: c.hostStatus,
-                startedAt: c.startedAt,
-              );
-            }).toList();
+            _feedCards = _feedCards.map((LiveFeedCard c) =>
+              c.roomId == roomId ? c.copyWith(audienceCount: count) : c,
+            ).toList();
           });
         } catch (_) {}
       })
@@ -681,8 +690,10 @@ class _HomeScreenState extends State<HomeScreen> {
         onLeave: () => _loadData(),
       ),
     ));
-    // Notify backend of join in background
-    widget.apiClient.joinRoom(widget.accessToken, feedCard.roomId).ignore();
+    // Notify backend of join in background (only if user is currently live)
+    if (feedCard.roomId != null) {
+      widget.apiClient.joinRoom(widget.accessToken, feedCard.roomId!).ignore();
+    }
     await _loadData();
   }
 
@@ -922,7 +933,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() { _searchActive = false; _searchCtrl.clear(); _searchQuery = ''; });
       // Build a minimal LiveFeedCard to reuse ProfilePage
       final LiveFeedCard card = LiveFeedCard(
-        roomId: '',
+        roomId: null,
         title: profile.displayName,
         hostUserId: profile.id,
         hostDisplayName: profile.displayName,

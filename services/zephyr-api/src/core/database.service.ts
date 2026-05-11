@@ -264,6 +264,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ALTER TABLE rooms ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ
     `);
 
+    // Add status column to users (online / busy / offline — 'live' is derived from rooms)
+    await this.pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'online'
+    `);
+
     // Startup cleanup: delete any room older than 30 minutes (catches all stale rooms)
     const startupClean = await this.pool.query(`
       DELETE FROM rooms

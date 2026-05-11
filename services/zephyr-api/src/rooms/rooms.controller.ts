@@ -96,8 +96,8 @@ export class RoomsController {
   ): Promise<{ ok: true }> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     await this.storeService.endRoom(user.id, roomId);
-    // Push real-time event — all clients remove this card immediately
-    this.roomsGateway.emitRoomEnded(roomId);
+    // Card stays in feed — just update status back to online
+    this.roomsGateway.emitRoomEnded(roomId, user.id);
     return { ok: true };
   }
 }

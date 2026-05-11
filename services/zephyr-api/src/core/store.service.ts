@@ -45,7 +45,7 @@ export interface Room {
 }
 
 export interface LiveFeedCard {
-  roomId: string;
+  roomId: string | null;
   title: string;
   audienceCount: number;
   hostUserId: string;
@@ -735,82 +735,89 @@ export class StoreService {
     });
   }
 
-  async listLiveFeed(limit = 20): Promise<LiveFeedCard[]> {
+  async listLiveFeed(limit = 50): Promise<LiveFeedCard[]> {
     const normalizedLimit = Number.isFinite(limit)
-      ? Math.min(Math.max(Math.trunc(limit), 1), 50)
-      : 20;
+      ? Math.min(Math.max(Math.trunc(limit), 1), 100)
+      : 50;
 
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{
-        room_id: string;
-        title: string;
-        audience_count: number;
         host_user_id: string;
         host_display_name: string;
         host_avatar_url: string | null;
         host_country_code: string | null;
         host_language: string | null;
-        started_at: string;
+        user_status: string;
+        room_id: string | null;
+        audience_count: number | null;
+        started_at: string | null;
       }>(
         `
           SELECT
-            rooms.id AS room_id,
-            rooms.title,
+            users.id            AS host_user_id,
+            users.display_name  AS host_display_name,
+            users.avatar_url    AS host_avatar_url,
+            users.country_code  AS host_country_code,
+            users.language      AS host_language,
+            users.status        AS user_status,
+            rooms.id            AS room_id,
             rooms.audience_count,
-            rooms.host_user_id,
-            users.display_name AS host_display_name,
-            users.avatar_url AS host_avatar_url,
-            users.country_code AS host_country_code,
-            users.language AS host_language,
-            rooms.created_at AS started_at
-          FROM rooms
-          INNER JOIN users ON users.id = rooms.host_user_id
-          WHERE rooms.status = 'live'
-          ORDER BY rooms.audience_count DESC, rooms.created_at DESC
+            rooms.created_at    AS started_at
+          FROM users
+          LEFT JOIN rooms
+            ON rooms.host_user_id = users.id AND rooms.status = 'live'
+          WHERE users.is_guest = FALSE
+          ORDER BY
+            (rooms.id IS NOT NULL) DESC,
+            rooms.audience_count DESC NULLS LAST,
+            users.display_name ASC
           LIMIT $1
         `,
         [normalizedLimit],
       );
 
       return result.rows.map((row) => ({
-        roomId: row.room_id,
-        title: row.title,
-        audienceCount: row.audience_count,
+        roomId: row.room_id ?? null,
+        title: row.host_display_name,
+        audienceCount: row.audience_count ?? 0,
         hostUserId: row.host_user_id,
         hostDisplayName: row.host_display_name,
         hostAvatarUrl: row.host_avatar_url,
         hostCountryCode: row.host_country_code ?? 'PH',
         hostLanguage: row.host_language ?? 'English',
-        hostStatus: 'live',
-        startedAt: new Date(row.started_at).toISOString(),
+        hostStatus: row.room_id ? 'live' : row.user_status,
+        startedAt: row.started_at
+          ? new Date(row.started_at).toISOString()
+          : new Date().toISOString(),
       }));
     }
 
-    const rooms = [...this.rooms.values()]
-      .filter((room) => room.status === 'live')
-      .sort((firstRoom, secondRoom) => {
-        if (secondRoom.audienceCount !== firstRoom.audienceCount) {
-          return secondRoom.audienceCount - firstRoom.audienceCount;
-        }
-        return secondRoom.createdAt.localeCompare(firstRoom.createdAt);
+    // In-memory fallback: return all non-guest users with live status derived from rooms
+    return [...this.users.values()]
+      .filter((u) => !u.isGuest)
+      .map((u) => {
+        const room = [...this.rooms.values()].find(
+          (r) => r.hostUserId === u.id && r.status === 'live',
+        );
+        return {
+          roomId: room?.id ?? null,
+          title: u.displayName,
+          audienceCount: room?.audienceCount ?? 0,
+          hostUserId: u.id,
+          hostDisplayName: u.displayName,
+          hostAvatarUrl: u.avatarUrl ?? null,
+          hostCountryCode: u.countryCode ?? 'PH',
+          hostLanguage: u.language ?? 'English',
+          hostStatus: room ? 'live' : (u as any).status ?? 'online',
+          startedAt: room?.createdAt ?? new Date().toISOString(),
+        };
+      })
+      .sort((a, b) => {
+        if (a.hostStatus === 'live' && b.hostStatus !== 'live') return -1;
+        if (b.hostStatus === 'live' && a.hostStatus !== 'live') return 1;
+        return b.audienceCount - a.audienceCount;
       })
       .slice(0, normalizedLimit);
-
-    return rooms.map((room) => {
-      const hostUser = this.users.get(room.hostUserId);
-      return {
-        roomId: room.id,
-        title: room.title,
-        audienceCount: room.audienceCount,
-        hostUserId: room.hostUserId,
-        hostDisplayName: hostUser?.displayName ?? `host_${room.hostUserId.slice(0, 8)}`,
-        hostAvatarUrl: hostUser?.avatarUrl ?? null,
-        hostCountryCode: hostUser?.countryCode ?? 'PH',
-        hostLanguage: hostUser?.language ?? 'English',
-        hostStatus: 'live',
-        startedAt: room.createdAt,
-      };
-    });
   }
 
   async createRoom(hostUserId: string, title: string): Promise<Room> {

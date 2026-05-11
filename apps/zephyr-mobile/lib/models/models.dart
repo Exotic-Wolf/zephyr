@@ -341,7 +341,7 @@ class LiveFeedCard {
     required this.startedAt,
   });
 
-  final String roomId;
+  final String? roomId;
   final String title;
   final int audienceCount;
   final String hostUserId;
@@ -349,13 +349,13 @@ class LiveFeedCard {
   final String? hostAvatarUrl;
   final String hostCountryCode;
   final String hostLanguage;
-  /// 'live' | 'online' | 'busy'
+  /// 'live' | 'online' | 'busy' | 'offline'
   final String hostStatus;
   final DateTime startedAt;
 
   factory LiveFeedCard.fromJson(Map<String, dynamic> json) {
     return LiveFeedCard(
-      roomId: json['roomId'] as String,
+      roomId: json['roomId'] as String?,
       title: json['title'] as String,
       audienceCount: json['audienceCount'] as int,
       hostUserId: json['hostUserId'] as String,
@@ -365,8 +365,23 @@ class LiveFeedCard {
           .trim()
           .toUpperCase(),
       hostLanguage: (json['hostLanguage'] as String? ?? 'English').trim(),
-      hostStatus: (json['hostStatus'] as String? ?? 'live').trim().toLowerCase(),
+      hostStatus: (json['hostStatus'] as String? ?? 'online').trim().toLowerCase(),
       startedAt: DateTime.parse(json['startedAt'] as String),
+    );
+  }
+
+  LiveFeedCard copyWith({String? hostStatus, String? roomId, int? audienceCount}) {
+    return LiveFeedCard(
+      roomId: roomId ?? this.roomId,
+      title: title,
+      audienceCount: audienceCount ?? this.audienceCount,
+      hostUserId: hostUserId,
+      hostDisplayName: hostDisplayName,
+      hostAvatarUrl: hostAvatarUrl,
+      hostCountryCode: hostCountryCode,
+      hostLanguage: hostLanguage,
+      hostStatus: hostStatus ?? this.hostStatus,
+      startedAt: startedAt,
     );
   }
 }
