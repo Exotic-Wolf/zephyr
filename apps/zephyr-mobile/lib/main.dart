@@ -1601,10 +1601,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   builder: (_) => GoLiveCountdownPage(
                     displayName: _me?.displayName ?? 'Me',
                     avatarUrl: _me?.avatarUrl,
-                    onGo: _createRoom,
+                    apiClient: widget.apiClient,
+                    accessToken: widget.accessToken,
+                    onEnd: () => _loadData(),
                     onCancel: () {},
                   ),
                 ));
+                await _loadData();
               },
               child: Container(
                 width: double.infinity,
@@ -3963,13 +3966,17 @@ class GoLiveCountdownPage extends StatefulWidget {
     super.key,
     required this.displayName,
     required this.avatarUrl,
-    required this.onGo,
+    required this.apiClient,
+    required this.accessToken,
+    required this.onEnd,
     required this.onCancel,
   });
 
   final String displayName;
   final String? avatarUrl;
-  final VoidCallback onGo;
+  final ZephyrApiClient apiClient;
+  final String accessToken;
+  final VoidCallback onEnd;
   final VoidCallback onCancel;
 
   @override
@@ -3982,6 +3989,8 @@ class _GoLiveCountdownPageState extends State<GoLiveCountdownPage>
   Timer? _timer;
   late final AnimationController _scaleCtrl;
   late final Animation<double> _scale;
+
+  bool _starting = false;
 
   @override
   void initState() {
@@ -3997,18 +4006,40 @@ class _GoLiveCountdownPageState extends State<GoLiveCountdownPage>
       if (_count == 1) {
         _timer?.cancel();
         setState(() => _count = 0);
-        // Small delay so "LIVE!" shows, then fire
-        Future<void>.delayed(const Duration(milliseconds: 700), () {
-          if (mounted) {
-            Navigator.of(context).pop();
-            widget.onGo();
-          }
+        // Show LIVE briefly then create room and pushReplacement
+        Future<void>.delayed(const Duration(milliseconds: 600), () {
+          if (mounted) _startLive();
         });
       } else {
         setState(() => _count--);
         _scaleCtrl.forward(from: 0);
       }
     });
+  }
+
+  Future<void> _startLive() async {
+    setState(() => _starting = true);
+    try {
+      final Room room = await widget.apiClient.createRoom(
+          widget.accessToken, widget.displayName);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => HostLiveScreen(
+          room: room,
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          hostDisplayName: widget.displayName,
+          hostAvatarUrl: widget.avatarUrl,
+          onEnd: widget.onEnd,
+        ),
+      ));
+    } catch (_) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        widget.onCancel();
+      }
+    }
   }
 
   @override
@@ -4113,13 +4144,15 @@ class _GoLiveCountdownPageState extends State<GoLiveCountdownPage>
 
                 const SizedBox(height: 32),
                 Text(
-                  isLive ? 'Starting your stream…' : 'Get ready!',
+                  isLive
+                      ? (_starting ? 'Starting your stream…' : 'Starting your stream…')
+                      : 'Get ready!',
                   style: TextStyle(color: Colors.white54, fontSize: 15),
                 ),
                 const SizedBox(height: 60),
 
-                // Cancel button (hidden once LIVE shows)
-                if (!isLive)
+                // Cancel button — hidden once LIVE / starting
+                if (!isLive && !_starting)
                   TextButton(
                     onPressed: () {
                       _timer?.cancel();
