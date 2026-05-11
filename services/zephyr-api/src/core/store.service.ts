@@ -792,9 +792,8 @@ export class StoreService {
       }));
     }
 
-    // In-memory fallback: return all non-guest users with live status derived from rooms
+    // In-memory fallback: return all users with live status derived from rooms
     return [...this.users.values()]
-      .filter((u) => !u.isGuest)
       .map((u) => {
         const room = [...this.rooms.values()].find(
           (r) => r.hostUserId === u.id && r.status === 'live',
