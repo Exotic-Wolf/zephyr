@@ -909,24 +909,20 @@ export class StoreService {
 
   async endRoom(hostUserId: string, roomId: string): Promise<void> {
     if (this.databaseService?.isEnabled()) {
-      const result = await this.databaseService.query(
+      await this.databaseService.query(
         `
           DELETE FROM rooms
           WHERE id = $1 AND host_user_id = $2 AND status = 'live'
         `,
         [roomId, hostUserId],
       );
-
-      if (result.rowCount === 0) {
-        throw new NotFoundException('Room not found');
-      }
-
+      // Idempotent: don't throw if already deleted (e.g. called twice from dispose)
       return;
     }
 
     const room = this.rooms.get(roomId);
-    if (!room || room.hostUserId !== hostUserId || room.status !== 'live') {
-      throw new NotFoundException('Room not found');
+    if (room && room.hostUserId === hostUserId) {
+      this.rooms.delete(roomId);
     }
 
     this.rooms.delete(roomId);

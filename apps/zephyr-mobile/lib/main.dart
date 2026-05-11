@@ -443,9 +443,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadData();
     _refreshApiStatus();
     _connectFeedSocket();
-    // Fallback poll every 30s in case socket drops (not the primary source)
+    // Fallback poll every 5s — catches missed socket events (socket drop, Render sleep, etc.)
     _feedPollTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 5),
       (_) => _refreshFeed(),
     );
   }
@@ -458,6 +458,9 @@ class _HomeScreenState extends State<HomeScreen> {
       '$wsBase/feed',
       sio.OptionBuilder()
           .setTransports(<String>['websocket'])
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(2000)
           .disableAutoConnect()
           .build(),
     );
@@ -4399,6 +4402,9 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       '$wsBase/feed',
       sio.OptionBuilder()
           .setTransports(<String>['websocket'])
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(2000)
           .disableAutoConnect()
           .build(),
     );
