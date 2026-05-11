@@ -491,13 +491,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _connectFeedSocket() {
-    final String wsBase = apiBaseUrl
-        .replaceFirst('https://', 'wss://')
-        .replaceFirst('http://', 'ws://');
     _feedSocket = sio.io(
-      '$wsBase/feed',
+      '$apiBaseUrl/feed',
       sio.OptionBuilder()
-          .setTransports(<String>['websocket'])
+          .setTransports(<String>['websocket', 'polling'])
           .enableReconnection()
           .setReconnectionAttempts(999999)
           .setReconnectionDelay(2000)
@@ -4435,13 +4432,10 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   }
 
   void _connectSocket() {
-    final String wsBase = apiBaseUrl
-        .replaceFirst('https://', 'wss://')
-        .replaceFirst('http://', 'ws://');
     _socket = sio.io(
-      '$wsBase/feed',
+      '$apiBaseUrl/feed',
       sio.OptionBuilder()
-          .setTransports(<String>['websocket'])
+          .setTransports(<String>['websocket', 'polling'])
           .enableReconnection()
           .setReconnectionAttempts(999999)
           .setReconnectionDelay(2000)
