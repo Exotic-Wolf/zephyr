@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import 'flags.dart';
 
@@ -416,6 +417,7 @@ class _HomeScreenState extends State<HomeScreen> {
   RtcJoinInfo? _rtcJoinInfo;
   Timer? _callTickTimer;
   Timer? _feedPollTimer;
+  sio.Socket? _feedSocket;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
   bool _rtcLoading = false;
@@ -440,17 +442,91 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadData();
     _refreshApiStatus();
-    // Poll live feed every 15 seconds so new streams appear automatically
+    _connectFeedSocket();
+    // Fallback poll every 30s in case socket drops (not the primary source)
     _feedPollTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 30),
       (_) => _refreshFeed(),
     );
+  }
+
+  void _connectFeedSocket() {
+    final String wsBase = apiBaseUrl
+        .replaceFirst('https://', 'wss://')
+        .replaceFirst('http://', 'ws://');
+    _feedSocket = sio.io(
+      '$wsBase/feed',
+      sio.OptionBuilder()
+          .setTransports(<String>['websocket'])
+          .disableAutoConnect()
+          .build(),
+    );
+
+    _feedSocket!
+      ..on('feed:room-created', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final LiveFeedCard card = LiveFeedCard.fromJson(
+              (payload['card'] as Map<dynamic, dynamic>)
+                  .cast<String, dynamic>());
+          if (card.hostUserId == _me?.id) return; // skip own room
+          setState(() {
+            // Replace existing card with same roomId, or prepend
+            _feedCards = <LiveFeedCard>[
+              card,
+              ..._feedCards.where((LiveFeedCard c) => c.roomId != card.roomId),
+            ];
+          });
+        } catch (_) {}
+      })
+      ..on('feed:room-ended', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final String roomId = ((data as Map<dynamic, dynamic>)
+              .cast<String, dynamic>())['roomId'] as String;
+          setState(() {
+            _feedCards = _feedCards
+                .where((LiveFeedCard c) => c.roomId != roomId)
+                .toList();
+          });
+        } catch (_) {}
+      })
+      ..on('feed:room-updated', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final String roomId = payload['roomId'] as String;
+          final int count = payload['audienceCount'] as int;
+          setState(() {
+            _feedCards = _feedCards.map((LiveFeedCard c) {
+              if (c.roomId != roomId) return c;
+              return LiveFeedCard(
+                roomId: c.roomId,
+                title: c.title,
+                audienceCount: count,
+                hostUserId: c.hostUserId,
+                hostDisplayName: c.hostDisplayName,
+                hostAvatarUrl: c.hostAvatarUrl,
+                hostCountryCode: c.hostCountryCode,
+                hostLanguage: c.hostLanguage,
+                hostStatus: c.hostStatus,
+                startedAt: c.startedAt,
+              );
+            }).toList();
+          });
+        } catch (_) {}
+      })
+      ..connect();
   }
 
   @override
   void dispose() {
     _callTickTimer?.cancel();
     _feedPollTimer?.cancel();
+    _feedSocket?.dispose();
     _roomTitleController.dispose();
     _feedController.dispose();
     _searchCtrl.dispose();
@@ -4284,8 +4360,8 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   int _viewerCount = 0;
   int _elapsedSeconds = 0;
   Timer? _ticker;
-  Timer? _viewerPoll;
   Timer? _heartbeatTimer;
+  sio.Socket? _socket;
   final List<_LiveComment> _comments = <_LiveComment>[];
   final List<_FloatingGift> _gifts = <_FloatingGift>[];
   late final AnimationController _pulseCtrl;
@@ -4301,7 +4377,6 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);
     });
-    _viewerPoll = Timer.periodic(const Duration(seconds: 5), (_) => _pollRoom());
     // Heartbeat: tell server host is still live every 30s
     widget.apiClient
         .heartbeatRoom(widget.accessToken, widget.room.id)
@@ -4312,21 +4387,44 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           .heartbeatRoom(widget.accessToken, widget.room.id)
           .ignore(),
     );
+    // Real-time viewer count via socket
+    _connectSocket();
+  }
+
+  void _connectSocket() {
+    final String wsBase = apiBaseUrl
+        .replaceFirst('https://', 'wss://')
+        .replaceFirst('http://', 'ws://');
+    _socket = sio.io(
+      '$wsBase/feed',
+      sio.OptionBuilder()
+          .setTransports(<String>['websocket'])
+          .disableAutoConnect()
+          .build(),
+    );
+    _socket!
+      ..on('feed:room-updated', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          if (payload['roomId'] == widget.room.id) {
+            setState(() => _viewerCount = payload['audienceCount'] as int);
+          }
+        } catch (_) {}
+      })
+      ..connect();
   }
 
   @override
   void dispose() {
     _ticker?.cancel();
-    _viewerPoll?.cancel();
     _heartbeatTimer?.cancel();
+    _socket?.dispose();
     _pulseCtrl.dispose();
     // End the room automatically if host navigates away or closes the app
     widget.apiClient.endRoom(widget.accessToken, widget.room.id).ignore();
     super.dispose();
-  }
-
-  Future<void> _pollRoom() async {
-    // In future: fetch room from API to get live viewer count
   }
 
   String get _elapsed {

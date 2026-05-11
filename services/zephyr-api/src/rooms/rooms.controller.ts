@@ -13,10 +13,14 @@ import {
 import { StoreService } from '../core/store.service';
 import type { Room } from '../core/store.service';
 import { CreateRoomDto } from './dto/create-room.dto';
+import { RoomsGateway } from './rooms.gateway';
 
 @Controller('v1/rooms')
 export class RoomsController {
-  constructor(private readonly storeService: StoreService) {}
+  constructor(
+    private readonly storeService: StoreService,
+    private readonly roomsGateway: RoomsGateway,
+  ) {}
 
   @Get()
   async listRooms(): Promise<Room[]> {
@@ -29,7 +33,21 @@ export class RoomsController {
     @Body() body: CreateRoomDto,
   ): Promise<Room> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
-    return this.storeService.createRoom(user.id, body?.title);
+    const room = await this.storeService.createRoom(user.id, body?.title);
+    // Push real-time event to all connected clients
+    this.roomsGateway.emitRoomCreated({
+      roomId: room.id,
+      title: room.title,
+      audienceCount: room.audienceCount,
+      hostUserId: room.hostUserId,
+      hostDisplayName: user.displayName,
+      hostAvatarUrl: user.avatarUrl,
+      hostCountryCode: user.countryCode ?? 'PH',
+      hostLanguage: user.language ?? 'English',
+      hostStatus: 'live',
+      startedAt: room.createdAt,
+    });
+    return room;
   }
 
   @Post(':roomId/join')
@@ -38,7 +56,9 @@ export class RoomsController {
     @Param('roomId', new ParseUUIDPipe()) roomId: string,
   ): Promise<Room> {
     await this.storeService.getUserFromAuthHeader(authorization);
-    return this.storeService.joinRoom(roomId);
+    const room = await this.storeService.joinRoom(roomId);
+    this.roomsGateway.emitRoomUpdated(room.id, room.audienceCount);
+    return room;
   }
 
   @Post(':roomId/leave')
@@ -49,6 +69,14 @@ export class RoomsController {
   ): Promise<void> {
     await this.storeService.getUserFromAuthHeader(authorization);
     await this.storeService.leaveRoom(roomId);
+    // Fetch updated count and broadcast
+    try {
+      const rooms = await this.storeService.listRooms();
+      const room = rooms.find((r) => r.id === roomId);
+      if (room) this.roomsGateway.emitRoomUpdated(roomId, room.audienceCount);
+    } catch {
+      // best-effort
+    }
   }
 
   @Post(':roomId/heartbeat')
@@ -68,6 +96,8 @@ export class RoomsController {
   ): Promise<{ ok: true }> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     await this.storeService.endRoom(user.id, roomId);
+    // Push real-time event — all clients remove this card immediately
+    this.roomsGateway.emitRoomEnded(roomId);
     return { ok: true };
   }
 }
