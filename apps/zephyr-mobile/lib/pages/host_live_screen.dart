@@ -56,12 +56,12 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);
     });
-    // Heartbeat: tell server host is still live every 30s
+    // Heartbeat: tell server host is still live every 15s
     widget.apiClient
         .heartbeatRoom(widget.accessToken, widget.room.id)
         .ignore();
     _heartbeatTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 15),
       (_) => widget.apiClient
           .heartbeatRoom(widget.accessToken, widget.room.id)
           .ignore(),

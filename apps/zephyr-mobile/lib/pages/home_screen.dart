@@ -140,6 +140,9 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         } catch (_) {}
       })
+      ..on('connect', (_) => debugPrint('[socket] connected to /feed'))
+      ..on('disconnect', (_) => debugPrint('[socket] disconnected from /feed'))
+      ..on('connect_error', (dynamic e) => debugPrint('[socket] connect_error: $e'))
       ..on('feed:room-updated', (dynamic data) {
         if (!mounted) return;
         try {
