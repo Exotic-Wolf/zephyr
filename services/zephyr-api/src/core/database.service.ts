@@ -258,6 +258,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // One-time cleanup: end all stale live rooms (testing artefacts)
+    await this.pool.query(`DELETE FROM rooms WHERE status = 'live'`);
+
     this.logger.log('Database schema is ready.');
   }
 }
