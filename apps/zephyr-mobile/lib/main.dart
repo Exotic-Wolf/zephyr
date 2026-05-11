@@ -848,6 +848,77 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _showGoLiveSheet() async {
+    _roomTitleController.clear();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext ctx) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text('Start a Live Room',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text('Give your stream a title',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _roomTitleController,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    hintText: 'Night Talk, Music Chill, Q&A…',
+                    filled: true,
+                    fillColor: const Color(0xFFF2F2F7),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1FA4EA),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      _createRoom();
+                    },
+                    child: const Text('Go Live 🔴', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _createRoom() async {
     final String title = _roomTitleController.text.trim();
     if (title.isEmpty) {
@@ -867,12 +938,22 @@ class _HomeScreenState extends State<HomeScreen> {
       _roomTitleController.clear();
       _selectedDirectReceiverUserId = room.hostUserId;
       await _loadData();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('You are live now: ${room.title}')),
-      );
+      if (!mounted) return;
+      // Open fullscreen host screen
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => HostLiveScreen(
+          room: room,
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          hostDisplayName: _me?.displayName ?? 'Me',
+          hostAvatarUrl: _me?.avatarUrl,
+          onEnd: () {
+            _loadData();
+          },
+        ),
+      ));
+      await _loadData();
     } catch (error) {
       setState(() {
         _error = error.toString();
@@ -887,33 +968,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _enterRoom(LiveFeedCard feedCard) async {
-    setState(() {
-      _joiningRoomId = feedCard.roomId;
-    });
-
-    try {
-      await widget.apiClient.joinRoom(widget.accessToken, feedCard.roomId);
-      await _loadData();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _selectedDirectReceiverUserId = feedCard.hostUserId;
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Watching ${feedCard.title} live')));
-    } catch (error) {
-      setState(() {
-        _error = error.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _joiningRoomId = null;
-        });
-      }
-    }
+    // Open fullscreen viewer screen immediately
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => ViewerLiveScreen(
+        feedCard: feedCard,
+        apiClient: widget.apiClient,
+        accessToken: widget.accessToken,
+        myUserId: _me?.id ?? '',
+        myDisplayName: _me?.displayName ?? 'Guest',
+        onLeave: () => _loadData(),
+      ),
+    ));
+    // Notify backend of join in background
+    widget.apiClient.joinRoom(widget.accessToken, feedCard.roomId).ignore();
+    await _loadData();
   }
 
   Future<void> _endMyLive() async {
@@ -1600,43 +1669,66 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 10),
               if (_myLiveRoom != null)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
+                // Already live — show re-enter button
+                GestureDetector(
+                  onTap: () async {
+                    await Navigator.of(context).push(MaterialPageRoute<void>(
+                      fullscreenDialog: true,
+                      builder: (_) => HostLiveScreen(
+                        room: _myLiveRoom!,
+                        apiClient: widget.apiClient,
+                        accessToken: widget.accessToken,
+                        hostDisplayName: _me?.displayName ?? 'Me',
+                        hostAvatarUrl: _me?.avatarUrl,
+                        onEnd: () => _loadData(),
+                      ),
+                    ));
+                    await _loadData();
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: <Color>[Color(0xFFE53935), Color(0xFFE91E63)]),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            'You are live: ${_myLiveRoom!.title} · ${_myLiveRoom!.audienceCount} viewers',
-                          ),
-                        ),
+                        Container(width: 8, height: 8,
+                            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
                         const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: _creating ? null : _endMyLive,
-                          child: Text(_creating ? 'Ending...' : 'End Live'),
-                        ),
+                        Text('You\'re live: ${_myLiveRoom!.title}  ·  ${_myLiveRoom!.audienceCount} viewers',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
                       ],
                     ),
                   ),
                 )
               else
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: TextField(
-                        controller: _roomTitleController,
-                        decoration: const InputDecoration(
-                          labelText: 'Live Title',
-                          hintText: 'Night Talk, Music Chill, etc.',
-                        ),
+                // Go Live button — opens title sheet then creates room
+                GestureDetector(
+                  onTap: _creating ? null : () => _showGoLiveSheet(),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
                       ),
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: _creating ? null : _createRoom,
-                      child: Text(_creating ? 'Starting...' : 'Go Live'),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        const Icon(Icons.live_tv_rounded, color: Colors.white, size: 22),
+                        const SizedBox(width: 10),
+                        Text(
+                          _creating ? 'Starting…' : 'Go Live',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               const SizedBox(height: 12),
               Expanded(
@@ -3988,6 +4080,730 @@ class _FlameGloryPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter old) => false;
+}
+
+// ── HostLiveScreen ────────────────────────────────────────────────────────────
+
+class HostLiveScreen extends StatefulWidget {
+  const HostLiveScreen({
+    super.key,
+    required this.room,
+    required this.apiClient,
+    required this.accessToken,
+    required this.hostDisplayName,
+    required this.hostAvatarUrl,
+    required this.onEnd,
+  });
+
+  final Room room;
+  final ZephyrApiClient apiClient;
+  final String accessToken;
+  final String hostDisplayName;
+  final String? hostAvatarUrl;
+  final VoidCallback onEnd;
+
+  @override
+  State<HostLiveScreen> createState() => _HostLiveScreenState();
+}
+
+class _HostLiveScreenState extends State<HostLiveScreen>
+    with TickerProviderStateMixin {
+  bool _micOn = true;
+  bool _cameraOn = true;
+  bool _ending = false;
+  int _viewerCount = 0;
+  int _elapsedSeconds = 0;
+  Timer? _ticker;
+  Timer? _viewerPoll;
+  final List<_LiveComment> _comments = <_LiveComment>[];
+  final List<_FloatingGift> _gifts = <_FloatingGift>[];
+  late final AnimationController _pulseCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _viewerCount = widget.room.audienceCount;
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsedSeconds++);
+    });
+    _viewerPoll = Timer.periodic(const Duration(seconds: 5), (_) => _pollRoom());
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    _viewerPoll?.cancel();
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pollRoom() async {
+    // In future: fetch room from API to get live viewer count
+  }
+
+  String get _elapsed {
+    final int m = _elapsedSeconds ~/ 60;
+    final int s = _elapsedSeconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _end() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('End Live?'),
+        content: const Text('Your stream will end and viewers will be disconnected.'),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('End Live', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _ending = true);
+    try {
+      await widget.apiClient.endRoom(widget.accessToken, widget.room.id);
+      if (mounted) Navigator.of(context).pop();
+      widget.onEnd();
+    } catch (_) {
+      if (mounted) setState(() => _ending = false);
+    }
+  }
+
+  void _addComment(String name, String text) {
+    setState(() {
+      _comments.add(_LiveComment(name: name, text: text));
+      if (_comments.length > 30) _comments.removeAt(0);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: <Widget>[
+          // ── Background (camera placeholder) ──────────────────────────────
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[Color(0xFF1a1a2e), Color(0xFF16213e), Color(0xFF0f3460)],
+              ),
+            ),
+          ),
+          // Camera-off overlay
+          if (!_cameraOn)
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  CircleAvatar(
+                    radius: 56,
+                    backgroundColor: Colors.white12,
+                    backgroundImage: widget.hostAvatarUrl != null
+                        ? NetworkImage(widget.hostAvatarUrl!)
+                        : null,
+                    child: widget.hostAvatarUrl == null
+                        ? Text(widget.hostDisplayName[0].toUpperCase(),
+                            style: const TextStyle(fontSize: 40, color: Colors.white))
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Camera is off',
+                      style: TextStyle(color: Colors.white54, fontSize: 14)),
+                ],
+              ),
+            ),
+
+          // ── Floating gift animations ──────────────────────────────────────
+          ..._gifts.map((g) => _FloatingGiftWidget(gift: g)),
+
+          // ── Top bar ──────────────────────────────────────────────────────
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: <Widget>[
+                  // Host info pill
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black45,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundImage: widget.hostAvatarUrl != null
+                              ? NetworkImage(widget.hostAvatarUrl!)
+                              : null,
+                          child: widget.hostAvatarUrl == null
+                              ? Text(widget.hostDisplayName[0].toUpperCase(),
+                                  style: const TextStyle(fontSize: 12, color: Colors.white))
+                              : null,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(widget.hostDisplayName,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // LIVE badge
+                  AnimatedBuilder(
+                    animation: _pulseCtrl,
+                    builder: (_, __) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Color.lerp(Colors.red, Colors.red.shade300, _pulseCtrl.value),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Container(width: 6, height: 6,
+                              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
+                          const SizedBox(width: 4),
+                          const Text('LIVE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Viewer count
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.black45,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(Icons.remove_red_eye_rounded, color: Colors.white70, size: 13),
+                        const SizedBox(width: 4),
+                        Text('$_viewerCount', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  // Timer
+                  Text(_elapsed, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  const SizedBox(width: 8),
+                  // Close
+                  GestureDetector(
+                    onTap: _ending ? null : _end,
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                      child: _ending
+                          ? const Padding(padding: EdgeInsets.all(6), child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Comments feed ────────────────────────────────────────────────
+          Positioned(
+            left: 12,
+            right: 120,
+            bottom: 110,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _comments.reversed.take(6).toList().reversed.map((c) =>
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black45,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: RichText(
+                      text: TextSpan(
+                        children: <TextSpan>[
+                          TextSpan(text: '${c.name}  ', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+                          TextSpan(text: c.text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ).toList(),
+            ),
+          ),
+
+          // ── Bottom controls ──────────────────────────────────────────────
+          Positioned(
+            left: 0, right: 0, bottom: 0,
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: <Color>[Colors.transparent, Colors.black87],
+                ),
+              ),
+              padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).padding.bottom + 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: <Widget>[
+                  _LiveCtrlBtn(
+                    icon: _micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
+                    label: _micOn ? 'Mic On' : 'Mic Off',
+                    active: _micOn,
+                    onTap: () => setState(() => _micOn = !_micOn),
+                  ),
+                  _LiveCtrlBtn(
+                    icon: _cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+                    label: _cameraOn ? 'Camera' : 'Off',
+                    active: _cameraOn,
+                    onTap: () => setState(() => _cameraOn = !_cameraOn),
+                  ),
+                  _LiveCtrlBtn(
+                    icon: Icons.flip_camera_ios_rounded,
+                    label: 'Flip',
+                    active: true,
+                    onTap: () {},
+                  ),
+                  _LiveCtrlBtn(
+                    icon: Icons.people_rounded,
+                    label: '$_viewerCount',
+                    active: true,
+                    onTap: () {},
+                  ),
+                  GestureDetector(
+                    onTap: _ending ? null : _end,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: const Text('End Live',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── ViewerLiveScreen ──────────────────────────────────────────────────────────
+
+class ViewerLiveScreen extends StatefulWidget {
+  const ViewerLiveScreen({
+    super.key,
+    required this.feedCard,
+    required this.apiClient,
+    required this.accessToken,
+    required this.myUserId,
+    required this.myDisplayName,
+    required this.onLeave,
+  });
+
+  final LiveFeedCard feedCard;
+  final ZephyrApiClient apiClient;
+  final String accessToken;
+  final String myUserId;
+  final String myDisplayName;
+  final VoidCallback onLeave;
+
+  @override
+  State<ViewerLiveScreen> createState() => _ViewerLiveScreenState();
+}
+
+class _ViewerLiveScreenState extends State<ViewerLiveScreen>
+    with TickerProviderStateMixin {
+  int _viewerCount = 0;
+  final List<_LiveComment> _comments = <_LiveComment>[];
+  final List<_FloatingGift> _floatingGifts = <_FloatingGift>[];
+  final TextEditingController _commentCtrl = TextEditingController();
+  Timer? _viewerPoll;
+  late final AnimationController _pulseCtrl;
+  int _elapsedSeconds = 0;
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _viewerCount = widget.feedCard.audienceCount;
+    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))
+      ..repeat(reverse: true);
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsedSeconds++);
+    });
+    _viewerPoll = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
+    _comments.add(_LiveComment(name: widget.feedCard.hostDisplayName, text: 'Welcome to my live! 👋'));
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    _viewerPoll?.cancel();
+    _pulseCtrl.dispose();
+    _commentCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _poll() async {
+    // Future: fetch room viewer count from API
+  }
+
+  void _sendComment() {
+    final String text = _commentCtrl.text.trim();
+    if (text.isEmpty) return;
+    _commentCtrl.clear();
+    setState(() {
+      _comments.add(_LiveComment(name: widget.myDisplayName, text: text));
+      if (_comments.length > 30) _comments.removeAt(0);
+    });
+  }
+
+  void _sendReaction(String emoji) {
+    final String id = DateTime.now().millisecondsSinceEpoch.toString();
+    final _FloatingGift gift = _FloatingGift(id: id, emoji: emoji);
+    setState(() => _floatingGifts.add(gift));
+    Future<void>.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _floatingGifts.removeWhere((g) => g.id == id));
+    });
+  }
+
+  String get _elapsed {
+    final int m = _elapsedSeconds ~/ 60;
+    final int s = _elapsedSeconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        children: <Widget>[
+          // ── Background ───────────────────────────────────────────────────
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[Color(0xFF1a1a2e), Color(0xFF16213e), Color(0xFF0f3460)],
+              ),
+            ),
+          ),
+          // Host avatar center
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                CircleAvatar(
+                  radius: 64,
+                  backgroundColor: Colors.white12,
+                  backgroundImage: widget.feedCard.hostAvatarUrl != null
+                      ? NetworkImage(widget.feedCard.hostAvatarUrl!)
+                      : null,
+                  child: widget.feedCard.hostAvatarUrl == null
+                      ? Text(widget.feedCard.hostDisplayName[0].toUpperCase(),
+                          style: const TextStyle(fontSize: 48, color: Colors.white))
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                Text(widget.feedCard.hostDisplayName,
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(widget.feedCard.title,
+                    style: const TextStyle(color: Colors.white60, fontSize: 14)),
+              ],
+            ),
+          ),
+
+          // ── Floating gifts ───────────────────────────────────────────────
+          ..._floatingGifts.map((g) => _FloatingGiftWidget(gift: g)),
+
+          // ── Top bar ──────────────────────────────────────────────────────
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: <Widget>[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(20)),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundImage: widget.feedCard.hostAvatarUrl != null
+                              ? NetworkImage(widget.feedCard.hostAvatarUrl!)
+                              : null,
+                          child: widget.feedCard.hostAvatarUrl == null
+                              ? Text(widget.feedCard.hostDisplayName[0].toUpperCase(),
+                                  style: const TextStyle(fontSize: 12, color: Colors.white))
+                              : null,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(widget.feedCard.hostDisplayName,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedBuilder(
+                    animation: _pulseCtrl,
+                    builder: (_, __) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Color.lerp(Colors.red, Colors.red.shade300, _pulseCtrl.value),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Container(width: 6, height: 6,
+                              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
+                          const SizedBox(width: 4),
+                          const Text('LIVE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(20)),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(Icons.remove_red_eye_rounded, color: Colors.white70, size: 13),
+                        const SizedBox(width: 4),
+                        Text('$_viewerCount', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(_elapsed, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () { Navigator.of(context).pop(); widget.onLeave(); },
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                      child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Comment feed ─────────────────────────────────────────────────
+          Positioned(
+            left: 12,
+            right: 120,
+            bottom: 80,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _comments.reversed.take(6).toList().reversed.map((c) =>
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
+                    child: RichText(
+                      text: TextSpan(children: <TextSpan>[
+                        TextSpan(text: '${c.name}  ', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+                        TextSpan(text: c.text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                      ]),
+                    ),
+                  ),
+                ),
+              ).toList(),
+            ),
+          ),
+
+          // ── Reaction buttons (right side) ────────────────────────────────
+          Positioned(
+            right: 12,
+            bottom: 100,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                for (final String e in <String>['❤️', '😂', '🔥', '👏', '😍'])
+                  GestureDetector(
+                    onTap: () => _sendReaction(e),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      width: 44, height: 44,
+                      decoration: BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                      child: Center(child: Text(e, style: const TextStyle(fontSize: 20))),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // ── Bottom comment bar ───────────────────────────────────────────
+          Positioned(
+            left: 0, right: 0, bottom: 0,
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: <Color>[Colors.transparent, Colors.black87],
+                ),
+              ),
+              padding: EdgeInsets.fromLTRB(12, 8, 12, MediaQuery.of(context).padding.bottom + 8),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white12,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: TextField(
+                        controller: _commentCtrl,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          hintText: 'Say something…',
+                          hintStyle: TextStyle(color: Colors.white38),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          isDense: true,
+                        ),
+                        onSubmitted: (_) => _sendComment(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _sendComment,
+                    child: Container(
+                      width: 40, height: 40,
+                      decoration: const BoxDecoration(color: Color(0xFF1FA4EA), shape: BoxShape.circle),
+                      child: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Shared live helpers ───────────────────────────────────────────────────────
+
+class _LiveComment {
+  _LiveComment({required this.name, required this.text});
+  final String name;
+  final String text;
+}
+
+class _FloatingGift {
+  _FloatingGift({required this.id, required this.emoji});
+  final String id;
+  final String emoji;
+}
+
+class _FloatingGiftWidget extends StatefulWidget {
+  const _FloatingGiftWidget({required this.gift});
+  final _FloatingGift gift;
+  @override
+  State<_FloatingGiftWidget> createState() => _FloatingGiftWidgetState();
+}
+
+class _FloatingGiftWidgetState extends State<_FloatingGiftWidget>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _opacity;
+  late final Animation<double> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2500))..forward();
+    _opacity = Tween<double>(begin: 1, end: 0).animate(CurvedAnimation(parent: _ctrl, curve: const Interval(0.6, 1.0)));
+    _offset = Tween<double>(begin: 0, end: -120).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 60,
+      bottom: 200,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) => Transform.translate(
+          offset: Offset(0, _offset.value),
+          child: Opacity(
+            opacity: _opacity.value,
+            child: Text(widget.gift.emoji, style: const TextStyle(fontSize: 40)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LiveCtrlBtn extends StatelessWidget {
+  const _LiveCtrlBtn({required this.icon, required this.label, required this.active, required this.onTap});
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 48, height: 48,
+            decoration: BoxDecoration(
+              color: active ? Colors.white24 : Colors.white10,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: active ? Colors.white : Colors.white38, size: 22),
+          ),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(color: Colors.white60, fontSize: 10)),
+        ],
+      ),
+    );
+  }
 }
 
 // ── ExplorePage ───────────────────────────────────────────────────────────────
