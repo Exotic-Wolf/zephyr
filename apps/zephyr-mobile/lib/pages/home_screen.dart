@@ -68,6 +68,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _callTickTimer;
   Timer? _feedPollTimer;
   sio.Socket? _feedSocket;
+  sio.Socket? _chatSocket;
+  int _inboxUnread = 0;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
   bool _rtcLoading = false;
@@ -95,6 +97,36 @@ class _HomeScreenState extends State<HomeScreen> {
     _connectFeedSocket();
     // Safety net: poll every 5s in case socket drops or hasn't connected yet
     _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
+  }
+
+  void _connectChatSocket() {
+    final String? userId = _me?.id;
+    if (userId == null) return;
+    _chatSocket = sio.io(
+      '$apiBaseUrl/chat',
+      sio.OptionBuilder()
+          .setTransports(<String>['websocket', 'polling'])
+          .setQuery(<String, String>{'userId': userId})
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(2000)
+          .disableAutoConnect()
+          .build(),
+    )
+      ..on('chat:message', (dynamic data) {
+        if (!mounted) return;
+        // Refresh conversation cache
+        widget.apiClient.getConversations(widget.accessToken).then((convos) {
+          MessageCache.instance.conversations = convos;
+          if (!mounted) return;
+          // Only bump badge if not currently on Inbox tab
+          if (_selectedTabIndex != 3) {
+            final int unread = convos.fold(0, (int sum, ZephyrConversation c) => sum + c.unreadCount);
+            setState(() => _inboxUnread = unread);
+          }
+        }).catchError((_) {});
+      })
+      ..connect();
   }
 
   void _connectFeedSocket() {
@@ -186,6 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _callTickTimer?.cancel();
     _feedPollTimer?.cancel();
     _feedSocket?.dispose();
+    _chatSocket?.dispose();
     _roomTitleController.dispose();
     _feedController.dispose();
     _searchCtrl.dispose();
@@ -278,7 +311,10 @@ class _HomeScreenState extends State<HomeScreen> {
         _activeFeedIndex = feedCards.isEmpty
             ? 0
             : _activeFeedIndex.clamp(0, feedCards.length - 1);
+        _me = me;
       });
+      // Connect chat socket now that we have userId
+      if (_chatSocket == null) _connectChatSocket();
     } catch (error) {
       setState(() {
         _error = error.toString();
@@ -2263,6 +2299,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (int index) {
           setState(() {
             _selectedTabIndex = index;
+            if (index == 3) _inboxUnread = 0; // clear badge when opening Inbox
           });
         },
         destinations: <NavigationDestination>[
@@ -2279,7 +2316,11 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Explore',
           ),
           NavigationDestination(
-            icon: Icon(Icons.chat_bubble_rounded),
+            icon: Badge(
+              isLabelVisible: _inboxUnread > 0,
+              label: Text(_inboxUnread > 9 ? '9+' : '$_inboxUnread'),
+              child: const Icon(Icons.chat_bubble_rounded),
+            ),
             label: 'Inbox',
           ),
           NavigationDestination(
