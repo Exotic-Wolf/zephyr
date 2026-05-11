@@ -102,7 +102,9 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _socket?.dispose();
     _pulseCtrl.dispose();
     // End the room automatically if host navigates away or closes the app
-    widget.apiClient.endRoom(widget.accessToken, widget.room.id).ignore();
+    widget.apiClient.endRoom(widget.accessToken, widget.room.id)
+        .then((_) => debugPrint('[endRoom dispose] success'))
+        .catchError((Object e) { debugPrint('[endRoom dispose] error: $e'); });
     super.dispose();
   }
 
@@ -132,7 +134,9 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     setState(() => _ending = true);
     try {
       await widget.apiClient.endRoom(widget.accessToken, widget.room.id);
-    } catch (_) {
+      debugPrint('[endRoom] success');
+    } catch (e) {
+      debugPrint('[endRoom] error: $e');
       // ignore API error — pop anyway so user isn't stuck
     }
     if (mounted) Navigator.of(context).pop();

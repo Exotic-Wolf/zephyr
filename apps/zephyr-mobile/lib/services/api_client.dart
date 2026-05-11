@@ -412,6 +412,7 @@ class ZephyrApiClient {
       final HttpClientRequest request = switch (method) {
         'POST' => await client.postUrl(uri),
         'PATCH' => await client.patchUrl(uri),
+        'DELETE' => await client.deleteUrl(uri),
         _ => await client.getUrl(uri),
       };
 

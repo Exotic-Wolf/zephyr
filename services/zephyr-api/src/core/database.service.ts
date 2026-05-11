@@ -273,8 +273,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Startup cleanup: removed ${startupClean.rowCount} stale room(s).`);
     }
 
-    // Periodic cleanup every 30s:
-    //  - no heartbeat for 90s → dead
+    // Periodic cleanup every 10s:
+    //  - no heartbeat for 40s → dead (heartbeat sent every 15s, so 2.5x grace)
     //  - any room older than 30 min → dead (host gone / crashed / forgot to end)
     setInterval(() => {
       void this.pool!.query(`
@@ -282,11 +282,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         WHERE status = 'live'
           AND (
             created_at < NOW() - INTERVAL '30 minutes'
-            OR (last_heartbeat IS NOT NULL AND last_heartbeat < NOW() - INTERVAL '90 seconds')
-            OR (last_heartbeat IS NULL AND created_at < NOW() - INTERVAL '5 minutes')
+            OR (last_heartbeat IS NOT NULL AND last_heartbeat < NOW() - INTERVAL '40 seconds')
+            OR (last_heartbeat IS NULL AND created_at < NOW() - INTERVAL '2 minutes')
           )
       `).catch(() => {});
-    }, 30 * 1000);
+    }, 10 * 1000);
 
     this.logger.log('Database schema is ready.');
   }
