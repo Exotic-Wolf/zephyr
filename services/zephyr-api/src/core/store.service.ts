@@ -932,6 +932,21 @@ export class StoreService {
     this.rooms.delete(roomId);
   }
 
+  async heartbeatRoom(hostUserId: string, roomId: string): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `
+          UPDATE rooms
+          SET last_heartbeat = NOW()
+          WHERE id = $1 AND host_user_id = $2 AND status = 'live'
+        `,
+        [roomId, hostUserId],
+      );
+      return;
+    }
+    // in-memory: no-op (room is live if it exists)
+  }
+
   async leaveRoom(roomId: string): Promise<void> {
     if (this.databaseService?.isEnabled()) {
       await this.databaseService.query(

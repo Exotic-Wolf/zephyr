@@ -109,7 +109,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         title TEXT NOT NULL,
         audience_count INTEGER NOT NULL,
         status TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL
+        created_at TIMESTAMPTZ NOT NULL,
+        last_heartbeat TIMESTAMPTZ
       );
     `);
 
@@ -258,17 +259,25 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // Cleanup: delete ALL current stale rooms + rooms older than 2 hours going forward
+    // Add last_heartbeat column if it doesn't exist (migration for existing DBs)
+    await this.pool.query(`
+      ALTER TABLE rooms ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ
+    `);
+
+    // One-time cleanup: wipe all stale rooms from previous sessions
     await this.pool.query(`DELETE FROM rooms WHERE status = 'live'`);
 
-    // Schedule periodic cleanup every 30 minutes
+    // Real-time heartbeat cleanup: every 60s, kill rooms with no heartbeat for 90s
     setInterval(() => {
       void this.pool!.query(`
         DELETE FROM rooms
         WHERE status = 'live'
-          AND created_at < NOW() - INTERVAL '2 hours'
+          AND (
+            (last_heartbeat IS NOT NULL AND last_heartbeat < NOW() - INTERVAL '90 seconds')
+            OR (last_heartbeat IS NULL AND created_at < NOW() - INTERVAL '5 minutes')
+          )
       `).catch(() => {});
-    }, 30 * 60 * 1000);
+    }, 60 * 1000);
 
     this.logger.log('Database schema is ready.');
   }

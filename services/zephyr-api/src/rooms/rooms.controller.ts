@@ -51,6 +51,16 @@ export class RoomsController {
     await this.storeService.leaveRoom(roomId);
   }
 
+  @Post(':roomId/heartbeat')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async heartbeatRoom(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomId', new ParseUUIDPipe()) roomId: string,
+  ): Promise<void> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.heartbeatRoom(user.id, roomId);
+  }
+
   @Delete(':roomId')
   async endRoom(
     @Headers('authorization') authorization: string | undefined,

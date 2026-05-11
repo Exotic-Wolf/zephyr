@@ -4216,6 +4216,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   int _elapsedSeconds = 0;
   Timer? _ticker;
   Timer? _viewerPoll;
+  Timer? _heartbeatTimer;
   final List<_LiveComment> _comments = <_LiveComment>[];
   final List<_FloatingGift> _gifts = <_FloatingGift>[];
   late final AnimationController _pulseCtrl;
@@ -4232,12 +4233,23 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       if (mounted) setState(() => _elapsedSeconds++);
     });
     _viewerPoll = Timer.periodic(const Duration(seconds: 5), (_) => _pollRoom());
+    // Heartbeat: tell server host is still live every 30s
+    widget.apiClient
+        .heartbeatRoom(widget.accessToken, widget.room.id)
+        .ignore();
+    _heartbeatTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => widget.apiClient
+          .heartbeatRoom(widget.accessToken, widget.room.id)
+          .ignore(),
+    );
   }
 
   @override
   void dispose() {
     _ticker?.cancel();
     _viewerPoll?.cancel();
+    _heartbeatTimer?.cancel();
     _pulseCtrl.dispose();
     // End the room automatically if host navigates away or closes the app
     widget.apiClient.endRoom(widget.accessToken, widget.room.id).ignore();
@@ -6663,6 +6675,14 @@ class ZephyrApiClient {
     await _request(
       method: 'DELETE',
       path: '/v1/rooms/$roomId',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<void> heartbeatRoom(String accessToken, String roomId) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/rooms/$roomId/heartbeat',
       accessToken: accessToken,
     );
   }
