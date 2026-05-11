@@ -264,10 +264,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ALTER TABLE rooms ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ
     `);
 
-    // One-time cleanup: wipe all stale rooms from previous sessions
-    await this.pool.query(`DELETE FROM rooms WHERE status = 'live'`);
-
     // Real-time heartbeat cleanup: every 60s, kill rooms with no heartbeat for 90s
+    // (also catches rooms created before heartbeat feature with no last_heartbeat, after 5 min)
     setInterval(() => {
       void this.pool!.query(`
         DELETE FROM rooms

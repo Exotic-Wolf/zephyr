@@ -415,6 +415,7 @@ class _HomeScreenState extends State<HomeScreen> {
   CallSession? _activeCallSession;
   RtcJoinInfo? _rtcJoinInfo;
   Timer? _callTickTimer;
+  Timer? _feedPollTimer;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
   bool _rtcLoading = false;
@@ -439,11 +440,17 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadData();
     _refreshApiStatus();
+    // Poll live feed every 15 seconds so new streams appear automatically
+    _feedPollTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _refreshFeed(),
+    );
   }
 
   @override
   void dispose() {
     _callTickTimer?.cancel();
+    _feedPollTimer?.cancel();
     _roomTitleController.dispose();
     _feedController.dispose();
     _searchCtrl.dispose();
@@ -559,6 +566,68 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _apiReachable = isReachable;
     });
+  }
+
+  /// Silently refreshes just the live feed cards (no loading spinner).
+  Future<void> _refreshFeed() async {
+    if (!mounted) return;
+    try {
+      final List<LiveFeedCard> feedCards =
+          await widget.apiClient.listLiveFeed(widget.accessToken);
+      if (!mounted) return;
+      setState(() {
+        _feedCards = <LiveFeedCard>[
+          ...feedCards.where((LiveFeedCard c) => c.hostUserId != _me?.id),
+          // ── mock cards ──
+          LiveFeedCard(
+            roomId: 'mock-busy-1',
+            title: 'Busy mock',
+            audienceCount: 0,
+            hostUserId: 'mock-busy-user',
+            hostDisplayName: '[Mock] SarahBusy',
+            hostAvatarUrl: null,
+            hostCountryCode: 'US',
+            hostLanguage: 'English',
+            hostStatus: 'busy',
+            startedAt: DateTime.now(),
+          ),
+          LiveFeedCard(
+            roomId: 'mock-online-1',
+            title: 'Online mock',
+            audienceCount: 0,
+            hostUserId: 'mock-online-user',
+            hostDisplayName: '[Mock] TaniaOnline',
+            hostAvatarUrl: null,
+            hostCountryCode: 'PH',
+            hostLanguage: 'English',
+            hostStatus: 'online',
+            startedAt: DateTime.now(),
+          ),
+          LiveFeedCard(
+            roomId: 'mock-offline-1',
+            title: 'Offline mock',
+            audienceCount: 0,
+            hostUserId: 'mock-offline-user',
+            hostDisplayName: '[Mock] MikeOffline',
+            hostAvatarUrl: null,
+            hostCountryCode: 'NG',
+            hostLanguage: 'English',
+            hostStatus: 'offline',
+            startedAt: DateTime.now(),
+          ),
+        ]..sort((LiveFeedCard a, LiveFeedCard b) {
+          int rank(String s) => switch (s) {
+            'live'   => 0,
+            'busy'   => 1,
+            'online' => 2,
+            _        => 3,
+          };
+          return rank(a.hostStatus).compareTo(rank(b.hostStatus));
+        });
+      });
+    } catch (_) {
+      // Silently ignore — don't disturb the UI on a background poll failure
+    }
   }
 
   Future<void> _refreshHome() async {
