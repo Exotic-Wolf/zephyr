@@ -796,7 +796,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildFeedCard(LiveFeedCard feedCard) {
-    final bool joiningCurrentRoom = _joiningRoomId == feedCard.roomId;
+    final bool joiningCurrentRoom = feedCard.roomId != null && _joiningRoomId == feedCard.roomId;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 6),
@@ -989,7 +989,7 @@ class _HomeScreenState extends State<HomeScreen> {
     bool showPreview = true,
     VoidCallback? onTap,
   }) {
-    final bool joiningCurrentRoom = _joiningRoomId == feedCard.roomId;
+    final bool joiningCurrentRoom = feedCard.roomId != null && _joiningRoomId == feedCard.roomId;
     final double borderRadius = isTablet ? 44 : 34;
     final String localeLine = showPreview
         ? '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode} ${feedCard.hostLanguage}'

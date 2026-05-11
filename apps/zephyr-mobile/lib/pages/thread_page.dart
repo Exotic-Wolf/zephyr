@@ -1,9 +1,9 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:socket_io_client/socket_io_client.dart' as sio;
 
+import '../app_constants.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
-import '../app_constants.dart';
 
 // ── Message cache (in-memory, survives navigation within session) ─────────────
 
@@ -46,12 +46,11 @@ class _ThreadPageState extends State<ThreadPage> {
   bool _sending = false;
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
-  Timer? _pollTimer;
+  sio.Socket? _socket;
 
   @override
   void initState() {
     super.initState();
-    // Show cached thread instantly if available
     final cached = MessageCache.instance.threads[widget.otherUserId];
     if (cached != null) {
       _messages = cached;
@@ -59,13 +58,52 @@ class _ThreadPageState extends State<ThreadPage> {
       _scrollToBottom();
     }
     _load();
-    // Poll for new messages every 4 seconds
-    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => _poll());
+    _connectSocket();
+  }
+
+  void _connectSocket() {
+    _socket = sio.io(
+      '$apiBaseUrl/chat',
+      sio.OptionBuilder()
+          .setTransports(<String>['websocket', 'polling'])
+          .setQuery(<String, String>{'userId': widget.myUserId})
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(2000)
+          .disableAutoConnect()
+          .build(),
+    )
+      ..on('chat:message', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final Map<String, dynamic> msgJson =
+              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final ZephyrMessage msg = ZephyrMessage.fromJson(msgJson);
+          // Only handle messages relevant to this thread
+          final bool relevant =
+              (msg.senderId == widget.otherUserId && msg.receiverId == widget.myUserId) ||
+              (msg.senderId == widget.myUserId && msg.receiverId == widget.otherUserId);
+          if (!relevant) return;
+          // Avoid duplicates (sender already appended optimistically)
+          if (_messages.any((ZephyrMessage m) => m.id == msg.id)) return;
+          final updated = <ZephyrMessage>[..._messages, msg];
+          MessageCache.instance.threads[widget.otherUserId] = updated;
+          setState(() => _messages = updated);
+          _scrollToBottom();
+          // Mark as read if incoming
+          if (msg.receiverId == widget.myUserId && msg.readAt == null) {
+            widget.apiClient.markMessageRead(widget.accessToken, msg.id).ignore();
+          }
+        } catch (_) {}
+      })
+      ..connect();
   }
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    _socket?.dispose();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -78,40 +116,14 @@ class _ThreadPageState extends State<ThreadPage> {
       MessageCache.instance.threads[widget.otherUserId] = msgs;
       if (!mounted) return;
       setState(() { _messages = msgs; _loading = false; });
-      // Mark unread incoming messages as read
       for (final ZephyrMessage m in msgs) {
         if (m.receiverId == widget.myUserId && m.readAt == null) {
-          widget.apiClient.markMessageRead(widget.accessToken, m.id);
+          widget.apiClient.markMessageRead(widget.accessToken, m.id).ignore();
         }
       }
       _scrollToBottom();
     } catch (_) {
       if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _poll() async {
-    if (!mounted || _sending) return;
-    try {
-      final List<ZephyrMessage> msgs = await widget.apiClient
-          .getThread(widget.accessToken, widget.otherUserId);
-      if (!mounted) return;
-      final bool hasNew = msgs.length != _messages.length ||
-          (msgs.isNotEmpty && _messages.isNotEmpty &&
-           msgs.last.id != _messages.last.id);
-      MessageCache.instance.threads[widget.otherUserId] = msgs;
-      setState(() => _messages = msgs);
-      if (hasNew) {
-        // Mark newly received messages as read
-        for (final ZephyrMessage m in msgs) {
-          if (m.receiverId == widget.myUserId && m.readAt == null) {
-            widget.apiClient.markMessageRead(widget.accessToken, m.id);
-          }
-        }
-        _scrollToBottom();
-      }
-    } catch (_) {
-      // silently ignore poll errors
     }
   }
 

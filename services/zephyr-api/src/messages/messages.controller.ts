@@ -16,10 +16,14 @@ import {
 import { StoreService } from '../core/store.service';
 import type { Conversation, Message } from '../core/store.service';
 import { SendMessageDto } from './dto/send-message.dto';
+import { MessagesGateway } from './messages.gateway';
 
 @Controller('v1/messages')
 export class MessagesController {
-  constructor(private readonly storeService: StoreService) {}
+  constructor(
+    private readonly storeService: StoreService,
+    private readonly messagesGateway: MessagesGateway,
+  ) {}
 
   @Post()
   async sendMessage(
@@ -27,7 +31,10 @@ export class MessagesController {
     @Body() body: SendMessageDto,
   ): Promise<Message> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
-    return this.storeService.sendMessage(me.id, body.receiverId, body.body);
+    const message = await this.storeService.sendMessage(me.id, body.receiverId, body.body);
+    // Push to both sender and receiver in real time
+    this.messagesGateway.emitNewMessage(message);
+    return message;
   }
 
   @Get('conversations')

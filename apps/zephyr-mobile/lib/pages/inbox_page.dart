@@ -1,10 +1,10 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:socket_io_client/socket_io_client.dart' as sio;
 
+import '../app_constants.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import 'thread_page.dart';
-import '../app_constants.dart';
 
 class InboxPage extends StatefulWidget {
   const InboxPage({
@@ -26,31 +26,43 @@ class _InboxPageState extends State<InboxPage> {
   List<ZephyrConversation> _conversations = <ZephyrConversation>[];
   bool _loading = true;
   String? _error;
-  Timer? _pollTimer;
+  sio.Socket? _socket;
 
   @override
   void initState() {
     super.initState();
-    // Show cache immediately — no spinner if we have data
     final cached = MessageCache.instance.conversations;
     if (cached != null) {
       _conversations = cached;
       _loading = false;
     }
     _refresh();
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refresh());
+    _connectSocket();
+  }
+
+  void _connectSocket() {
+    _socket = sio.io(
+      '$apiBaseUrl/chat',
+      sio.OptionBuilder()
+          .setTransports(<String>['websocket', 'polling'])
+          .setQuery(<String, String>{'userId': widget.myUserId})
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(2000)
+          .disableAutoConnect()
+          .build(),
+    )
+      ..on('chat:message', (dynamic _) {
+        // Any new message — refresh conversation list
+        if (mounted) _refresh();
+      })
+      ..connect();
   }
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    _socket?.dispose();
     super.dispose();
-  }
-
-  // Called by pull-to-refresh button — shows spinner only if no cache
-  Future<void> _load() async {
-    if (_conversations.isEmpty) setState(() { _loading = true; _error = null; });
-    await _refresh();
   }
 
   Future<void> _refresh() async {
@@ -182,7 +194,7 @@ class _InboxPageState extends State<InboxPage> {
                                 ),
                               ),
                             );
-                            _load(); // refresh unread counts on return
+                            _refresh(); // refresh unread counts on return
                           },
                         );
                       },
