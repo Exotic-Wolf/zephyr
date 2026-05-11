@@ -527,25 +527,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
         // ── mock: pretend we follow two of the mock users ──
         _followingIds = <String>{'mock-busy-user', 'mock-offline-user'};
-        _myLiveRoom = feedCards
-            .where((LiveFeedCard card) => card.hostUserId == me.id)
-            .cast<LiveFeedCard?>()
-            .map(
-              (LiveFeedCard? card) => card == null
-                  ? null
-                  : Room(
-                      id: card.roomId,
-                      hostUserId: card.hostUserId,
-                      title: card.title,
-                      audienceCount: card.audienceCount,
-                      status: 'live',
-                      createdAt: card.startedAt,
-                    ),
-            )
-            .firstWhere(
-              (Room? room) => room != null,
-              orElse: () => null,
-            );
+        _myLiveRoom = null; // always reset; only set if backend confirms a live room
         _coinBalance = wallet.coinBalance;
         _userLevel = wallet.level;
         _myRevenue = wallet.revenueUsd;
@@ -1653,116 +1635,76 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildLiveRoomsTab(bool isTablet) {
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: maxContentWidth),
-        child: Padding(
-          padding: EdgeInsets.all(isTablet ? 24 : 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                'Live Sessions',
-                style: TextStyle(
-                  fontSize: isTablet ? 24 : 20,
-                  fontWeight: FontWeight.w700,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Container(
+              width: 90,
+              height: 90,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
+                ),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: const Color(0xFF1FA4EA).withValues(alpha: 0.35),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.live_tv_rounded, color: Colors.white, size: 42),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Go Live',
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -0.5),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Start a live stream and connect\nwith your audience in real time',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 15, color: Colors.grey.shade500, height: 1.5),
+            ),
+            const SizedBox(height: 36),
+            GestureDetector(
+              onTap: _creating ? null : _showGoLiveSheet,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: const Color(0xFF1FA4EA).withValues(alpha: 0.30),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    const Icon(Icons.live_tv_rounded, color: Colors.white, size: 22),
+                    const SizedBox(width: 10),
+                    Text(
+                      _creating ? 'Starting…' : 'Start Live Stream',
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 10),
-              if (_myLiveRoom != null)
-                // Already live — show re-enter button
-                GestureDetector(
-                  onTap: () async {
-                    await Navigator.of(context).push(MaterialPageRoute<void>(
-                      fullscreenDialog: true,
-                      builder: (_) => HostLiveScreen(
-                        room: _myLiveRoom!,
-                        apiClient: widget.apiClient,
-                        accessToken: widget.accessToken,
-                        hostDisplayName: _me?.displayName ?? 'Me',
-                        hostAvatarUrl: _me?.avatarUrl,
-                        onEnd: () => _loadData(),
-                      ),
-                    ));
-                    await _loadData();
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: <Color>[Color(0xFFE53935), Color(0xFFE91E63)]),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        Container(width: 8, height: 8,
-                            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
-                        const SizedBox(width: 8),
-                        Text('You\'re live: ${_myLiveRoom!.title}  ·  ${_myLiveRoom!.audienceCount} viewers',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
-                      ],
-                    ),
-                  ),
-                )
-              else
-                // Go Live button — opens title sheet then creates room
-                GestureDetector(
-                  onTap: _creating ? null : () => _showGoLiveSheet(),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        const Icon(Icons.live_tv_rounded, color: Colors.white, size: 22),
-                        const SizedBox(width: 10),
-                        Text(
-                          _creating ? 'Starting…' : 'Go Live',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: _feedCards.isEmpty
-                    ? const Center(child: Text('No live sessions right now.'))
-                    : (isTablet
-                          ? GridView.builder(
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    crossAxisSpacing: 12,
-                                    mainAxisSpacing: 12,
-                                    childAspectRatio: 1.18,
-                                  ),
-                              itemCount: _feedCards.length,
-                              itemBuilder: (BuildContext context, int index) {
-                                return _buildFeedCard(_feedCards[index]);
-                              },
-                            )
-                          : ListView.builder(
-                              itemCount: _feedCards.length,
-                              itemBuilder: (BuildContext context, int index) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: SizedBox(
-                                    height: 240,
-                                    child: _buildFeedCard(_feedCards[index]),
-                                  ),
-                                );
-                              },
-                            )),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
