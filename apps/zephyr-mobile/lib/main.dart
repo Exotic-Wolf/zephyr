@@ -10,6 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'flags.dart';
 
@@ -39,15 +40,46 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final ZephyrApiClient _apiClient = ZephyrApiClient(baseUrl: apiBaseUrl);
+  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const String _tokenKey = 'access_token';
   String? _accessToken;
+  bool _restoringSession = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    try {
+      final String? saved = await _storage.read(key: _tokenKey);
+      if (saved != null && saved.isNotEmpty) {
+        // Verify token is still valid
+        try {
+          await _apiClient.getMe(saved);
+          if (mounted) setState(() => _accessToken = saved);
+        } catch (_) {
+          // Token expired — clear it
+          await _storage.delete(key: _tokenKey);
+        }
+      }
+    } catch (_) {
+      // Storage unavailable — proceed to login
+    } finally {
+      if (mounted) setState(() => _restoringSession = false);
+    }
+  }
 
   void _onLoginSuccess(String accessToken) {
+    _storage.write(key: _tokenKey, value: accessToken);
     setState(() {
       _accessToken = accessToken;
     });
   }
 
   void _onLogout() {
+    _storage.delete(key: _tokenKey);
     setState(() {
       _accessToken = null;
     });
@@ -55,6 +87,14 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (_restoringSession) {
+      return const MaterialApp(
+        home: Scaffold(
+          backgroundColor: Colors.black,
+          body: Center(child: CircularProgressIndicator(color: Colors.white)),
+        ),
+      );
+    }
     return MaterialApp(
       title: 'Zephyr',
       theme: ThemeData(

@@ -39,6 +39,7 @@ dependencies:
   flutter_svg: ^2.0.10+1
   country_picker: ^2.0.27
   socket_io_client: ^3.1.4
+  flutter_secure_storage: ^10.1.0
 
 dev_dependencies:
   flutter_test:
