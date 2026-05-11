@@ -348,8 +348,9 @@ class _HomeScreenState extends State<HomeScreen> {
           return rank(a.hostStatus).compareTo(rank(b.hostStatus));
         });
       });
-    } catch (_) {
-      // Silently ignore — don't disturb the UI on a background poll failure
+    } catch (e) {
+      // ignore network errors silently — next poll will retry
+      debugPrint('[feed poll] error: $e');
     }
   }
 

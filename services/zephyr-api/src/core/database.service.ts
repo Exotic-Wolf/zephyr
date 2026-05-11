@@ -264,18 +264,29 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ALTER TABLE rooms ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ
     `);
 
-    // Real-time heartbeat cleanup: every 60s, kill rooms with no heartbeat for 90s
-    // (also catches rooms created before heartbeat feature with no last_heartbeat, after 5 min)
+    // Startup cleanup: delete any room older than 30 minutes (catches all stale rooms)
+    const startupClean = await this.pool.query(`
+      DELETE FROM rooms
+      WHERE status = 'live' AND created_at < NOW() - INTERVAL '30 minutes'
+    `);
+    if (startupClean.rowCount && startupClean.rowCount > 0) {
+      this.logger.log(`Startup cleanup: removed ${startupClean.rowCount} stale room(s).`);
+    }
+
+    // Periodic cleanup every 30s:
+    //  - no heartbeat for 90s → dead
+    //  - any room older than 30 min → dead (host gone / crashed / forgot to end)
     setInterval(() => {
       void this.pool!.query(`
         DELETE FROM rooms
         WHERE status = 'live'
           AND (
-            (last_heartbeat IS NOT NULL AND last_heartbeat < NOW() - INTERVAL '90 seconds')
+            created_at < NOW() - INTERVAL '30 minutes'
+            OR (last_heartbeat IS NOT NULL AND last_heartbeat < NOW() - INTERVAL '90 seconds')
             OR (last_heartbeat IS NULL AND created_at < NOW() - INTERVAL '5 minutes')
           )
       `).catch(() => {});
-    }, 60 * 1000);
+    }, 30 * 1000);
 
     this.logger.log('Database schema is ready.');
   }
