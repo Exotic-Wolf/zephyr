@@ -258,12 +258,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // Cleanup: end rooms older than 4 hours (host gone / crashed)
-    await this.pool.query(`
-      DELETE FROM rooms
-      WHERE status = 'live'
-        AND created_at < NOW() - INTERVAL '4 hours'
-    `);
+    // Cleanup: delete ALL current stale rooms + rooms older than 2 hours going forward
+    await this.pool.query(`DELETE FROM rooms WHERE status = 'live'`);
+
+    // Schedule periodic cleanup every 30 minutes
+    setInterval(() => {
+      void this.pool!.query(`
+        DELETE FROM rooms
+        WHERE status = 'live'
+          AND created_at < NOW() - INTERVAL '2 hours'
+      `).catch(() => {});
+    }, 30 * 60 * 1000);
 
     this.logger.log('Database schema is ready.');
   }

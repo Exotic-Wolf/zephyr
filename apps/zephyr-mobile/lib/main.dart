@@ -478,7 +478,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _me = me;
         _followingIds = followingIds;
         _feedCards = <LiveFeedCard>[
-          ...feedCards,
+          // Filter out the logged-in user's own card
+          ...feedCards.where((LiveFeedCard c) => c.hostUserId != me.id),
           // ── mock cards to preview Busy / Online / Offline states ──
           LiveFeedCard(
             roomId: 'mock-busy-1',
