@@ -4171,11 +4171,11 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     setState(() => _ending = true);
     try {
       await widget.apiClient.endRoom(widget.accessToken, widget.room.id);
-      if (mounted) Navigator.of(context).pop();
-      widget.onEnd();
     } catch (_) {
-      if (mounted) setState(() => _ending = false);
+      // ignore API error — pop anyway so user isn't stuck
     }
+    if (mounted) Navigator.of(context).pop();
+    widget.onEnd();
   }
 
   void _addComment(String name, String text) {
