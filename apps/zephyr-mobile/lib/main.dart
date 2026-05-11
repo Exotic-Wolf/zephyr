@@ -456,7 +456,6 @@ class _HomeScreenState extends State<HomeScreen> {
   CallSession? _activeCallSession;
   RtcJoinInfo? _rtcJoinInfo;
   Timer? _callTickTimer;
-  Timer? _feedPollTimer;
   sio.Socket? _feedSocket;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
@@ -483,11 +482,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadData();
     _refreshApiStatus();
     _connectFeedSocket();
-    // Fallback poll every 5s — catches missed socket events (socket drop, Render sleep, etc.)
-    _feedPollTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _refreshFeed(),
-    );
   }
 
   void _connectFeedSocket() {
@@ -565,7 +559,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _callTickTimer?.cancel();
-    _feedPollTimer?.cancel();
     _feedSocket?.dispose();
     _roomTitleController.dispose();
     _feedController.dispose();
