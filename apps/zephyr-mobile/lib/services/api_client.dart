@@ -256,6 +256,14 @@ class ZephyrApiClient {
     return Room.fromJson(data);
   }
 
+  Future<void> leaveRoom(String accessToken, String roomId) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/rooms/$roomId/leave',
+      accessToken: accessToken,
+    );
+  }
+
   Future<void> endRoom(String accessToken, String roomId) async {
     await _request(
       method: 'DELETE',

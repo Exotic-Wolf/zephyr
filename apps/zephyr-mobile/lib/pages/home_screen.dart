@@ -714,7 +714,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _enterRoom(LiveFeedCard feedCard) async {
-    // Open fullscreen viewer screen immediately
+    final String? roomId = feedCard.roomId;
+    if (roomId == null) return;
+    // Join BEFORE opening the screen — use returned count so viewer sees correct number
+    int updatedCount = feedCard.audienceCount;
+    try {
+      final Room joined = await widget.apiClient.joinRoom(widget.accessToken, roomId);
+      updatedCount = joined.audienceCount;
+    } catch (_) {}
+    if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       fullscreenDialog: true,
       builder: (_) => ViewerLiveScreen(
@@ -724,12 +732,11 @@ class _HomeScreenState extends State<HomeScreen> {
         myUserId: _me?.id ?? '',
         myDisplayName: _me?.displayName ?? 'Guest',
         onLeave: () => _loadData(),
+        initialViewerCount: updatedCount,
       ),
     ));
-    // Notify backend of join in background (only if user is currently live)
-    if (feedCard.roomId != null) {
-      widget.apiClient.joinRoom(widget.accessToken, feedCard.roomId!).ignore();
-    }
+    // Leave when viewer exits the screen
+    widget.apiClient.leaveRoom(widget.accessToken, roomId).ignore();
     await _loadData();
   }
 

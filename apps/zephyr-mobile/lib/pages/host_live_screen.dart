@@ -503,27 +503,35 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
   bool _loading = true;
   List<dynamic> _viewers = <dynamic>[];
   int _total = 0;
+  bool _fetching = false;
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
     _total = widget.viewerCountNotifier.value;
-    _load();
+    // Instant update when socket fires
     widget.viewerCountNotifier.addListener(_onCountChanged);
+    // Initial fetch + 5s safety-net poll (handles socket gaps / first load)
+    _load();
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _load());
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     widget.viewerCountNotifier.removeListener(_onCountChanged);
     super.dispose();
   }
 
   void _onCountChanged() {
-    // Viewer joined or left — fetch fresh list immediately
+    // Viewer count changed via socket — fetch immediately
     _load();
   }
 
   Future<void> _load() async {
+    if (_fetching) return; // skip if a request is already in flight
+    _fetching = true;
     try {
       final result = await widget.apiClient.getRoomViewers(
         widget.accessToken,
@@ -536,8 +544,11 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
           _loading = false;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[ViewerList] load error: $e');
       if (mounted) setState(() => _loading = false);
+    } finally {
+      _fetching = false;
     }
   }
 

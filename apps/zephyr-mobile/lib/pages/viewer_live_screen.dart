@@ -20,6 +20,7 @@ class ViewerLiveScreen extends StatefulWidget {
     required this.myUserId,
     required this.myDisplayName,
     required this.onLeave,
+    this.initialViewerCount,
   });
 
   final LiveFeedCard feedCard;
@@ -28,6 +29,7 @@ class ViewerLiveScreen extends StatefulWidget {
   final String myUserId;
   final String myDisplayName;
   final VoidCallback onLeave;
+  final int? initialViewerCount;
 
   @override
   State<ViewerLiveScreen> createState() => _ViewerLiveScreenState();
@@ -39,10 +41,10 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   final List<LiveComment> _comments = <LiveComment>[];
   final List<FloatingGift> _floatingGifts = <FloatingGift>[];
   final TextEditingController _commentCtrl = TextEditingController();
-  Timer? _viewerPoll;
   late final AnimationController _pulseCtrl;
   int _elapsedSeconds = 0;
   Timer? _ticker;
+  sio.Socket? _socket;
 
   // LiveKit
   lk.Room? _livekitRoom;
@@ -51,14 +53,14 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   @override
   void initState() {
     super.initState();
-    _viewerCount = widget.feedCard.audienceCount;
+    _viewerCount = widget.initialViewerCount ?? widget.feedCard.audienceCount;
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))
       ..repeat(reverse: true);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);
     });
-    _viewerPoll = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
     _comments.add(LiveComment(name: widget.feedCard.hostDisplayName, text: 'Welcome to my live! 👋'));
+    _connectSocket();
     _connectLiveKit();
   }
 
@@ -98,7 +100,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   @override
   void dispose() {
     _ticker?.cancel();
-    _viewerPoll?.cancel();
+    _socket?.dispose();
     _pulseCtrl.dispose();
     _commentCtrl.dispose();
     _livekitRoom?.removeListener(_onRoomChanged);
@@ -107,8 +109,33 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     super.dispose();
   }
 
+  void _connectSocket() {
+    _socket = sio.io(
+      '$apiBaseUrl/feed',
+      sio.OptionBuilder()
+          .setTransports(<String>['websocket', 'polling'])
+          .enableReconnection()
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(2000)
+          .disableAutoConnect()
+          .build(),
+    );
+    _socket!
+      ..on('feed:room-updated', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          if (payload['roomId'] == widget.feedCard.roomId) {
+            setState(() => _viewerCount = payload['audienceCount'] as int);
+          }
+        } catch (_) {}
+      })
+      ..connect();
+  }
+
   Future<void> _poll() async {
-    // Future: fetch room viewer count from API
+    // Replaced by socket
   }
 
   void _sendComment() {
