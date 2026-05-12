@@ -820,7 +820,7 @@ export class StoreService {
   }
 
   async getRoomHostUserId(roomId: string): Promise<string | null> {
-    const result = await this.pool.query<{ host_user_id: string }>(
+    const result = await this.databaseService!.query<{ host_user_id: string }>(
       'SELECT host_user_id FROM rooms WHERE id = $1',
       [roomId],
     );
