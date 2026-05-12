@@ -1,21 +1,15 @@
 import 'dart:async';
-import 'dart:math' show cos, pi, sin, Random;
+import 'dart:math' show pi, sin;
 import 'package:country_picker/country_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import '../flags.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../widgets/coin_icon.dart';
-import '../widgets/hero_bullet.dart';
-import '../widgets/shared_live_widgets.dart';
-import '../widgets/spark_icon.dart';
 import 'explore_page.dart';
 import 'go_live_countdown_page.dart';
-import 'host_live_screen.dart';
 import 'inbox_page.dart';
 import 'my_profile_page.dart';
 import 'profile_page.dart';
@@ -46,7 +40,6 @@ class _HomeScreenState extends State<HomeScreen> {
   UserProfile? _me;
   List<LiveFeedCard> _feedCards = <LiveFeedCard>[];
   Set<String> _followingIds = <String>{};
-  Room? _myLiveRoom;
   String? _selectedDirectReceiverUserId;
   int _selectedTabIndex = 0;
   int _homeTopTabIndex = 1;
@@ -59,12 +52,11 @@ class _HomeScreenState extends State<HomeScreen> {
     CoinPack(id: 'pack_2999', label: '165K',   coins: 165000, priceUsd: 29.99),
     CoinPack(id: 'pack_9999', label: '550K',   coins: 550000, priceUsd: 99.99),
   ];
-  int _callMinutes = 2;
+  final int _callMinutes = 2;
   String _callMode = 'direct';
   int _selectedDirectRate = 2100;
   CallQuote? _callQuote;
   CallSession? _activeCallSession;
-  RtcJoinInfo? _rtcJoinInfo;
   Timer? _callTickTimer;
   Timer? _feedPollTimer;
   sio.Socket? _feedSocket;
@@ -73,11 +65,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _callActionLoading = false;
   bool _tickInFlight = false;
   bool _rtcLoading = false;
-  String? _callActionError;
-  String? _rtcError;
   static const int _callTickIntervalSeconds = 10;
   bool _quoteLoading = false;
-  String? _quoteError;
   int _activeFeedIndex = 0;
   Country? _filterCountry;
   String _searchQuery = '';
@@ -85,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   bool? _apiReachable;
   bool _loading = true;
-  bool _creating = false;
+  final bool _creating = false;
   String? _joiningRoomId;
   String? _error;
 
@@ -293,17 +282,16 @@ class _HomeScreenState extends State<HomeScreen> {
             startedAt: DateTime.now(),
           ),
         ]..sort((LiveFeedCard a, LiveFeedCard b) {
-          int _rank(String s) => switch (s) {
+          int rank(String s) => switch (s) {
             'live'    => 0,
             'busy'    => 1,
             'online'  => 2,
             _         => 3, // offline
           };
-          return _rank(a.hostStatus).compareTo(_rank(b.hostStatus));
+          return rank(a.hostStatus).compareTo(rank(b.hostStatus));
         });
         // ── mock: pretend we follow two of the mock users ──
         _followingIds = <String>{'mock-busy-user', 'mock-offline-user'};
-        _myLiveRoom = null; // always reset; only set if backend confirms a live room
         _coinBalance = wallet.coinBalance;
         _userLevel = wallet.level;
         _myRevenue = wallet.revenueUsd;
@@ -409,7 +397,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadCallQuote() async {
     setState(() {
       _quoteLoading = true;
-      _quoteError = null;
     });
 
     try {
@@ -441,7 +428,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       setState(() {
-        _quoteError = error.toString();
       });
     } finally {
       if (mounted) {
@@ -473,7 +459,6 @@ class _HomeScreenState extends State<HomeScreen> {
         : null;
     if (_callMode == 'direct' && receiverUserId == null) {
       setState(() {
-        _callActionError =
             'No receiver available for direct call. Try Random mode.';
       });
       return;
@@ -481,7 +466,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _callActionLoading = true;
-      _callActionError = null;
     });
 
     try {
@@ -500,8 +484,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         _activeCallSession = session;
-        _rtcJoinInfo = null;
-        _rtcError = null;
       });
 
       unawaited(_prepareRtcJoin(session.id));
@@ -523,7 +505,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       setState(() {
-        _callActionError = error.toString();
       });
     } finally {
       if (mounted) {
@@ -556,7 +537,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _activeCallSession = result.session;
         _coinBalance = result.callerCoinBalanceAfter;
         if (result.session.status == 'ended') {
-          _rtcJoinInfo = null;
         }
       });
 
@@ -577,7 +557,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
       setState(() {
-        _callActionError = error.toString();
       });
       _callTickTimer?.cancel();
     } finally {
@@ -585,53 +564,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _endCallSession() async {
-    final CallSession? session = _activeCallSession;
-    if (session == null) {
-      return;
-    }
-
-    setState(() {
-      _callActionLoading = true;
-      _callActionError = null;
-    });
-
-    try {
-      final CallSession ended = await widget.apiClient.endCallSession(
-        accessToken: widget.accessToken,
-        sessionId: session.id,
-        reason: 'caller_ended',
-      );
-
-      _callTickTimer?.cancel();
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _activeCallSession = ended;
-        _rtcJoinInfo = null;
-      });
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Call ended.')));
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _callActionError = error.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _callActionLoading = false;
-        });
-      }
-    }
-  }
 
   Future<void> _prepareRtcJoin(String sessionId) async {
     if (_rtcLoading) {
@@ -640,11 +572,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _rtcLoading = true;
-      _rtcError = null;
     });
 
     try {
-      final RtcJoinInfo joinInfo = await widget.apiClient.requestCallRtcToken(
+      await widget.apiClient.requestCallRtcToken(
         accessToken: widget.accessToken,
         sessionId: sessionId,
       );
@@ -654,14 +585,12 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       setState(() {
-        _rtcJoinInfo = joinInfo;
       });
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() {
-        _rtcError = error.toString();
       });
     } finally {
       if (mounted) {
@@ -672,55 +601,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _createRoom() async {
-    final String title = _me?.displayName ?? 'Live';
-
-    setState(() {
-      _creating = true;
-      _error = null;
-    });
-
-    try {
-      final Room room = await widget.apiClient.createRoom(widget.accessToken, title);
-      _selectedDirectReceiverUserId = room.hostUserId;
-      await _loadData();
-      if (!mounted) return;
-      // Open fullscreen host screen
-      await Navigator.of(context).push(MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => HostLiveScreen(
-          room: room,
-          apiClient: widget.apiClient,
-          accessToken: widget.accessToken,
-          hostDisplayName: _me?.displayName ?? 'Me',
-          hostAvatarUrl: _me?.avatarUrl,
-          onEnd: () {
-            _loadData();
-          },
-        ),
-      ));
-      await _loadData();
-    } catch (error) {
-      setState(() {
-        _error = error.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _creating = false;
-        });
-      }
-    }
-  }
-
   Future<void> _enterRoom(LiveFeedCard feedCard) async {
     final String? roomId = feedCard.roomId;
     if (roomId == null) return;
-    // Join BEFORE opening the screen — use returned count so viewer sees correct number
+    // Join before opening — get correct initial count
     int updatedCount = feedCard.audienceCount;
+    bool didJoin = false;
     try {
       final Room joined = await widget.apiClient.joinRoom(widget.accessToken, roomId);
       updatedCount = joined.audienceCount;
+      didJoin = true;
     } catch (_) {}
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
@@ -733,47 +623,11 @@ class _HomeScreenState extends State<HomeScreen> {
         myDisplayName: _me?.displayName ?? 'Guest',
         onLeave: () => _loadData(),
         initialViewerCount: updatedCount,
+        didJoin: didJoin,
       ),
     ));
-    // Leave when viewer exits the screen
-    widget.apiClient.leaveRoom(widget.accessToken, roomId).ignore();
+    // leaveRoom is now handled by ViewerLiveScreen.dispose()
     await _loadData();
-  }
-
-  Future<void> _endMyLive() async {
-    final Room? liveRoom = _myLiveRoom;
-    if (liveRoom == null) {
-      return;
-    }
-
-    setState(() {
-      _creating = true;
-      _error = null;
-    });
-
-    try {
-      await widget.apiClient.endRoom(widget.accessToken, liveRoom.id);
-      await _loadData();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Live ended.')));
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _error = error.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _creating = false;
-        });
-      }
-    }
   }
 
   void _openCallTabForHost(String hostUserId) {
@@ -786,114 +640,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _openHostProfile(LiveFeedCard feedCard) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  feedCard.hostDisplayName,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                const Text('Status: Online · Live now'),
-                const SizedBox(height: 4),
-                Text('Current live: ${feedCard.title}'),
-                const SizedBox(height: 14),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          _enterRoom(feedCard);
-                        },
-                        child: const Text('Watch Live'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          _openCallTabForHost(feedCard.hostUserId);
-                        },
-                        icon: const Icon(Icons.call_rounded),
-                        label: const Text('Call'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildFeedCard(LiveFeedCard feedCard) {
-    final bool joiningCurrentRoom = feedCard.roomId != null && _joiningRoomId == feedCard.roomId;
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              feedCard.title,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 12),
-            InkWell(
-              onTap: () => _openHostProfile(feedCard),
-              child: Text(
-                'Host: ${feedCard.hostDisplayName}',
-                style: const TextStyle(
-                  decoration: TextDecoration.underline,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text('Audience: ${feedCard.audienceCount}'),
-            const SizedBox(height: 8),
-            Text(
-              'Started: ${feedCard.startedAt.toLocal().toIso8601String().substring(0, 16).replaceFirst('T', ' ')}',
-            ),
-            const Spacer(),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: joiningCurrentRoom
-                        ? null
-                        : () => _enterRoom(feedCard),
-                    child: Text(joiningCurrentRoom ? 'Opening...' : 'Watch Live'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _openCallTabForHost(feedCard.hostUserId),
-                    icon: const Icon(Icons.call_rounded),
-                    label: const Text('Call Host'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   String _titleForTab() {
     return switch (_selectedTabIndex) {
@@ -914,7 +660,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _callMode = 'random';
       _selectedTabIndex = 2;
-      _callActionError = null;
     });
 
     await _loadCallQuote();
@@ -958,55 +703,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-  }
-
-  Future<void> _searchByPublicId(String query) async {
-    if (query.length != 8 || int.tryParse(query) == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Enter an exact 8-digit ID'),
-        behavior: SnackBarBehavior.floating,
-      ));
-      return;
-    }
-    try {
-      final UserProfile profile =
-          await widget.apiClient.getUserByPublicId(query);
-      if (!mounted) return;
-      // Close search bar
-      setState(() { _searchActive = false; _searchCtrl.clear(); _searchQuery = ''; });
-      // Build a minimal LiveFeedCard to reuse ProfilePage
-      final LiveFeedCard card = LiveFeedCard(
-        roomId: null,
-        title: profile.displayName,
-        hostUserId: profile.id,
-        hostDisplayName: profile.displayName,
-        hostAvatarUrl: profile.avatarUrl,
-        hostCountryCode: profile.countryCode ?? 'XX',
-        hostLanguage: profile.language ?? '',
-        hostStatus: 'online',
-        audienceCount: 0,
-        startedAt: DateTime.now(),
-      );
-      if (!mounted) return;
-      Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => ProfilePage(
-          feedCard: card,
-          apiClient: widget.apiClient,
-          accessToken: widget.accessToken,
-          myUserId: _me?.id,
-          onMessage: () {
-            Navigator.of(context).pop();
-            setState(() => _selectedTabIndex = 3);
-          },
-        ),
-      ));
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('No user found with that ID'),
-        behavior: SnackBarBehavior.floating,
-      ));
-    }
   }
 
   void _openProfilePage(LiveFeedCard feedCard) {
@@ -1485,318 +1181,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       _creating ? 'Starting…' : 'Start Live Stream',
                       style: const TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPlaceholderTab({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    Widget? action,
-  }) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(icon, size: 52, color: Colors.purple.shade300),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade700),
-            ),
-            if (action != null) ...<Widget>[const SizedBox(height: 16), action],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCallPricingTab(bool isTablet) {
-    final List<int> minuteOptions = <int>[1, 2, 3, 5, 10, 15];
-    final List<int> directRateOptions =
-        _callQuote?.directCallAllowedRatesCoinsPerMinute ?? <int>[2100, 4200, 8400];
-    final String? directReceiverUserId = _resolveDirectReceiverUserId();
-    final bool canStartDirectCall =
-      _callMode != 'direct' || directReceiverUserId != null;
-    final bool hasLiveSession =
-      _activeCallSession != null && _activeCallSession!.status == 'live';
-    final int quoteRequiredCoins = _callQuote?.requiredCoins ?? 0;
-    final bool hasEnoughBalance = _coinBalance >= quoteRequiredCoins;
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: maxContentWidth),
-        child: ListView(
-          padding: EdgeInsets.all(isTablet ? 24 : 16),
-          children: <Widget>[
-            const Text(
-              'Call Pricing',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Preview pricing from backend before starting a call.',
-              style: TextStyle(color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const Text(
-                      'Call Type',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 8),
-                    SegmentedButton<String>(
-                      segments: const <ButtonSegment<String>>[
-                        ButtonSegment<String>(
-                          value: 'direct',
-                          label: Text('Direct'),
-                          icon: Icon(Icons.person_pin_circle_rounded),
-                        ),
-                        ButtonSegment<String>(
-                          value: 'random',
-                          label: Text('Random'),
-                          icon: Icon(Icons.casino_rounded),
-                        ),
-                      ],
-                      selected: <String>{_callMode},
-                      onSelectionChanged: (Set<String> selection) {
-                        final String nextMode = selection.first;
-                        if (nextMode == _callMode) {
-                          return;
-                        }
-                        setState(() {
-                          _callMode = nextMode;
-                        });
-                        _loadCallQuote();
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Minutes',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<int>(
-                      initialValue: _callMinutes,
-                      items: minuteOptions
-                          .map(
-                            (int minute) => DropdownMenuItem<int>(
-                              value: minute,
-                              child: Text('$minute min'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (int? value) {
-                        if (value == null || value == _callMinutes) {
-                          return;
-                        }
-                        setState(() {
-                          _callMinutes = value;
-                        });
-                        _loadCallQuote();
-                      },
-                    ),
-                    if (_callMode == 'direct') ...<Widget>[
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Receiver Rate Tier',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        children: directRateOptions.map((int tier) {
-                          return ChoiceChip(
-                            label: Text('${_formatCoins(tier)} / min'),
-                            selected: _selectedDirectRate == tier,
-                            onSelected: (bool selected) {
-                              if (!selected || _selectedDirectRate == tier) {
-                                return;
-                              }
-                              setState(() {
-                                _selectedDirectRate = tier;
-                              });
-                              _loadCallQuote();
-                            },
-                          );
-                        }).toList(),
-                      ),
-                      if (!canStartDirectCall)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text(
-                            'No receiver available from live feed yet. Open a live host card or use Random mode.',
-                            style: TextStyle(color: Colors.red),
-                          ),
-                        ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const Text(
-                      'Quote',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    if (_quoteLoading)
-                      const Row(
-                        children: <Widget>[
-                          SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          SizedBox(width: 8),
-                          Text('Fetching live quote...'),
-                        ],
-                      )
-                    else if (_quoteError != null)
-                      Text(
-                        _quoteError!,
-                        style: const TextStyle(color: Colors.red),
-                      )
-                    else if (_callQuote != null) ...<Widget>[
-                      Text(
-                        'Mode: ${_callQuote!.mode == 'direct' ? 'Direct' : 'Random'}',
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Rate: ${_formatCoins(_callQuote!.rateCoinsPerMinute)} coins/min',
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Total for ${_callQuote!.minutes} min: ${_formatCoins(_callQuote!.requiredCoins)} coins',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    Text(
-                      'Your balance: ${_formatCoins(_coinBalance)} coins',
-                      style: TextStyle(
-                        color: hasEnoughBalance
-                            ? Colors.green.shade700
-                            : Colors.red.shade700,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (!_quoteLoading && _callQuote != null && !hasEnoughBalance)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Text(
-                          'Not enough coins. Please top up in My Balance before starting this call.',
-                          style: TextStyle(color: Colors.red),
-                        ),
-                      ),
-                    if (_callActionError != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          _callActionError!,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                      ),
-                    if (_activeCallSession != null) ...<Widget>[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Session ${_activeCallSession!.status == 'live' ? 'Live' : 'Ended'} • billed ${_formatCoins(_activeCallSession!.totalBilledCoins)} coins',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _rtcJoinInfo != null
-                            ? 'RTC ready: ${_rtcJoinInfo!.provider} • ${_rtcJoinInfo!.role}'
-                            : (_rtcLoading
-                                  ? 'Preparing RTC token...'
-                                  : 'RTC not prepared yet'),
-                        style: TextStyle(
-                          color: _rtcJoinInfo != null
-                              ? Colors.green.shade700
-                              : Colors.grey.shade700,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (_rtcError != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(
-                            _rtcError!,
-                            style: const TextStyle(color: Colors.red),
-                          ),
-                        ),
-                    ],
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: <Widget>[
-                        ElevatedButton.icon(
-                          onPressed: _quoteLoading ? null : _loadCallQuote,
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: const Text('Refresh Quote'),
-                        ),
-                        ElevatedButton(
-                          onPressed: (_quoteLoading ||
-                                  _callActionLoading ||
-                                  _callQuote == null ||
-                                  !hasEnoughBalance ||
-                                  !canStartDirectCall ||
-                                  hasLiveSession)
-                              ? null
-                              : _startCallSession,
-                          child: Text(
-                            _callActionLoading ? 'Working...' : 'Start Call',
-                          ),
-                        ),
-                        if (hasLiveSession) ...<Widget>[
-                          ElevatedButton.icon(
-                            onPressed: (_callActionLoading ||
-                                    _rtcLoading ||
-                                    _activeCallSession == null)
-                                ? null
-                                : () => _prepareRtcJoin(_activeCallSession!.id),
-                            icon: const Icon(Icons.videocam_rounded),
-                            label: Text(
-                              _rtcLoading ? 'Preparing RTC...' : 'Prepare RTC',
-                            ),
-                          ),
-                          ElevatedButton(
-                            onPressed: _callActionLoading ? null : _endCallSession,
-                            child: const Text('End Call'),
-                          ),
-                        ],
-                      ],
                     ),
                   ],
                 ),

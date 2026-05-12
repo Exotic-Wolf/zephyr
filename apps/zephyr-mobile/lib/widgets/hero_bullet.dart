@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class HeroBullet extends StatelessWidget {
-  const HeroBullet({required this.iconWidget, required this.text});
+  const HeroBullet({super.key, required this.iconWidget, required this.text});
   final Widget iconWidget;
   final String text;
 
@@ -23,7 +23,7 @@ class HeroBullet extends StatelessWidget {
 }
 
 class StatCell extends StatelessWidget {
-  const StatCell({required this.label, required this.value});
+  const StatCell({super.key, required this.label, required this.value});
 
   final String label;
   final String value;

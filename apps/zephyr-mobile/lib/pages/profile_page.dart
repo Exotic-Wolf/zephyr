@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:country_picker/country_picker.dart';
 
 import '../models/models.dart';
 import '../services/api_client.dart';
-import '../widgets/spark_icon.dart';
-import '../widgets/language_picker_sheet.dart';
 import '../widgets/hero_bullet.dart';
 import 'thread_page.dart';
 import '../flags.dart';

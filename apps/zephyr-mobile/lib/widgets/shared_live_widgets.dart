@@ -1,4 +1,3 @@
-import 'dart:math' show cos, pi, sin;
 import 'package:flutter/material.dart';
 
 // ── Shared live helpers ───────────────────────────────────────────────────────
@@ -16,7 +15,7 @@ class FloatingGift {
 }
 
 class FloatingGiftWidget extends StatefulWidget {
-  const FloatingGiftWidget({required this.gift});
+  const FloatingGiftWidget({super.key, required this.gift});
   final FloatingGift gift;
   @override
   State<FloatingGiftWidget> createState() => FloatingGiftWidgetState();
@@ -59,7 +58,7 @@ class FloatingGiftWidgetState extends State<FloatingGiftWidget>
 }
 
 class LiveCtrlBtn extends StatelessWidget {
-  const LiveCtrlBtn({required this.icon, required this.label, required this.active, required this.onTap});
+  const LiveCtrlBtn({super.key, required this.icon, required this.label, required this.active, required this.onTap});
   final IconData icon;
   final String label;
   final bool active;

@@ -89,11 +89,12 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     try {
       final info = await widget.apiClient.getRoomRtcToken(
           widget.accessToken, widget.room.id);
-      _livekitRoom = lk.Room();
+      _livekitRoom = lk.Room(
+        roomOptions: const lk.RoomOptions(adaptiveStream: true, dynacast: true),
+      );
       await _livekitRoom!.connect(
         info.wsUrl,
         info.token,
-        roomOptions: const lk.RoomOptions(adaptiveStream: true, dynacast: true),
       );
       await _livekitRoom!.localParticipant?.setCameraEnabled(true);
       await _livekitRoom!.localParticipant?.setMicrophoneEnabled(true);
@@ -223,13 +224,6 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       orElse: () => cameras.first,
     );
     await _livekitRoom?.setVideoInputDevice(next);
-  }
-
-  void _addComment(String name, String text) {
-    setState(() {
-      _comments.add(LiveComment(name: name, text: text));
-      if (_comments.length > 30) _comments.removeAt(0);
-    });
   }
 
   @override

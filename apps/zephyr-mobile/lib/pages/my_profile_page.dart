@@ -4,13 +4,8 @@ import 'package:country_picker/country_picker.dart';
 
 import '../models/models.dart';
 import '../services/api_client.dart';
-import '../widgets/spark_icon.dart';
-import '../widgets/coin_icon.dart';
 import '../widgets/language_picker_sheet.dart';
-import 'call_price_page.dart';
-import '../flags.dart';
 import 'profile_page.dart';
-import '../app_constants.dart';
 
 class MyProfilePage extends StatefulWidget {
   const MyProfilePage({

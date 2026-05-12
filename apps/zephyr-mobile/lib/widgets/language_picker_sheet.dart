@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 // ── LanguagePickerSheet ──────────────────────────────────────────────────────
 
 class LanguagePickerSheet extends StatefulWidget {
-  const LanguagePickerSheet();
+  const LanguagePickerSheet({super.key});
 
   @override
   State<LanguagePickerSheet> createState() => LanguagePickerSheetState();

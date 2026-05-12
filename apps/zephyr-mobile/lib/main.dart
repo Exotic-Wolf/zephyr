@@ -4,7 +4,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'services/api_client.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/home_screen.dart';
-import 'app_constants.dart';
 
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',

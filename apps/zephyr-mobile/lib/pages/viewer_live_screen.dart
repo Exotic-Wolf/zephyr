@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' show Random;
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:socket_io_client/socket_io_client.dart' as sio;
@@ -21,6 +20,7 @@ class ViewerLiveScreen extends StatefulWidget {
     required this.myDisplayName,
     required this.onLeave,
     this.initialViewerCount,
+    this.didJoin = false,
   });
 
   final LiveFeedCard feedCard;
@@ -30,6 +30,8 @@ class ViewerLiveScreen extends StatefulWidget {
   final String myDisplayName;
   final VoidCallback onLeave;
   final int? initialViewerCount;
+  /// True when the caller already successfully called joinRoom before pushing this screen.
+  final bool didJoin;
 
   @override
   State<ViewerLiveScreen> createState() => _ViewerLiveScreenState();
@@ -69,12 +71,13 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     try {
       final info = await widget.apiClient.getRoomRtcToken(
           widget.accessToken, widget.feedCard.roomId!);
-      _livekitRoom = lk.Room();
+      _livekitRoom = lk.Room(
+        roomOptions: const lk.RoomOptions(adaptiveStream: true, dynacast: true),
+      );
       _livekitRoom!.addListener(_onRoomChanged);
       await _livekitRoom!.connect(
         info.wsUrl,
         info.token,
-        roomOptions: const lk.RoomOptions(adaptiveStream: true, dynacast: true),
       );
       if (mounted) _findRemoteVideo();
     } catch (e) {
@@ -106,6 +109,12 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     _livekitRoom?.removeListener(_onRoomChanged);
     _livekitRoom?.disconnect();
     _livekitRoom?.dispose();
+    // Call leaveRoom only if we successfully joined
+    if (widget.didJoin && widget.feedCard.roomId != null) {
+      widget.apiClient
+          .leaveRoom(widget.accessToken, widget.feedCard.roomId!)
+          .ignore();
+    }
     super.dispose();
   }
 
@@ -132,10 +141,6 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
         } catch (_) {}
       })
       ..connect();
-  }
-
-  Future<void> _poll() async {
-    // Replaced by socket
   }
 
   void _sendComment() {

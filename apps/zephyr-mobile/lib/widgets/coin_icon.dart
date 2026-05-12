@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 // ── Zephyr coin icon — reusable, no copyright ───────────────────────────────
 class CoinIcon extends StatelessWidget {
-  const CoinIcon({this.size = 16});
+  const CoinIcon({super.key, this.size = 16});
 
   final double size;
 
