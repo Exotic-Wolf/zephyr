@@ -44,6 +44,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   Timer? _ticker;
   Timer? _heartbeatTimer;
   sio.Socket? _socket;
+  final ValueNotifier<int> _viewerCountNotifier = ValueNotifier<int>(0);
   final List<LiveComment> _comments = <LiveComment>[];
   final List<FloatingGift> _gifts = <FloatingGift>[];
   late final AnimationController _pulseCtrl;
@@ -56,6 +57,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   void initState() {
     super.initState();
     _viewerCount = widget.room.audienceCount;
+    _viewerCountNotifier.value = widget.room.audienceCount;
     _pulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -132,7 +134,9 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           final Map<String, dynamic> payload =
               (data as Map<dynamic, dynamic>).cast<String, dynamic>();
           if (payload['roomId'] == widget.room.id) {
-            setState(() => _viewerCount = payload['audienceCount'] as int);
+            final int count = payload['audienceCount'] as int;
+            setState(() => _viewerCount = count);
+            _viewerCountNotifier.value = count;
           }
         } catch (_) {}
       })
@@ -144,6 +148,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _ticker?.cancel();
     _heartbeatTimer?.cancel();
     _socket?.dispose();
+    _viewerCountNotifier.dispose();
     _pulseCtrl.dispose();
     _livekitRoom?.disconnect();
     _livekitRoom?.dispose();
@@ -173,7 +178,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           apiClient: widget.apiClient,
           accessToken: widget.accessToken,
           roomId: widget.room.id,
-          totalCount: _viewerCount,
+          viewerCountNotifier: _viewerCountNotifier,
         );
       },
     );
@@ -482,13 +487,13 @@ class _ViewerListSheet extends StatefulWidget {
     required this.apiClient,
     required this.accessToken,
     required this.roomId,
-    required this.totalCount,
+    required this.viewerCountNotifier,
   });
 
   final ZephyrApiClient apiClient;
   final String accessToken;
   final String roomId;
-  final int totalCount;
+  final ValueNotifier<int> viewerCountNotifier;
 
   @override
   State<_ViewerListSheet> createState() => _ViewerListSheetState();
@@ -502,7 +507,19 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
   @override
   void initState() {
     super.initState();
-    _total = widget.totalCount;
+    _total = widget.viewerCountNotifier.value;
+    _load();
+    widget.viewerCountNotifier.addListener(_onCountChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.viewerCountNotifier.removeListener(_onCountChanged);
+    super.dispose();
+  }
+
+  void _onCountChanged() {
+    // Viewer joined or left — fetch fresh list immediately
     _load();
   }
 
