@@ -385,3 +385,34 @@ class LiveFeedCard {
     );
   }
 }
+
+class RoomViewer {
+  RoomViewer({required this.displayName, this.avatarUrl});
+
+  final String displayName;
+  final String? avatarUrl;
+
+  factory RoomViewer.fromJson(Map<String, dynamic> json) {
+    return RoomViewer(
+      displayName: json['displayName'] as String,
+      avatarUrl: json['avatarUrl'] as String?,
+    );
+  }
+}
+
+class RoomViewersResult {
+  RoomViewersResult({required this.viewers, required this.total});
+
+  final List<RoomViewer> viewers;
+  final int total;
+
+  factory RoomViewersResult.fromJson(Map<String, dynamic> json) {
+    final List<dynamic> list = json['viewers'] as List<dynamic>? ?? [];
+    return RoomViewersResult(
+      viewers: list
+          .map((dynamic e) => RoomViewer.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      total: (json['total'] as num?)?.toInt() ?? 0,
+    );
+  }
+}

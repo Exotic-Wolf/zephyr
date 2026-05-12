@@ -264,6 +264,16 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ALTER TABLE rooms ADD COLUMN IF NOT EXISTS last_heartbeat TIMESTAMPTZ
     `);
 
+    // Room viewers tracking
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS room_viewers (
+        room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (room_id, user_id)
+      )
+    `);
+
     // Add status column to users (online / busy / offline — 'live' is derived from rooms)
     await this.pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'online'

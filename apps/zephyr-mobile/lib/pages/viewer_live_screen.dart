@@ -141,13 +141,16 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     return Scaffold(
       backgroundColor: Colors.black,
       resizeToAvoidBottomInset: false,
-      body: Stack(
+      body: SizedBox.expand(
+        child: Stack(
         children: <Widget>[
           // ── Background ───────────────────────────────────────────────────
           if (_remoteVideoTrack != null)
             Positioned.fill(
-              child: lk.VideoTrackRenderer(
-                _remoteVideoTrack!,
+              child: SizedBox.expand(
+                child: lk.VideoTrackRenderer(
+                  _remoteVideoTrack!,
+                ),
               ),
             )
           else
@@ -362,6 +365,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
             ),
           ),
         ],
+      ),
       ),
     );
   }

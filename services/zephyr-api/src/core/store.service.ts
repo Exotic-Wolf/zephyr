@@ -881,7 +881,7 @@ export class StoreService {
     return room;
   }
 
-  async joinRoom(roomId: string): Promise<Room> {
+  async joinRoom(roomId: string, userId: string): Promise<Room> {
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{
         id: string;
@@ -903,6 +903,12 @@ export class StoreService {
       if (result.rowCount === 0) {
         throw new NotFoundException('Room not found');
       }
+
+      // Track viewer (upsert — safe if they rejoin)
+      await this.databaseService.query(
+        `INSERT INTO room_viewers (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [roomId, userId],
+      );
 
       return this.toRoom(result.rows[0]);
     }
@@ -957,7 +963,7 @@ export class StoreService {
     // in-memory: no-op (room is live if it exists)
   }
 
-  async leaveRoom(roomId: string): Promise<void> {
+  async leaveRoom(roomId: string, userId: string): Promise<void> {
     if (this.databaseService?.isEnabled()) {
       await this.databaseService.query(
         `
@@ -966,6 +972,10 @@ export class StoreService {
           WHERE id = $1 AND status = 'live'
         `,
         [roomId],
+      );
+      await this.databaseService.query(
+        `DELETE FROM room_viewers WHERE room_id = $1 AND user_id = $2`,
+        [roomId, userId],
       );
       return;
     }
@@ -977,6 +987,33 @@ export class StoreService {
         audienceCount: Math.max(room.audienceCount - 1, 0),
       });
     }
+  }
+
+  async getRoomViewers(
+    roomId: string,
+    limit = 50,
+  ): Promise<{ displayName: string; avatarUrl: string | null }[]> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        display_name: string;
+        avatar_url: string | null;
+      }>(
+        `
+          SELECT u.display_name, u.avatar_url
+          FROM room_viewers rv
+          JOIN users u ON u.id = rv.user_id
+          WHERE rv.room_id = $1
+          ORDER BY rv.joined_at DESC
+          LIMIT $2
+        `,
+        [roomId, limit],
+      );
+      return result.rows.map((r) => ({
+        displayName: r.display_name,
+        avatarUrl: r.avatar_url,
+      }));
+    }
+    return [];
   }
 
   async getUserById(userId: string): Promise<UserProfile> {

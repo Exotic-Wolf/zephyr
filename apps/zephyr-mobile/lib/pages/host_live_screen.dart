@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
+import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import '../models/models.dart';
@@ -37,6 +38,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   bool _micOn = true;
   bool _cameraOn = true;
   bool _ending = false;
+  bool _cameraLoading = true;
   int _viewerCount = 0;
   int _elapsedSeconds = 0;
   Timer? _ticker;
@@ -58,9 +60,6 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsedSeconds++);
-    });
     // Heartbeat: tell server host is still live every 15s
     widget.apiClient
         .heartbeatRoom(widget.accessToken, widget.room.id)
@@ -78,6 +77,13 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   }
 
   Future<void> _connectLiveKit() async {
+    // Request camera + mic permissions first
+    final camera = await Permission.camera.request();
+    final mic = await Permission.microphone.request();
+    if (!camera.isGranted || !mic.isGranted) {
+      debugPrint('[LiveKit host] permissions denied');
+      return;
+    }
     try {
       final info = await widget.apiClient.getRoomRtcToken(
           widget.accessToken, widget.room.id);
@@ -95,11 +101,16 @@ class _HostLiveScreenState extends State<HostLiveScreen>
               .localParticipant
               ?.videoTrackPublications
               .firstOrNull
-              ?.track as lk.VideoTrack?;;
+              ?.track as lk.VideoTrack?;
+          _cameraLoading = false;
+        });
+        _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) setState(() => _elapsedSeconds++);
         });
       }
     } catch (e) {
       debugPrint('[LiveKit host] error: $e');
+      if (mounted) setState(() => _cameraLoading = false);
     }
   }
 
@@ -147,6 +158,25 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     final int m = _elapsedSeconds ~/ 60;
     final int s = _elapsedSeconds % 60;
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _showViewerList() async {
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext ctx) {
+        return _ViewerListSheet(
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          roomId: widget.room.id,
+          totalCount: _viewerCount,
+        );
+      },
+    );
   }
 
   Future<void> _end() async {
@@ -201,13 +231,16 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
+      body: SizedBox.expand(
+        child: Stack(
         children: <Widget>[
           // ── Background (live camera or placeholder) ──────────────────────
           if (_localVideoTrack != null)
             Positioned.fill(
-              child: lk.VideoTrackRenderer(
-                _localVideoTrack!,
+              child: SizedBox.expand(
+                child: lk.VideoTrackRenderer(
+                  _localVideoTrack!,
+                ),
               ),
             )
           else
@@ -220,27 +253,34 @@ class _HostLiveScreenState extends State<HostLiveScreen>
               ),
             ),
           ),
-          // Camera-off overlay
-          if (!_cameraOn)
-            Center(
+          // Camera loading spinner
+          if (_cameraLoading)
+            const Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  CircleAvatar(
-                    radius: 56,
-                    backgroundColor: Colors.white12,
-                    backgroundImage: widget.hostAvatarUrl != null
-                        ? NetworkImage(widget.hostAvatarUrl!)
-                        : null,
-                    child: widget.hostAvatarUrl == null
-                        ? Text(widget.hostDisplayName[0].toUpperCase(),
-                            style: const TextStyle(fontSize: 40, color: Colors.white))
-                        : null,
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('Camera is off',
-                      style: TextStyle(color: Colors.white54, fontSize: 14)),
+                  CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                  SizedBox(height: 16),
+                  Text('Starting camera…',
+                      style: TextStyle(color: Colors.white70, fontSize: 14)),
                 ],
+              ),
+            ),
+          // Camera-off overlay
+          if (!_cameraOn)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.75),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    const Icon(Icons.videocam_off_rounded,
+                        color: Colors.white54, size: 56),
+                    const SizedBox(height: 12),
+                    const Text('Camera is off',
+                        style: TextStyle(color: Colors.white54, fontSize: 14)),
+                  ],
+                ),
               ),
             ),
 
@@ -301,20 +341,23 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Viewer count
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: Colors.black45,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        const Icon(Icons.remove_red_eye_rounded, color: Colors.white70, size: 13),
-                        const SizedBox(width: 4),
-                        Text('$_viewerCount', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                      ],
+                  // Viewer count — tappable
+                  GestureDetector(
+                    onTap: _showViewerList,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const Icon(Icons.remove_red_eye_rounded, color: Colors.white70, size: 13),
+                          const SizedBox(width: 4),
+                          Text('$_viewerCount', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
                     ),
                   ),
                   const Spacer(),
@@ -409,12 +452,6 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                     active: true,
                     onTap: _flipCamera,
                   ),
-                  LiveCtrlBtn(
-                    icon: Icons.people_rounded,
-                    label: '$_viewerCount',
-                    active: true,
-                    onTap: () {},
-                  ),
                   GestureDetector(
                     onTap: _ending ? null : _end,
                     child: Container(
@@ -431,6 +468,140 @@ class _HostLiveScreenState extends State<HostLiveScreen>
               ),
             ),
           ),
+        ],
+      ),
+      ),
+    );
+  }
+}
+
+// ── Viewer list bottom sheet ──────────────────────────────────────────────────
+
+class _ViewerListSheet extends StatefulWidget {
+  const _ViewerListSheet({
+    required this.apiClient,
+    required this.accessToken,
+    required this.roomId,
+    required this.totalCount,
+  });
+
+  final ZephyrApiClient apiClient;
+  final String accessToken;
+  final String roomId;
+  final int totalCount;
+
+  @override
+  State<_ViewerListSheet> createState() => _ViewerListSheetState();
+}
+
+class _ViewerListSheetState extends State<_ViewerListSheet> {
+  bool _loading = true;
+  List<dynamic> _viewers = <dynamic>[];
+  int _total = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _total = widget.totalCount;
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final result = await widget.apiClient.getRoomViewers(
+        widget.accessToken,
+        widget.roomId,
+      );
+      if (mounted) {
+        setState(() {
+          _viewers = result.viewers;
+          _total = result.total;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          // Handle bar
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.remove_red_eye_rounded, color: Colors.white70, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  '$_total watching',
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2),
+            )
+          else if (_viewers.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Text('No viewers yet', style: TextStyle(color: Colors.white54)),
+            )
+          else
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.45,
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _viewers.length,
+                itemBuilder: (BuildContext ctx, int i) {
+                  final viewer = _viewers[i];
+                  final String name = viewer.displayName as String;
+                  final String? avatar = viewer.avatarUrl as String?;
+                  return ListTile(
+                    leading: CircleAvatar(
+                      radius: 18,
+                      backgroundColor: Colors.white12,
+                      backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+                      child: avatar == null
+                          ? Text(name[0].toUpperCase(),
+                              style: const TextStyle(color: Colors.white, fontSize: 14))
+                          : null,
+                    ),
+                    title: Text(name, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  );
+                },
+              ),
+            ),
+          if (_total > 50)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+              child: Text(
+                'and ${_total - _viewers.length} more watching…',
+                style: const TextStyle(color: Colors.white38, fontSize: 13),
+              ),
+            )
+          else
+            const SizedBox(height: 16),
         ],
       ),
     );

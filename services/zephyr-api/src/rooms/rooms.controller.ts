@@ -58,8 +58,8 @@ export class RoomsController {
     @Headers('authorization') authorization: string | undefined,
     @Param('roomId', new ParseUUIDPipe()) roomId: string,
   ): Promise<Room> {
-    await this.storeService.getUserFromAuthHeader(authorization);
-    const room = await this.storeService.joinRoom(roomId);
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    const room = await this.storeService.joinRoom(roomId, user.id);
     this.roomsGateway.emitRoomUpdated(room.id, room.audienceCount);
     return room;
   }
@@ -70,8 +70,8 @@ export class RoomsController {
     @Headers('authorization') authorization: string | undefined,
     @Param('roomId', new ParseUUIDPipe()) roomId: string,
   ): Promise<void> {
-    await this.storeService.getUserFromAuthHeader(authorization);
-    await this.storeService.leaveRoom(roomId);
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.leaveRoom(roomId, user.id);
     // Fetch updated count and broadcast
     try {
       const rooms = await this.storeService.listRooms();
@@ -80,6 +80,19 @@ export class RoomsController {
     } catch {
       // best-effort
     }
+  }
+
+  @Get(':roomId/viewers')
+  async getRoomViewers(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomId', new ParseUUIDPipe()) roomId: string,
+  ): Promise<{ viewers: { displayName: string; avatarUrl: string | null }[]; total: number }> {
+    await this.storeService.getUserFromAuthHeader(authorization);
+    const viewers = await this.storeService.getRoomViewers(roomId, 50);
+    // Get the total from the room's audienceCount
+    const rooms = await this.storeService.listRooms();
+    const room = rooms.find((r) => r.id === roomId);
+    return { viewers, total: room?.audienceCount ?? viewers.length };
   }
 
   @Post(':roomId/heartbeat')

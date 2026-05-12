@@ -395,6 +395,15 @@ class ZephyrApiClient {
     return RtcJoinInfo.fromJson(data);
   }
 
+  Future<RoomViewersResult> getRoomViewers(String accessToken, String roomId) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'GET',
+      path: '/v1/rooms/$roomId/viewers',
+      accessToken: accessToken,
+    );
+    return RoomViewersResult.fromJson(data);
+  }
+
   Future<RtcJoinInfo> requestCallRtcToken({
     required String accessToken,
     required String sessionId,
