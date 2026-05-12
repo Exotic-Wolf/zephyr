@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import '../models/models.dart';
@@ -45,6 +46,10 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   final List<FloatingGift> _gifts = <FloatingGift>[];
   late final AnimationController _pulseCtrl;
 
+  // LiveKit
+  lk.Room? _livekitRoom;
+  lk.VideoTrack? _localVideoTrack;
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +73,34 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     );
     // Real-time viewer count via socket
     _connectSocket();
+    // LiveKit RTC
+    _connectLiveKit();
+  }
+
+  Future<void> _connectLiveKit() async {
+    try {
+      final info = await widget.apiClient.getRoomRtcToken(
+          widget.accessToken, widget.room.id);
+      _livekitRoom = lk.Room();
+      await _livekitRoom!.connect(
+        info.wsUrl,
+        info.token,
+        roomOptions: const lk.RoomOptions(adaptiveStream: true, dynacast: true),
+      );
+      await _livekitRoom!.localParticipant?.setCameraEnabled(true);
+      await _livekitRoom!.localParticipant?.setMicrophoneEnabled(true);
+      if (mounted) {
+        setState(() {
+          _localVideoTrack = _livekitRoom!
+              .localParticipant
+              ?.videoTrackPublications
+              .firstOrNull
+              ?.track as lk.VideoTrack?;;
+        });
+      }
+    } catch (e) {
+      debugPrint('[LiveKit host] error: $e');
+    }
   }
 
   void _connectSocket() {
@@ -101,6 +134,8 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _heartbeatTimer?.cancel();
     _socket?.dispose();
     _pulseCtrl.dispose();
+    _livekitRoom?.disconnect();
+    _livekitRoom?.dispose();
     // End the room automatically if host navigates away or closes the app
     widget.apiClient.endRoom(widget.accessToken, widget.room.id)
         .then((_) => debugPrint('[endRoom dispose] success'))
@@ -143,6 +178,18 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     widget.onEnd();
   }
 
+  void _flipCamera() async {
+    final devices = await lk.Hardware.instance.enumerateDevices();
+    final cameras = devices.where((d) => d.kind == 'videoinput').toList();
+    if (cameras.length < 2) return;
+    final currentId = lk.Hardware.instance.selectedVideoInput?.deviceId;
+    final next = cameras.firstWhere(
+      (d) => d.deviceId != currentId,
+      orElse: () => cameras.first,
+    );
+    await _livekitRoom?.setVideoInputDevice(next);
+  }
+
   void _addComment(String name, String text) {
     setState(() {
       _comments.add(LiveComment(name: name, text: text));
@@ -156,7 +203,14 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       backgroundColor: Colors.black,
       body: Stack(
         children: <Widget>[
-          // ── Background (camera placeholder) ──────────────────────────────
+          // ── Background (live camera or placeholder) ──────────────────────
+          if (_localVideoTrack != null)
+            Positioned.fill(
+              child: lk.VideoTrackRenderer(
+                _localVideoTrack!,
+              ),
+            )
+          else
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -333,19 +387,27 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                     icon: _micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
                     label: _micOn ? 'Mic On' : 'Mic Off',
                     active: _micOn,
-                    onTap: () => setState(() => _micOn = !_micOn),
+                    onTap: () {
+                      setState(() => _micOn = !_micOn);
+                      _livekitRoom?.localParticipant
+                          ?.setMicrophoneEnabled(_micOn);
+                    },
                   ),
                   LiveCtrlBtn(
                     icon: _cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
                     label: _cameraOn ? 'Camera' : 'Off',
                     active: _cameraOn,
-                    onTap: () => setState(() => _cameraOn = !_cameraOn),
+                    onTap: () {
+                      setState(() => _cameraOn = !_cameraOn);
+                      _livekitRoom?.localParticipant
+                          ?.setCameraEnabled(_cameraOn);
+                    },
                   ),
                   LiveCtrlBtn(
                     icon: Icons.flip_camera_ios_rounded,
                     label: 'Flip',
                     active: true,
-                    onTap: () {},
+                    onTap: _flipCamera,
                   ),
                   LiveCtrlBtn(
                     icon: Icons.people_rounded,

@@ -819,6 +819,14 @@ export class StoreService {
       .slice(0, normalizedLimit);
   }
 
+  async getRoomHostUserId(roomId: string): Promise<string | null> {
+    const result = await this.pool.query<{ host_user_id: string }>(
+      'SELECT host_user_id FROM rooms WHERE id = $1',
+      [roomId],
+    );
+    return result.rows[0]?.host_user_id ?? null;
+  }
+
   async createRoom(hostUserId: string, title: string): Promise<Room> {
     if (!title || title.trim().length < 3) {
       throw new BadRequestException('title must be at least 3 characters');

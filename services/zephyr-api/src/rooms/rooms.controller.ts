@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { StoreService } from '../core/store.service';
 import type { Room } from '../core/store.service';
+import { RtcService } from '../core/rtc.service';
+import type { RtcJoinTokenResult } from '../core/rtc.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { RoomsGateway } from './rooms.gateway';
 
@@ -20,6 +22,7 @@ export class RoomsController {
   constructor(
     private readonly storeService: StoreService,
     private readonly roomsGateway: RoomsGateway,
+    private readonly rtcService: RtcService,
   ) {}
 
   @Get()
@@ -99,5 +102,16 @@ export class RoomsController {
     // Card stays in feed — just update status back to online
     this.roomsGateway.emitRoomEnded(roomId, user.id);
     return { ok: true };
+  }
+
+  @Post(':roomId/rtc-token')
+  async getRoomRtcToken(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomId', new ParseUUIDPipe()) roomId: string,
+  ): Promise<RtcJoinTokenResult> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    const hostUserId = await this.storeService.getRoomHostUserId(roomId);
+    const role = hostUserId === user.id ? 'host' : 'viewer';
+    return this.rtcService.createLiveRoomToken({ roomId, userId: user.id, role });
   }
 }

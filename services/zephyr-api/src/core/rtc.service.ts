@@ -58,6 +58,51 @@ export class RtcService {
     };
   }
 
+  async createLiveRoomToken(input: {
+    roomId: string;
+    userId: string;
+    role: 'host' | 'viewer';
+  }): Promise<RtcJoinTokenResult> {
+    const apiKey = process.env.LIVEKIT_API_KEY?.trim();
+    const apiSecret = process.env.LIVEKIT_API_SECRET?.trim();
+    const wsUrl = process.env.LIVEKIT_WS_URL?.trim();
+
+    if (!apiKey || !apiSecret || !wsUrl) {
+      throw new BadRequestException(
+        'RTC is not configured. Set LIVEKIT_API_KEY, LIVEKIT_API_SECRET, and LIVEKIT_WS_URL.',
+      );
+    }
+
+    const expiresInSeconds = this.parseTokenTtlSeconds();
+    const roomName = `live_${input.roomId}`;
+    const identity = `${input.role}_${input.userId}`;
+
+    const accessToken = new AccessToken(apiKey, apiSecret, {
+      identity,
+      ttl: `${expiresInSeconds}s`,
+    });
+
+    accessToken.addGrant({
+      room: roomName,
+      roomJoin: true,
+      canPublish: input.role === 'host',
+      canSubscribe: true,
+      canPublishData: true,
+    });
+
+    const token = await accessToken.toJwt();
+
+    return {
+      provider: 'livekit',
+      wsUrl,
+      roomName,
+      identity,
+      role: input.role === 'host' ? 'caller' : 'receiver',
+      token,
+      expiresInSeconds,
+    };
+  }
+
   private parseTokenTtlSeconds(): number {
     const parsed = Number.parseInt(process.env.RTC_TOKEN_TTL_SECONDS ?? '3600', 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {

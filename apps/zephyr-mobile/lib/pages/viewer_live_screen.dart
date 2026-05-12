@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' show Random;
 import 'package:flutter/material.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import '../models/models.dart';
@@ -43,6 +44,10 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   int _elapsedSeconds = 0;
   Timer? _ticker;
 
+  // LiveKit
+  lk.Room? _livekitRoom;
+  lk.VideoTrack? _remoteVideoTrack;
+
   @override
   void initState() {
     super.initState();
@@ -54,6 +59,40 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     });
     _viewerPoll = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
     _comments.add(LiveComment(name: widget.feedCard.hostDisplayName, text: 'Welcome to my live! 👋'));
+    _connectLiveKit();
+  }
+
+  Future<void> _connectLiveKit() async {
+    if (widget.feedCard.roomId == null) return;
+    try {
+      final info = await widget.apiClient.getRoomRtcToken(
+          widget.accessToken, widget.feedCard.roomId!);
+      _livekitRoom = lk.Room();
+      _livekitRoom!.addListener(_onRoomChanged);
+      await _livekitRoom!.connect(
+        info.wsUrl,
+        info.token,
+        roomOptions: const lk.RoomOptions(adaptiveStream: true, dynacast: true),
+      );
+      if (mounted) _findRemoteVideo();
+    } catch (e) {
+      debugPrint('[LiveKit viewer] error: $e');
+    }
+  }
+
+  void _onRoomChanged() {
+    if (mounted) _findRemoteVideo();
+  }
+
+  void _findRemoteVideo() {
+    for (final p in (_livekitRoom?.remoteParticipants.values ?? <lk.RemoteParticipant>[])) {
+      for (final pub in p.videoTrackPublications) {
+        if (pub.track != null && !pub.muted) {
+          setState(() => _remoteVideoTrack = pub.track as lk.VideoTrack);
+          return;
+        }
+      }
+    }
   }
 
   @override
@@ -62,6 +101,9 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     _viewerPoll?.cancel();
     _pulseCtrl.dispose();
     _commentCtrl.dispose();
+    _livekitRoom?.removeListener(_onRoomChanged);
+    _livekitRoom?.disconnect();
+    _livekitRoom?.dispose();
     super.dispose();
   }
 
@@ -102,6 +144,13 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
       body: Stack(
         children: <Widget>[
           // ── Background ───────────────────────────────────────────────────
+          if (_remoteVideoTrack != null)
+            Positioned.fill(
+              child: lk.VideoTrackRenderer(
+                _remoteVideoTrack!,
+              ),
+            )
+          else
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -111,7 +160,8 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
               ),
             ),
           ),
-          // Host avatar center
+          // Host avatar center (shown only when no remote video yet)
+          if (_remoteVideoTrack == null)
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,

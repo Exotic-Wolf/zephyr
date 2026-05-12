@@ -386,6 +386,15 @@ class ZephyrApiClient {
     return CallSession.fromJson(data);
   }
 
+  Future<RtcJoinInfo> getRoomRtcToken(String accessToken, String roomId) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'POST',
+      path: '/v1/rooms/$roomId/rtc-token',
+      accessToken: accessToken,
+    );
+    return RtcJoinInfo.fromJson(data);
+  }
+
   Future<RtcJoinInfo> requestCallRtcToken({
     required String accessToken,
     required String sessionId,
