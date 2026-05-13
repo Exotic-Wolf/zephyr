@@ -66,7 +66,7 @@ export class UsersController {
       await this.storeService.updateUser(user.id, { avatarUrl: result.secure_url });
       return { avatarUrl: result.secure_url };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error ? err.message : JSON.stringify(err);
       throw new BadRequestException(`Upload failed: ${msg}`);
     } finally {
       if (file.path) unlink(file.path, () => {});
