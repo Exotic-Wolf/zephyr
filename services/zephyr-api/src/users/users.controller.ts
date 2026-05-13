@@ -50,8 +50,13 @@ export class UsersController {
   ): Promise<{ avatarUrl: string }> {
     if (!file) throw new BadRequestException('No file provided');
     const user = await this.storeService.getUserFromAuthHeader(authorization);
+    // Support both memory storage (file.buffer) and disk storage (file.path)
+    const source = file.buffer
+      ? `data:${file.mimetype};base64,${file.buffer.toString('base64')}`
+      : file.path;
+    if (!source) throw new BadRequestException('File data missing');
     try {
-      const result = await cloudinary.uploader.upload(file.path, {
+      const result = await cloudinary.uploader.upload(source, {
         folder: 'zephyr/avatars',
         public_id: `user_${user.id}`,
         overwrite: true,
