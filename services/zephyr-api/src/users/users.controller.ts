@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { v2 as cloudinary } from 'cloudinary';
-import { memoryStorage } from 'multer';
+import { unlink } from 'fs';
 import { StoreService } from '../core/store.service';
 import type { UserProfile } from '../core/store.service';
 import { UpdateMeDto } from './dto/update-me.dto';
@@ -43,23 +43,25 @@ export class UsersController {
   }
 
   @Post('me/avatar')
-  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
   async uploadAvatar(
     @Headers('authorization') authorization: string | undefined,
     @UploadedFile() file: Express.Multer.File,
   ): Promise<{ avatarUrl: string }> {
     if (!file) throw new BadRequestException('No file provided');
     const user = await this.storeService.getUserFromAuthHeader(authorization);
-
-    const result = await new Promise<{ secure_url: string }>((resolve, reject) => {
-      cloudinary.uploader.upload_stream(
-        { folder: 'zephyr/avatars', public_id: `user_${user.id}`, overwrite: true, transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }] },
-        (error, result) => error ? reject(error) : resolve(result as { secure_url: string }),
-      ).end(file.buffer);
-    });
-
-    await this.storeService.updateUser(user.id, { avatarUrl: result.secure_url });
-    return { avatarUrl: result.secure_url };
+    try {
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: 'zephyr/avatars',
+        public_id: `user_${user.id}`,
+        overwrite: true,
+        transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }],
+      });
+      await this.storeService.updateUser(user.id, { avatarUrl: result.secure_url });
+      return { avatarUrl: result.secure_url };
+    } finally {
+      if (file.path) unlink(file.path, () => {});
+    }
   }
 
   @Get('me/following')
