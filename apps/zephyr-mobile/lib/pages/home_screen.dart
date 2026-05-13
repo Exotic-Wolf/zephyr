@@ -1468,7 +1468,10 @@ class _HomeScreenState extends State<HomeScreen> {
       children: <Widget>[
         Card(
           child: ListTile(
-            leading: const CircleAvatar(child: Icon(Icons.person_rounded)),
+            leading: CircleAvatar(
+              backgroundImage: _me?.avatarUrl != null ? NetworkImage(_me!.avatarUrl!) : null,
+              child: _me?.avatarUrl == null ? const Icon(Icons.person_rounded) : null,
+            ),
             title: Row(
               children: <Widget>[
                 Text(_me?.displayName ?? 'Me'),
