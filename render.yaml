@@ -5,7 +5,7 @@ services:
     plan: starter
     rootDir: .
     autoDeploy: true
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter zephyr-api build
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter zephyr-api build
     startCommand: pnpm --filter zephyr-api start:prod
     envVars:
       - key: NODE_ENV
