@@ -87,14 +87,11 @@ class _MyProfilePageState extends State<MyProfilePage> {
       setState(() => _avatarUrl = url);
     } catch (e) {
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Upload failed'),
-          content: SingleChildScrollView(child: Text(e.toString())),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Upload failed: $e'),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ));
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
     }

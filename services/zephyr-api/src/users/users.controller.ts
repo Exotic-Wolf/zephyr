@@ -50,12 +50,10 @@ export class UsersController {
   ): Promise<{ avatarUrl: string }> {
     if (!file) throw new BadRequestException('No file provided');
     const user = await this.storeService.getUserFromAuthHeader(authorization);
-    // Support both memory storage (file.buffer) and disk storage (file.path)
-    const hasBuffer = !!file.buffer;
     const source = file.buffer
       ? `data:${file.mimetype};base64,${file.buffer.toString('base64')}`
       : file.path;
-    if (!source) throw new BadRequestException(`File data missing: hasBuffer=${hasBuffer} path=${file.path} mimetype=${file.mimetype}`);
+    if (!source) throw new BadRequestException('File data missing');
     try {
       const result = await cloudinary.uploader.upload(source, {
         folder: 'zephyr/avatars',
@@ -65,9 +63,6 @@ export class UsersController {
       });
       await this.storeService.updateUser(user.id, { avatarUrl: result.secure_url });
       return { avatarUrl: result.secure_url };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : JSON.stringify(err);
-      throw new BadRequestException(`Upload failed: ${msg}`);
     } finally {
       if (file.path) unlink(file.path, () => {});
     }
