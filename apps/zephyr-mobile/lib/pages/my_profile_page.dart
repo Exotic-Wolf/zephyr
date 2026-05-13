@@ -31,6 +31,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
   bool _saving = false;
   bool _uploadingAvatar = false;
   String? _avatarUrl;
+  UserProfile? _pendingReturn;
 
   String _gender = 'Prefer not to say';
   DateTime? _birthday;
@@ -84,7 +85,26 @@ class _MyProfilePageState extends State<MyProfilePage> {
     try {
       final String url = await widget.apiClient.uploadAvatar(widget.accessToken, File(picked.path));
       if (!mounted) return;
-      setState(() => _avatarUrl = url);
+      final UserProfile? me = widget.me;
+      setState(() {
+        _avatarUrl = url;
+        if (me != null) {
+          _pendingReturn = UserProfile(
+            id: me.id,
+            publicId: me.publicId,
+            isAdmin: me.isAdmin,
+            displayName: me.displayName,
+            avatarUrl: url,
+            bio: me.bio,
+            gender: me.gender,
+            birthday: me.birthday,
+            countryCode: me.countryCode,
+            language: me.language,
+            callRateCoinsPerMinute: me.callRateCoinsPerMinute,
+            createdAt: me.createdAt,
+          );
+        }
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -165,6 +185,10 @@ class _MyProfilePageState extends State<MyProfilePage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF2F2F7),
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(_pendingReturn),
+        ),
         title: const Text('My Profile'),
         actions: <Widget>[
           if (_saving)
