@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:country_picker/country_picker.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/models.dart';
 import '../services/api_client.dart';
@@ -26,6 +29,8 @@ class _MyProfilePageState extends State<MyProfilePage> {
   late final TextEditingController _nicknameCtrl;
   bool _editing = false;
   bool _saving = false;
+  bool _uploadingAvatar = false;
+  String? _avatarUrl;
 
   String _gender = 'Prefer not to say';
   DateTime? _birthday;
@@ -51,6 +56,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
     super.initState();
     final UserProfile? me = widget.me;
     _nicknameCtrl = TextEditingController(text: me?.displayName ?? '');
+    _avatarUrl = me?.avatarUrl;
     if (me?.gender != null) _gender = me!.gender!;
     if (me?.birthday != null) {
       _birthday = DateTime.tryParse(me!.birthday!);
@@ -70,6 +76,26 @@ class _MyProfilePageState extends State<MyProfilePage> {
   }
 
   String get _userId => widget.me?.publicId ?? '—';
+
+  Future<void> _pickAndUploadAvatar() async {
+    final XFile? picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 800);
+    if (picked == null || !mounted) return;
+    setState(() => _uploadingAvatar = true);
+    try {
+      final String url = await widget.apiClient.uploadAvatar(widget.accessToken, File(picked.path));
+      if (!mounted) return;
+      setState(() => _avatarUrl = url);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Upload failed: $e'),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ));
+    } finally {
+      if (mounted) setState(() => _uploadingAvatar = false);
+    }
+  }
 
   Future<void> _pickBirthday() async {
     if (!_editing) return;
@@ -178,18 +204,32 @@ class _MyProfilePageState extends State<MyProfilePage> {
                       backgroundColor: widget.me?.isAdmin == true
                           ? const Color(0xFFFFD700).withValues(alpha: 0.18)
                           : const Color(0xFF1FA4EA).withValues(alpha: 0.15),
-                      child: Text(
-                        (widget.me?.displayName ?? 'M').substring(0, 1).toUpperCase(),
-                        style: TextStyle(
-                            fontSize: 40, fontWeight: FontWeight.w700,
-                            color: widget.me?.isAdmin == true
-                                ? const Color(0xFFB8860B)
-                                : const Color(0xFF1FA4EA)),
-                      ),
+                      backgroundImage: _avatarUrl != null ? NetworkImage(_avatarUrl!) : null,
+                      child: _avatarUrl == null
+                          ? Text(
+                              (widget.me?.displayName ?? 'M').substring(0, 1).toUpperCase(),
+                              style: TextStyle(
+                                  fontSize: 40, fontWeight: FontWeight.w700,
+                                  color: widget.me?.isAdmin == true
+                                      ? const Color(0xFFB8860B)
+                                      : const Color(0xFF1FA4EA)),
+                            )
+                          : null,
                     ),
-                    if (_editing)
-                      Positioned(
-                        bottom: 0, right: 0,
+                    if (_uploadingAvatar)
+                      const Positioned.fill(
+                        child: CircleAvatar(
+                          backgroundColor: Colors.black45,
+                          child: SizedBox(
+                            width: 24, height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    Positioned(
+                      bottom: 0, right: 0,
+                      child: GestureDetector(
+                        onTap: _uploadingAvatar ? null : _pickAndUploadAvatar,
                         child: Container(
                           width: 30, height: 30,
                           decoration: const BoxDecoration(
@@ -200,6 +240,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
                               size: 16, color: Colors.white),
                         ),
                       ),
+                    ),
                   ],
                 ),
                 if (widget.me?.isAdmin == true) ...<Widget>[

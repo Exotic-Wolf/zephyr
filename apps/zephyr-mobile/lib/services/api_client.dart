@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:http/http.dart' as http;
+
 import '../models/models.dart';
 
 class ZephyrApiClient {
@@ -113,6 +115,20 @@ class ZephyrApiClient {
     );
 
     return UserProfile.fromJson(data);
+  }
+
+  Future<String> uploadAvatar(String accessToken, File imageFile) async {
+    final Uri uri = Uri.parse('$baseUrl/v1/users/me/avatar');
+    final http.MultipartRequest request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $accessToken'
+      ..files.add(await http.MultipartFile.fromPath('file', imageFile.path));
+    final http.StreamedResponse streamed = await request.send();
+    final String body = await streamed.stream.bytesToString();
+    if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+      throw Exception('Upload failed: ${streamed.statusCode} $body');
+    }
+    final Map<String, dynamic> json = jsonDecode(body) as Map<String, dynamic>;
+    return json['avatarUrl'] as String;
   }
 
   Future<UserProfile> getUserByPublicId(String publicId) async {

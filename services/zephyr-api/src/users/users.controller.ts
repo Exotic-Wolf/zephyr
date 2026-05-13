@@ -1,7 +1,16 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { v2 as cloudinary } from 'cloudinary';
+import { memoryStorage } from 'multer';
 import { StoreService } from '../core/store.service';
 import type { UserProfile } from '../core/store.service';
 import { UpdateMeDto } from './dto/update-me.dto';
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 @Controller('v1/users')
 export class UsersController {
@@ -31,6 +40,26 @@ export class UsersController {
       // Only admins may claim a custom public ID
       publicId: user.isAdmin ? body?.publicId : undefined,
     });
+  }
+
+  @Post('me/avatar')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  async uploadAvatar(
+    @Headers('authorization') authorization: string | undefined,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<{ avatarUrl: string }> {
+    if (!file) throw new BadRequestException('No file provided');
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+
+    const result = await new Promise<{ secure_url: string }>((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { folder: 'zephyr/avatars', public_id: `user_${user.id}`, overwrite: true, transformation: [{ width: 400, height: 400, crop: 'fill', gravity: 'face' }] },
+        (error, result) => error ? reject(error) : resolve(result as { secure_url: string }),
+      ).end(file.buffer);
+    });
+
+    await this.storeService.updateUser(user.id, { avatarUrl: result.secure_url });
+    return { avatarUrl: result.secure_url };
   }
 
   @Get('me/following')
