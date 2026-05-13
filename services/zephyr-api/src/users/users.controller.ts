@@ -49,7 +49,6 @@ export class UsersController {
     @UploadedFile() file: Express.Multer.File,
   ): Promise<{ avatarUrl: string }> {
     if (!file) throw new BadRequestException('No file provided');
-    if (!file.mimetype.startsWith('image/')) throw new BadRequestException('File must be an image');
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     const source = file.buffer
       ? `data:${file.mimetype};base64,${file.buffer.toString('base64')}`

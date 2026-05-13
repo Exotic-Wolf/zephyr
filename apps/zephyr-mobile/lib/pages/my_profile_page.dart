@@ -83,7 +83,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
     if (picked == null || !mounted) return;
     setState(() => _uploadingAvatar = true);
     try {
-      final String url = await widget.apiClient.uploadAvatar(widget.accessToken, File(picked.path));
+      final String url = await widget.apiClient.uploadAvatar(widget.accessToken, File(picked.path), mimeType: picked.mimeType);
       if (!mounted) return;
       final UserProfile? me = widget.me;
       setState(() {

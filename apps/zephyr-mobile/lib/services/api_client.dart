@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../models/models.dart';
 
@@ -117,11 +118,15 @@ class ZephyrApiClient {
     return UserProfile.fromJson(data);
   }
 
-  Future<String> uploadAvatar(String accessToken, File imageFile) async {
+  Future<String> uploadAvatar(String accessToken, File imageFile, {String? mimeType}) async {
     final Uri uri = Uri.parse('$baseUrl/v1/users/me/avatar');
     final http.MultipartRequest request = http.MultipartRequest('POST', uri)
       ..headers['Authorization'] = 'Bearer $accessToken'
-      ..files.add(await http.MultipartFile.fromPath('file', imageFile.path));
+      ..files.add(await http.MultipartFile.fromPath(
+        'file',
+        imageFile.path,
+        contentType: mimeType != null ? MediaType.parse(mimeType) : MediaType('image', 'jpeg'),
+      ));
     final http.StreamedResponse streamed = await request.send();
     final String body = await streamed.stream.bytesToString();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
