@@ -66,3 +66,7 @@
 - [x] Backend — messages API, search API, public_id backfill, correct message ordering
 - [x] Android — Google Sign-In, Firebase, google-services.json
 - [x] Real-time inbox + thread polling (no need to re-enter screen)
+- [x] Live streaming — host + viewer screens, LiveKit RTC, timer, camera-off overlay, viewer count + list
+- [x] Avatar upload — Cloudinary, camera/gallery picker, persists across login, shown across all screens
+- [x] Profile editing — nickname, gender, birthday, country, language (saves to DB)
+- [x] Lint — all warnings resolved
