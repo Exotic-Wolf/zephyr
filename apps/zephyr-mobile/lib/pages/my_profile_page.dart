@@ -130,7 +130,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
-          content: Text('Profile picture updated'),
+          content: Text('Avatar updated'),
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: 2),
         ));
