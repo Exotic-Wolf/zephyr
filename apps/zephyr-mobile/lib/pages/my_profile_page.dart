@@ -126,6 +126,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
           );
         }
       });
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(const SnackBar(
