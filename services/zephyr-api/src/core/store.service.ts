@@ -299,12 +299,12 @@ export class StoreService {
           ],
         );
       } else {
-        // On re-login, only sync email and avatarUrl — leave display_name (nickname) intact
-        // so users can customise it without it being reset by Google on every login.
+        // On re-login, only sync email — leave display_name and avatar_url intact
+        // so users can customise them without being reset by Google on every login.
         await this.databaseService.query(
           `
             UPDATE users
-            SET email = $2, avatar_url = $3
+            SET email = $2, avatar_url = COALESCE(avatar_url, $3)
             WHERE id = $1
           `,
           [userId, email, avatarUrl],
