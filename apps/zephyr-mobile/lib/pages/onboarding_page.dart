@@ -194,7 +194,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: SingleChildScrollView(
             padding: EdgeInsets.all(isTablet ? 24 : 16),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: isTablet ? CrossAxisAlignment.center : CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
                   'Go live in seconds',
