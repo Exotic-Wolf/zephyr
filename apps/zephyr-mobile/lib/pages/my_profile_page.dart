@@ -79,7 +79,28 @@ class _MyProfilePageState extends State<MyProfilePage> {
   String get _userId => widget.me?.publicId ?? '—';
 
   Future<void> _pickAndUploadAvatar() async {
-    final XFile? picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 800);
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('Choose from Library'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+    final XFile? picked = await ImagePicker().pickImage(source: source, imageQuality: 85, maxWidth: 800);
     if (picked == null || !mounted) return;
     setState(() => _uploadingAvatar = true);
     try {
