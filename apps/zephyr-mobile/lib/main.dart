@@ -46,6 +46,8 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _restoreSession() async {
+    FlutterNativeSplash.remove(); // Show Flutter splash immediately
+    final Future<void> minDelay = Future<void>.delayed(const Duration(seconds: 2));
     try {
       final String? saved = await _storage.read(key: _tokenKey);
       if (saved != null && saved.isNotEmpty) {
@@ -69,8 +71,8 @@ class _MyAppState extends State<MyApp> {
     } catch (_) {
       // Storage unavailable — proceed to login
     } finally {
+      await minDelay;
       if (mounted) setState(() => _restoringSession = false);
-      FlutterNativeSplash.remove();
     }
   }
 
