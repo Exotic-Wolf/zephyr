@@ -86,8 +86,8 @@ class _InboxPageState extends State<InboxPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -98,11 +98,11 @@ class _InboxPageState extends State<InboxPage> {
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           Icon(Icons.chat_bubble_outline_rounded,
-                              size: 56, color: Colors.grey.shade300),
+                              size: 56, color: isDark ? Colors.grey.shade700 : Colors.grey.shade300),
                           const SizedBox(height: 12),
                           Text('No messages yet',
                               style: TextStyle(
-                                  fontSize: 16, color: Colors.grey.shade500)),
+                                  fontSize: 16, color: isDark ? Colors.grey.shade500 : Colors.grey.shade500)),
                         ],
                       ),
                     )
@@ -118,7 +118,7 @@ class _InboxPageState extends State<InboxPage> {
                           leading: CircleAvatar(
                             radius: 26,
                             backgroundColor:
-                                const Color(0xFF1FA4EA).withValues(alpha: 0.15),
+                                const Color(0xFFFF8F00).withValues(alpha: 0.15),
                             backgroundImage: c.avatarUrl != null
                                 ? NetworkImage(c.avatarUrl!)
                                 : null,
@@ -128,7 +128,7 @@ class _InboxPageState extends State<InboxPage> {
                                         ? c.displayName[0].toUpperCase()
                                         : '?',
                                     style: const TextStyle(
-                                        color: Color(0xFF1FA4EA),
+                                        color: Color(0xFFFF8F00),
                                         fontWeight: FontWeight.w700),
                                   )
                                 : null,
@@ -143,7 +143,7 @@ class _InboxPageState extends State<InboxPage> {
                               Text(_timeAgo(c.lastMessageAt),
                                   style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.grey.shade400)),
+                                      color: isDark ? Colors.grey.shade500 : Colors.grey.shade400)),
                             ],
                           ),
                           subtitle: Row(
@@ -155,7 +155,7 @@ class _InboxPageState extends State<InboxPage> {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                       color: c.unreadCount > 0
-                                          ? Colors.black87
+                                          ? (isDark ? Colors.white : Colors.black87)
                                           : Colors.grey.shade500,
                                       fontWeight: c.unreadCount > 0
                                           ? FontWeight.w500
@@ -168,7 +168,7 @@ class _InboxPageState extends State<InboxPage> {
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 7, vertical: 2),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF1FA4EA),
+                                    color: const Color(0xFFFF8F00),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Text(

@@ -8,6 +8,7 @@ import '../flags.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../widgets/coin_icon.dart';
+import '../widgets/zephyr_mascot.dart';
 import 'explore_page.dart';
 import 'go_live_countdown_page.dart';
 import 'inbox_page.dart';
@@ -1638,9 +1639,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : const Color(0xFFFFF8F5)) : null,
+      backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : null) : null,
       appBar: AppBar(
-        backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : const Color(0xFFFFF8F5)) : null,
+        backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : null) : null,
         foregroundColor: _selectedTabIndex == 1 ? (isDark ? Colors.white : Colors.black87) : null,
         centerTitle: _selectedTabIndex == 0 ? false : null,
         title: _selectedTabIndex == 0

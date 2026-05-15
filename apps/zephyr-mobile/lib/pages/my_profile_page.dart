@@ -208,11 +208,11 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    final Color valueColor = Colors.grey.shade600;
-    const TextStyle valueStyle = TextStyle(fontSize: 14);
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color valueColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+    final TextStyle valueStyle = TextStyle(fontSize: 14, color: valueColor);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -256,7 +256,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
                       radius: 48,
                       backgroundColor: widget.me?.isAdmin == true
                           ? const Color(0xFFFFD700).withValues(alpha: 0.18)
-                          : const Color(0xFF1FA4EA).withValues(alpha: 0.15),
+                          : const Color(0xFFFF8F00).withValues(alpha: 0.15),
                       backgroundImage: _avatarUrl != null ? NetworkImage(_avatarUrl!) : null,
                       child: _avatarUrl == null
                           ? Text(
@@ -265,7 +265,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
                                   fontSize: 40, fontWeight: FontWeight.w700,
                                   color: widget.me?.isAdmin == true
                                       ? const Color(0xFFB8860B)
-                                      : const Color(0xFF1FA4EA)),
+                                      : const Color(0xFFFF8F00)),
                             )
                           : null,
                     ),
@@ -287,7 +287,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
                           width: 30, height: 30,
                           decoration: const BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Color(0xFF1FA4EA),
+                            color: Color(0xFFFF8F00),
                           ),
                           child: const Icon(Icons.camera_alt_rounded,
                               size: 16, color: Colors.white),
@@ -325,7 +325,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
           // ── Fields ───────────────────────────────────────────
           Container(
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
               borderRadius: BorderRadius.circular(14),
             ),
             child: Column(

@@ -95,6 +95,7 @@ class _ExplorePageState extends State<ExplorePage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       body: CustomScrollView(
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -133,7 +134,7 @@ class _ExplorePageState extends State<ExplorePage> {
                   // Search bar
                   Container(
                     decoration: BoxDecoration(
-                      color: Theme.of(context).brightness == Brightness.dark
+                      color: isDark
                           ? const Color(0xFF2A2A2A)
                           : Colors.white,
                       borderRadius: BorderRadius.circular(16),
@@ -195,19 +196,45 @@ class _ExplorePageState extends State<ExplorePage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: <Color>[Color(0xFFFF8F00), Color(0xFFE53935)],
+                    Stack(
+                      alignment: Alignment.center,
+                      children: <Widget>[
+                        Container(
+                          width: 160,
+                          height: 160,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              colors: <Color>[
+                                const Color(0xFFFF8F00).withValues(alpha: 0.28),
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                      child: const Icon(Icons.explore_rounded,
-                          color: Colors.white, size: 40),
+                        Container(
+                          width: 90,
+                          height: 90,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: <Color>[Color(0xFFFFF176), Color(0xFFFF8F00), Color(0xFFE53935)],
+                              stops: <double>[0.0, 0.5, 1.0],
+                            ),
+                            boxShadow: <BoxShadow>[
+                              BoxShadow(
+                                color: const Color(0xFFFF8F00).withValues(alpha: 0.55),
+                                blurRadius: 32,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.explore_rounded,
+                              color: Colors.white, size: 42),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 20),
                     const Text(

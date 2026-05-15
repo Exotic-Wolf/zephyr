@@ -48,12 +48,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-  # The "flutter_lints" package below contains a set of recommended lints to
-  # encourage good coding practices. The lint set provided by the package is
-  # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
+  flutter_native_splash: ^2.4.6
   flutter_lints: ^5.0.0
 
 dependency_overrides:
@@ -74,6 +69,7 @@ flutter:
   assets:
     - assets/flags/
     - assets/icons/
+    - assets/images/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -100,3 +96,10 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_native_splash:
+  color: "#150805"
+  color_dark: "#150805"
+  android_12:
+    color: "#150805"
+    color_dark: "#150805"

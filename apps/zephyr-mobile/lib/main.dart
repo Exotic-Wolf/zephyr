@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'services/api_client.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/home_screen.dart';
+import 'pages/splash_screen.dart';
 
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
@@ -16,6 +18,8 @@ const String googleServerClientId = String.fromEnvironment(
 );
 
 void main() {
+  WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   runApp(const MyApp());
 }
 
@@ -30,9 +34,10 @@ class _MyAppState extends State<MyApp> {
   final ZephyrApiClient _apiClient = ZephyrApiClient(baseUrl: apiBaseUrl);
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   static const String _tokenKey = 'access_token';
+  static const String _themeModeKey = 'theme_mode';
   String? _accessToken;
   bool _restoringSession = true;
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.dark;
 
   @override
   void initState() {
@@ -51,10 +56,21 @@ class _MyAppState extends State<MyApp> {
           await _storage.delete(key: _tokenKey);
         }
       }
+      final String? savedTheme = await _storage.read(key: _themeModeKey);
+      if (savedTheme != null && mounted) {
+        setState(() {
+          _themeMode = switch (savedTheme) {
+            'light' => ThemeMode.light,
+            'system' => ThemeMode.system,
+            _ => ThemeMode.dark,
+          };
+        });
+      }
     } catch (_) {
       // Storage unavailable — proceed to login
     } finally {
       if (mounted) setState(() => _restoringSession = false);
+      FlutterNativeSplash.remove();
     }
   }
 
@@ -72,16 +88,14 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     if (_restoringSession) {
       return const MaterialApp(
-        home: Scaffold(
-          backgroundColor: Colors.black,
-          body: Center(child: CircularProgressIndicator(color: Colors.white)),
-        ),
+        home: SplashScreen(),
       );
     }
     return MaterialApp(
       title: 'Zephyr',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.purple),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF8F00)),
+        useMaterial3: true,
       ),
       darkTheme: ThemeData.dark(useMaterial3: true),
       themeMode: _themeMode,
@@ -95,8 +109,14 @@ class _MyAppState extends State<MyApp> {
               accessToken: _accessToken!,
               onLogout: _onLogout,
               themeMode: _themeMode,
-              onThemeModeChanged: (ThemeMode mode) =>
-                  setState(() => _themeMode = mode),
+              onThemeModeChanged: (ThemeMode mode) {
+                _storage.write(key: _themeModeKey, value: switch (mode) {
+                  ThemeMode.light => 'light',
+                  ThemeMode.system => 'system',
+                  ThemeMode.dark => 'dark',
+                });
+                setState(() => _themeMode = mode);
+              },
             ),
     );
   }

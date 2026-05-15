@@ -173,8 +173,9 @@ class _ThreadPageState extends State<ThreadPage> {
   @override
   Widget build(BuildContext context) {
     final double bottomPad = MediaQuery.of(context).padding.bottom;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
+      backgroundColor: isDark ? null : Colors.white,
       appBar: AppBar(
         leadingWidth: 40,
         title: Row(
@@ -182,7 +183,7 @@ class _ThreadPageState extends State<ThreadPage> {
             CircleAvatar(
               radius: 18,
               backgroundColor:
-                  const Color(0xFF1FA4EA).withValues(alpha: 0.15),
+                  const Color(0xFFFF8F00).withValues(alpha: 0.15),
               backgroundImage: widget.otherAvatarUrl != null
                   ? NetworkImage(widget.otherAvatarUrl!)
                   : null,
@@ -192,7 +193,7 @@ class _ThreadPageState extends State<ThreadPage> {
                           ? widget.otherDisplayName[0].toUpperCase()
                           : '?',
                       style: const TextStyle(
-                          color: Color(0xFF1FA4EA),
+                          color: Color(0xFFFF8F00),
                           fontWeight: FontWeight.w700,
                           fontSize: 14),
                     )
@@ -236,8 +237,8 @@ class _ThreadPageState extends State<ThreadPage> {
                                       MediaQuery.sizeOf(ctx).width * 0.72),
                               decoration: BoxDecoration(
                                 color: isMe
-                                    ? const Color(0xFF1FA4EA)
-                                    : Colors.white,
+                                    ? const Color(0xFFFF8F00)
+                                    : (isDark ? const Color(0xFF2C2C2E) : Colors.white),
                                 borderRadius: BorderRadius.only(
                                   topLeft: const Radius.circular(18),
                                   topRight: const Radius.circular(18),
@@ -246,8 +247,8 @@ class _ThreadPageState extends State<ThreadPage> {
                                 ),
                                 boxShadow: <BoxShadow>[
                                   BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.06),
-                                    blurRadius: 4,
+                                    color: Colors.black.withValues(alpha: isDark ? 0.06 : 0.10),
+                                    blurRadius: isDark ? 4 : 6,
                                     offset: const Offset(0, 2),
                                   ),
                                 ],
@@ -261,15 +262,15 @@ class _ThreadPageState extends State<ThreadPage> {
                                       style: TextStyle(
                                           fontSize: 15,
                                           color: isMe
-                                              ? Colors.white
-                                              : Colors.black87)),
+                                              ? Colors.black87
+                                              : (isDark ? Colors.white : Colors.black87))),
                                   const SizedBox(height: 3),
                                   Text(_formatTime(msg.createdAt),
                                       style: TextStyle(
                                           fontSize: 11,
                                           color: isMe
-                                              ? Colors.white70
-                                              : Colors.grey.shade400)),
+                                              ? Colors.black54
+                                              : (isDark ? Colors.grey.shade500 : Colors.grey.shade400))),
                                 ],
                               ),
                             ),
@@ -279,7 +280,7 @@ class _ThreadPageState extends State<ThreadPage> {
           ),
           // ── Input bar ──────────────────────────────────────────
           Container(
-            color: Colors.white,
+            color: isDark ? const Color(0xFF1C1C1C) : Colors.white,
             padding: EdgeInsets.fromLTRB(12, 8, 12, 8 + bottomPad),
             child: Row(
               children: <Widget>[
@@ -287,7 +288,7 @@ class _ThreadPageState extends State<ThreadPage> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF2F2F7),
+                      color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF2F2F7),
                       borderRadius: BorderRadius.circular(24),
                     ),
                     child: TextField(
@@ -327,7 +328,7 @@ class _ThreadPageState extends State<ThreadPage> {
                           height: 40,
                           decoration: const BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Color(0xFF1FA4EA),
+                            color: Color(0xFFFF8F00),
                           ),
                           child: const Icon(Icons.send_rounded,
                               color: Colors.white, size: 18),

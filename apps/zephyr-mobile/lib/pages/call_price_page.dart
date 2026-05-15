@@ -103,6 +103,7 @@ class _CallPricePageState extends State<CallPricePage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Call Price'),
@@ -125,7 +126,7 @@ class _CallPricePageState extends State<CallPricePage> {
             ),
         ],
       ),
-      backgroundColor: const Color(0xFFF2F2F7),
+      backgroundColor: isDark ? null : const Color(0xFFF2F2F7),
       body: Column(
         children: <Widget>[
           // ── Spark hero — 1/4 screen ───────────────────────────
@@ -133,7 +134,7 @@ class _CallPricePageState extends State<CallPricePage> {
             height: MediaQuery.of(context).size.height * 0.32,
             child: Container(
               width: double.infinity,
-              color: Colors.white,
+              color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
@@ -197,15 +198,15 @@ class _CallPricePageState extends State<CallPricePage> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFF1FA4EA).withValues(alpha: 0.1),
+              color: const Color(0xFFFF8F00).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                  color: const Color(0xFF1FA4EA).withValues(alpha: 0.3)),
+                  color: const Color(0xFFFF8F00).withValues(alpha: 0.3)),
             ),
             child: Row(
               children: <Widget>[
                 const Icon(Icons.info_outline_rounded,
-                    color: Color(0xFF1FA4EA), size: 20),
+                    color: Color(0xFFFF8F00), size: 20),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Wrap(
@@ -213,15 +214,14 @@ class _CallPricePageState extends State<CallPricePage> {
                     spacing: 3,
                     children: <Widget>[
                       const Text('Callers will see:',
-                          style: TextStyle(fontSize: 13, color: Colors.black87)),
+                          style: TextStyle(fontSize: 13)),
                       Text('Video call  $_selectedCoins',
                           style: const TextStyle(
                               fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black87)),
+                              fontWeight: FontWeight.w700)),
                       const CoinIcon(size: 14),
                       const Text('/min',
-                          style: TextStyle(fontSize: 13, color: Colors.black87)),
+                          style: TextStyle(fontSize: 13)),
                     ],
                   ),
                 ),
@@ -243,7 +243,7 @@ class _CallPricePageState extends State<CallPricePage> {
           // ── tier table ────────────────────────────────────────
           Container(
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
               borderRadius: BorderRadius.circular(14),
             ),
             child: Column(
@@ -295,8 +295,8 @@ class _CallPricePageState extends State<CallPricePage> {
                             : null,
                         child: Container(
                           color: selected
-                              ? const Color(0xFF1FA4EA)
-                                  .withValues(alpha: 0.08)
+                              ? const Color(0xFFFF8F00)
+                                  .withValues(alpha: 0.12)
                               : null,
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 12),
@@ -312,7 +312,7 @@ class _CallPricePageState extends State<CallPricePage> {
                                         ? FontWeight.w700
                                         : FontWeight.w500,
                                     color: unlocked
-                                        ? Colors.black87
+                                        ? (isDark ? Colors.white : Colors.black87)
                                         : Colors.grey.shade400,
                                   ),
                                 ),
@@ -350,7 +350,7 @@ class _CallPricePageState extends State<CallPricePage> {
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: unlocked
-                                            ? Colors.black87
+                                            ? (isDark ? Colors.white70 : Colors.black87)
                                             : Colors.grey.shade400,
                                       ),
                                     ),
@@ -367,7 +367,7 @@ class _CallPricePageState extends State<CallPricePage> {
                                     ? (selected
                                         ? const Icon(
                                             Icons.check_circle_rounded,
-                                            color: Color(0xFF1FA4EA),
+                                            color: Color(0xFFFF8F00),
                                             size: 20)
                                         : null)
                                     : Icon(Icons.lock_outline_rounded,
