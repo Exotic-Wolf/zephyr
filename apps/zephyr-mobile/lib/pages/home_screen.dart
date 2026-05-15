@@ -27,6 +27,8 @@ class HomeScreen extends StatefulWidget {
     required this.onLogout,
     required this.themeMode,
     required this.onThemeModeChanged,
+    required this.locale,
+    required this.onLocaleChanged,
     super.key,
   });
 
@@ -35,6 +37,8 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onLogout;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
+  final Locale? locale;
+  final ValueChanged<Locale?> onLocaleChanged;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -1505,6 +1509,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 ListTile(
                   leading: const Icon(Icons.language_rounded),
                   title: Text(AppLocalizations.of(context)!.language),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => _LanguagePage(
+                          current: widget.locale,
+                          onChanged: widget.onLocaleChanged,
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.brightness_6_rounded),
@@ -1944,6 +1959,51 @@ class _ShakeCallButtonState extends State<_ShakeCallButton>
             size: 26,
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Language Settings Page ────────────────────────────────────────────────────
+class _LanguagePage extends StatelessWidget {
+  const _LanguagePage({required this.current, required this.onChanged});
+
+  final Locale? current;
+  final ValueChanged<Locale?> onChanged;
+
+  static const List<Map<String, String>> _languages = <Map<String, String>>[
+    {'code': '', 'flag': '🌐', 'name': 'System default', 'native': 'Auto'},
+    {'code': 'en', 'flag': '🇬🇧', 'name': 'English', 'native': 'English'},
+    {'code': 'ar', 'flag': '🇸🇦', 'name': 'Arabic', 'native': 'العربية'},
+    {'code': 'pt', 'flag': '🇧🇷', 'name': 'Portuguese', 'native': 'Português'},
+    {'code': 'es', 'flag': '🇪🇸', 'name': 'Spanish', 'native': 'Español'},
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final String currentCode = current?.languageCode ?? '';
+    return Scaffold(
+      appBar: AppBar(title: Text(AppLocalizations.of(context)!.language)),
+      body: ListView.separated(
+        itemCount: _languages.length,
+        separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+        itemBuilder: (BuildContext ctx, int i) {
+          final Map<String, String> lang = _languages[i];
+          final bool selected = lang['code'] == currentCode;
+          return ListTile(
+            leading: Text(lang['flag']!, style: const TextStyle(fontSize: 28)),
+            title: Text(lang['native']!, style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text(lang['name']!),
+            trailing: selected
+                ? const Icon(Icons.check_rounded, color: Color(0xFFFF8F00))
+                : null,
+            onTap: () {
+              final String code = lang['code']!;
+              onChanged(code.isEmpty ? null : Locale(code));
+              Navigator.of(ctx).pop();
+            },
+          );
+        },
       ),
     );
   }

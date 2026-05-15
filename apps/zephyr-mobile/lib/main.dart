@@ -37,9 +37,11 @@ class _MyAppState extends State<MyApp> {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   static const String _tokenKey = 'access_token';
   static const String _themeModeKey = 'theme_mode';
+  static const String _localeKey = 'app_locale';
   String? _accessToken;
   bool _restoringSession = true;
   ThemeMode _themeMode = ThemeMode.dark;
+  Locale? _locale; // null = follow device
 
   @override
   void initState() {
@@ -70,6 +72,10 @@ class _MyAppState extends State<MyApp> {
           };
         });
       }
+      final String? savedLocale = await _storage.read(key: _localeKey);
+      if (savedLocale != null && mounted) {
+        setState(() => _locale = Locale(savedLocale));
+      }
     } catch (_) {
       // Storage unavailable — proceed to login
     } finally {
@@ -97,6 +103,7 @@ class _MyAppState extends State<MyApp> {
     }
     return MaterialApp(
       title: 'Zephyr',
+      locale: _locale,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
@@ -132,6 +139,15 @@ class _MyAppState extends State<MyApp> {
                   ThemeMode.dark => 'dark',
                 });
                 setState(() => _themeMode = mode);
+              },
+              locale: _locale,
+              onLocaleChanged: (Locale? locale) {
+                if (locale == null) {
+                  _storage.delete(key: _localeKey);
+                } else {
+                  _storage.write(key: _localeKey, value: locale.languageCode);
+                }
+                setState(() => _locale = locale);
               },
             ),
     );
