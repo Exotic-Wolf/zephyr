@@ -255,12 +255,12 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           ),
           // Camera loading spinner
           if (_cameraLoading)
-            const Center(
+            Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                  SizedBox(height: 16),
+                  const CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                  const SizedBox(height: 16),
                   Text(AppLocalizations.of(context)!.startingCamera,
                       style: const TextStyle(color: Colors.white70, fontSize: 14)),
                 ],

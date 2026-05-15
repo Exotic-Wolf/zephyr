@@ -1,0 +1,499 @@
+{
+  "@@locale": "ar",
+
+  "goLiveInSeconds": "ابدأ البث في ثوانٍ",
+  "@goLiveInSeconds": {},
+
+  "checkingApi": "جارٍ الفحص...",
+  "@checkingApi": {},
+
+  "apiConnected": "متصل",
+  "@apiConnected": {},
+
+  "apiOffline": "غير متصل",
+  "@apiOffline": {},
+
+  "refreshApiStatus": "تحديث حالة الاتصال",
+  "@refreshApiStatus": {},
+
+  "connecting": "جارٍ الاتصال...",
+  "@connecting": {},
+
+  "continueAsGuest": "المتابعة كضيف",
+  "@continueAsGuest": {},
+
+  "signingIn": "جارٍ تسجيل الدخول...",
+  "@signingIn": {},
+
+  "continueWithGoogle": "المتابعة مع Google",
+  "@continueWithGoogle": {},
+
+  "continueWithApple": "المتابعة مع Apple",
+  "@continueWithApple": {},
+
+  "home": "الرئيسية",
+  "@home": {},
+
+  "live": "مباشر",
+  "@live": {},
+
+  "explore": "استكشاف",
+  "@explore": {},
+
+  "inbox": "الرسائل",
+  "@inbox": {},
+
+  "me": "أنا",
+  "@me": {},
+
+  "noOneIsLiveRightNow": "لا أحد يبث الآن. تحقق مجدداً بعد قليل.",
+  "@noOneIsLiveRightNow": {},
+
+  "noResultsFor": "لا نتائج لـ \"{query}\".",
+  "@noResultsFor": {
+    "placeholders": {
+      "query": { "type": "String" }
+    }
+  },
+
+  "noOneIsLiveFrom": "لا أحد يبث من {location} الآن.",
+  "@noOneIsLiveFrom": {
+    "placeholders": {
+      "location": { "type": "String" }
+    }
+  },
+
+  "popular": "مشهور",
+  "@popular": {},
+
+  "discover": "اكتشاف",
+  "@discover": {},
+
+  "follow": "متابعة",
+  "@follow": {},
+
+  "noPopularStreamersRightNow": "لا يوجد بث مشهور الآن. تحقق مجدداً.",
+  "@noPopularStreamersRightNow": {},
+
+  "noStreamersFrom": "لا يوجد بث من {location} الآن.",
+  "@noStreamersFrom": {
+    "placeholders": {
+      "location": { "type": "String" }
+    }
+  },
+
+  "noneOfPeopleYouFollowAreLive": "لا أحد ممن تتابعهم يبث من {location} الآن.",
+  "@noneOfPeopleYouFollowAreLive": {
+    "placeholders": {
+      "location": { "type": "String" }
+    }
+  },
+
+  "followSomeoneToSeeThemHere": "تابع شخصاً لرؤيته هنا.",
+  "@followSomeoneToSeeThemHere": {},
+
+  "openingLive": "جارٍ الفتح...",
+  "@openingLive": {},
+
+  "randomMatch": "مطابقة عشوائية",
+  "@randomMatch": {},
+
+  "goLive": "ابدأ البث",
+  "@goLive": {},
+
+  "startLiveStreamAndConnect": "ابدأ بثاً مباشراً وتواصل\nمع جمهورك في الوقت الفعلي",
+  "@startLiveStreamAndConnect": {},
+
+  "starting": "جارٍ البدء…",
+  "@starting": {},
+
+  "startLiveStream": "بدء البث المباشر",
+  "@startLiveStream": {},
+
+  "level": "المستوى",
+  "@level": {},
+
+  "levelValue": "المستوى {level}",
+  "@levelValue": {
+    "placeholders": {
+      "level": { "type": "int" }
+    }
+  },
+
+  "keepStreamingToLevelUp": "واصل البث واستقبال الهدايا والتفاعل للارتقاء في المستوى.",
+  "@keepStreamingToLevelUp": {},
+
+  "myBalance": "رصيدي",
+  "@myBalance": {},
+
+  "coinBalance": "رصيد العملات",
+  "@coinBalance": {},
+
+  "coinsAmount": "{coins} عملة",
+  "@coinsAmount": {
+    "placeholders": {
+      "coins": { "type": "int" }
+    }
+  },
+
+  "buyCoins": "شراء عملات",
+  "@buyCoins": {},
+
+  "coinPackLabel": "{coins} عملة • {label}",
+  "@coinPackLabel": {
+    "placeholders": {
+      "coins": { "type": "int" },
+      "label": { "type": "String" }
+    }
+  },
+
+  "buying": "جارٍ الشراء...",
+  "@buying": {},
+
+  "buy": "شراء",
+  "@buy": {},
+
+  "myRevenue": "أرباحي",
+  "@myRevenue": {},
+
+  "revenueFromGiftsAndCalls": "تظهر هنا الأرباح من الهدايا والمكالمات المدفوعة.",
+  "@revenueFromGiftsAndCalls": {},
+
+  "settings": "الإعدادات",
+  "@settings": {},
+
+  "account": "الحساب",
+  "@account": {},
+
+  "privacy": "الخصوصية",
+  "@privacy": {},
+
+  "notifications": "الإشعارات",
+  "@notifications": {},
+
+  "language": "اللغة",
+  "@language": {},
+
+  "appearance": "المظهر",
+  "@appearance": {},
+
+  "search": "بحث",
+  "@search": {},
+
+  "closeSearch": "إغلاق البحث",
+  "@closeSearch": {},
+
+  "nameOrId": "الاسم أو المعرف…",
+  "@nameOrId": {},
+
+  "refresh": "تحديث",
+  "@refresh": {},
+
+  "logout": "تسجيل الخروج",
+  "@logout": {},
+
+  "systemDefault": "افتراضي النظام",
+  "@systemDefault": {},
+
+  "followDeviceSetting": "اتباع إعداد الجهاز",
+  "@followDeviceSetting": {},
+
+  "lightMode": "فاتح",
+  "@lightMode": {},
+
+  "alwaysUseLightMode": "استخدام الوضع الفاتح دائماً",
+  "@alwaysUseLightMode": {},
+
+  "darkMode": "داكن",
+  "@darkMode": {},
+
+  "alwaysUseDarkMode": "استخدام الوضع الداكن دائماً",
+  "@alwaysUseDarkMode": {},
+
+  "owner": "مالك",
+  "@owner": {},
+
+  "callSessionStarted": "بدأت جلسة المكالمة. الفوترة نشطة.",
+  "@callSessionStarted": {},
+
+  "notEnoughCoinsForRandomMatch": "عملاتك غير كافية للمطابقة العشوائية. أعد الشحن أولاً.",
+  "@notEnoughCoinsForRandomMatch": {},
+
+  "noReceiverAvailable": "لا يوجد مستقبل متاح للمكالمة المباشرة. جرب الوضع العشوائي.",
+  "@noReceiverAvailable": {},
+
+  "callEndedInsufficientBalance": "انتهت المكالمة: رصيد غير كافٍ.",
+  "@callEndedInsufficientBalance": {},
+
+  "callEnded": "انتهت المكالمة.",
+  "@callEnded": {},
+
+  "noMessagesYet": "لا رسائل بعد",
+  "@noMessagesYet": {},
+
+  "noMessagesYetSayHello": "لا رسائل بعد. قل مرحباً!",
+  "@noMessagesYetSayHello": {},
+
+  "messageHint": "رسالة…",
+  "@messageHint": {},
+
+  "failedToSend": "فشل الإرسال: {error}",
+  "@failedToSend": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "findAnyoneByNameOrId": "ابحث عن أي شخص بالاسم أو المعرف المكون من 8 أرقام",
+  "@findAnyoneByNameOrId": {},
+
+  "nameOrIdHint": "الاسم أو المعرف المكون من 8 أرقام…",
+  "@nameOrIdHint": {},
+
+  "discoverPeople": "اكتشاف أشخاص",
+  "@discoverPeople": {},
+
+  "searchByNameOrId": "ابحث بالاسم أو أدخل\nمعرفاً عاماً مكوناً من 8 أرقام",
+  "@searchByNameOrId": {},
+
+  "noUsersFound": "لم يُعثر على مستخدمين",
+  "@noUsersFound": {},
+
+  "tryDifferentNameOrId": "جرب اسماً أو معرفاً مختلفاً",
+  "@tryDifferentNameOrId": {},
+
+  "myProfile": "ملفي الشخصي",
+  "@myProfile": {},
+
+  "save": "حفظ",
+  "@save": {},
+
+  "edit": "تعديل",
+  "@edit": {},
+
+  "id": "المعرف",
+  "@id": {},
+
+  "idCopiedToClipboard": "تم نسخ المعرف",
+  "@idCopiedToClipboard": {},
+
+  "nickname": "الاسم المستعار",
+  "@nickname": {},
+
+  "enterNickname": "أدخل اسماً مستعاراً",
+  "@enterNickname": {},
+
+  "gender": "الجنس",
+  "@gender": {},
+
+  "male": "ذكر",
+  "@male": {},
+
+  "female": "أنثى",
+  "@female": {},
+
+  "nonBinary": "ثنائي غير محدد",
+  "@nonBinary": {},
+
+  "preferNotToSay": "أفضل عدم الإفصاح",
+  "@preferNotToSay": {},
+
+  "birthday": "تاريخ الميلاد",
+  "@birthday": {},
+
+  "notSet": "غير محدد",
+  "@notSet": {},
+
+  "country": "الدولة",
+  "@country": {},
+
+  "yourIdIsPermanent": "معرفك دائم ولا يمكن تغييره.",
+  "@yourIdIsPermanent": {},
+
+  "viewPublicProfile": "عرض الملف العام",
+  "@viewPublicProfile": {},
+
+  "takePhoto": "التقاط صورة",
+  "@takePhoto": {},
+
+  "chooseFromLibrary": "الاختيار من المكتبة",
+  "@chooseFromLibrary": {},
+
+  "ownerBadge": "👑  مالك",
+  "@ownerBadge": {},
+
+  "avatarUpdated": "تم تحديث الصورة",
+  "@avatarUpdated": {},
+
+  "uploadFailed": "فشل الرفع: {error}",
+  "@uploadFailed": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "profileSaved": "تم حفظ الملف الشخصي",
+  "@profileSaved": {},
+
+  "failedToSaveProfile": "فشل الحفظ: {error}",
+  "@failedToSaveProfile": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "myCallPrice": "سعر مكالمتي",
+  "@myCallPrice": {},
+
+  "spark": "شرارة",
+  "@spark": {},
+
+  "youEarnSparks": "تكسب شرارات في كل ثانية تقضيها في مكالمة",
+  "@youEarnSparks": {},
+
+  "fairPricingGetsMoreCalls": "التسعير العادل يجلب لك مزيداً من المكالمات",
+  "@fairPricingGetsMoreCalls": {},
+
+  "callersWillSee": "سيرى المتصلون:",
+  "@callersWillSee": {},
+
+  "videoCall": "مكالمة فيديو",
+  "@videoCall": {},
+
+  "perMinute": "/دقيقة",
+  "@perMinute": {},
+
+  "chooseYourRate": "اختر سعرك",
+  "@chooseYourRate": {},
+
+  "yourLevelIs": "مستواك {level}. تُفتح مستويات أعلى مع ارتفاع مستواك.",
+  "@yourLevelIs": {
+    "placeholders": {
+      "level": { "type": "int" }
+    }
+  },
+
+  "tier": "الفئة",
+  "@tier": {},
+
+  "youEarn": "تكسب",
+  "@youEarn": {},
+
+  "callerPays": "يدفع المتصل",
+  "@callerPays": {},
+
+  "callRateSaved": "تم حفظ سعر المكالمة",
+  "@callRateSaved": {},
+
+  "failedToSaveRate": "فشل الحفظ: {error}",
+  "@failedToSaveRate": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "lockedTiersUnlock": "تُفتح الفئات المقفلة مع ارتفاع مستواك بالنشاط على Zephyr.",
+  "@lockedTiersUnlock": {},
+
+  "videoCallWithRate": "مكالمة فيديو {rate}",
+  "@videoCallWithRate": {
+    "placeholders": {
+      "rate": { "type": "String" }
+    }
+  },
+
+  "messageButton": "رسالة",
+  "@messageButton": {},
+
+  "notAvailable": "غير متاح",
+  "@notAvailable": {},
+
+  "currentlyBusy": "مشغول حالياً",
+  "@currentlyBusy": {},
+
+  "followers": "المتابعون",
+  "@followers": {},
+
+  "followButton": "متابعة",
+  "@followButton": {},
+
+  "followingButton": "تتابع",
+  "@followingButton": {},
+
+  "about": "نبذة",
+  "@about": {},
+
+  "noBioYet": "لا توجد نبذة بعد.",
+  "@noBioYet": {},
+
+  "gifts": "الهدايا",
+  "@gifts": {},
+
+  "noGiftsYet": "لا هدايا بعد.",
+  "@noGiftsYet": {},
+
+  "getReady": "استعد!",
+  "@getReady": {},
+
+  "startingYourStream": "جارٍ بدء بثك…",
+  "@startingYourStream": {},
+
+  "cancel": "إلغاء",
+  "@cancel": {},
+
+  "liveIndicator": "مباشر",
+  "@liveIndicator": {},
+
+  "endLive": "إنهاء البث؟",
+  "@endLive": {},
+
+  "streamWillEndMessage": "سينتهي بثك وسيتم قطع اتصال المشاهدين.",
+  "@streamWillEndMessage": {},
+
+  "endLiveButton": "إنهاء البث",
+  "@endLiveButton": {},
+
+  "startingCamera": "جارٍ تشغيل الكاميرا…",
+  "@startingCamera": {},
+
+  "cameraIsOff": "الكاميرا مغلقة",
+  "@cameraIsOff": {},
+
+  "micOn": "الميك مفتوح",
+  "@micOn": {},
+
+  "micOff": "الميك مغلق",
+  "@micOff": {},
+
+  "camera": "الكاميرا",
+  "@camera": {},
+
+  "off": "مغلق",
+  "@off": {},
+
+  "flip": "تبديل",
+  "@flip": {},
+
+  "totalWatching": "{total} مشاهد",
+  "@totalWatching": {
+    "placeholders": {
+      "total": { "type": "int" }
+    }
+  },
+
+  "noViewersYet": "لا مشاهدين بعد",
+  "@noViewersYet": {},
+
+  "andMoreWatching": "و{count} آخرون يشاهدون…",
+  "@andMoreWatching": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+
+  "saySomething": "قل شيئاً…",
+  "@saySomething": {},
+
+  "welcomeToLive": "مرحباً ببثي المباشر! 👋",
+  "@welcomeToLive": {}
+}

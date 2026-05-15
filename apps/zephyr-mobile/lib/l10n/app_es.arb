@@ -1,0 +1,499 @@
+{
+  "@@locale": "es",
+
+  "goLiveInSeconds": "Transmite en segundos",
+  "@goLiveInSeconds": {},
+
+  "checkingApi": "Verificando API...",
+  "@checkingApi": {},
+
+  "apiConnected": "API Conectada",
+  "@apiConnected": {},
+
+  "apiOffline": "API sin conexión",
+  "@apiOffline": {},
+
+  "refreshApiStatus": "Actualizar estado de la API",
+  "@refreshApiStatus": {},
+
+  "connecting": "Conectando...",
+  "@connecting": {},
+
+  "continueAsGuest": "Continuar como Invitado",
+  "@continueAsGuest": {},
+
+  "signingIn": "Iniciando sesión...",
+  "@signingIn": {},
+
+  "continueWithGoogle": "Continuar con Google",
+  "@continueWithGoogle": {},
+
+  "continueWithApple": "Continuar con Apple",
+  "@continueWithApple": {},
+
+  "home": "Inicio",
+  "@home": {},
+
+  "live": "En Vivo",
+  "@live": {},
+
+  "explore": "Explorar",
+  "@explore": {},
+
+  "inbox": "Mensajes",
+  "@inbox": {},
+
+  "me": "Yo",
+  "@me": {},
+
+  "noOneIsLiveRightNow": "Nadie está en vivo ahora. Comprueba de nuevo en un momento.",
+  "@noOneIsLiveRightNow": {},
+
+  "noResultsFor": "Sin resultados para \"{query}\".",
+  "@noResultsFor": {
+    "placeholders": {
+      "query": { "type": "String" }
+    }
+  },
+
+  "noOneIsLiveFrom": "Nadie está en vivo desde {location} ahora.",
+  "@noOneIsLiveFrom": {
+    "placeholders": {
+      "location": { "type": "String" }
+    }
+  },
+
+  "popular": "Popular",
+  "@popular": {},
+
+  "discover": "Descubrir",
+  "@discover": {},
+
+  "follow": "Seguir",
+  "@follow": {},
+
+  "noPopularStreamersRightNow": "No hay streamers populares ahora. Comprueba pronto.",
+  "@noPopularStreamersRightNow": {},
+
+  "noStreamersFrom": "No hay streamers desde {location} ahora.",
+  "@noStreamersFrom": {
+    "placeholders": {
+      "location": { "type": "String" }
+    }
+  },
+
+  "noneOfPeopleYouFollowAreLive": "Nadie a quien sigues está en vivo desde {location} ahora.",
+  "@noneOfPeopleYouFollowAreLive": {
+    "placeholders": {
+      "location": { "type": "String" }
+    }
+  },
+
+  "followSomeoneToSeeThemHere": "Sigue a alguien para verlo aquí.",
+  "@followSomeoneToSeeThemHere": {},
+
+  "openingLive": "Abriendo en vivo...",
+  "@openingLive": {},
+
+  "randomMatch": "Pareja aleatoria",
+  "@randomMatch": {},
+
+  "goLive": "Ir en Vivo",
+  "@goLive": {},
+
+  "startLiveStreamAndConnect": "Inicia una transmisión en vivo y conecta\ncon tu audiencia en tiempo real",
+  "@startLiveStreamAndConnect": {},
+
+  "starting": "Iniciando…",
+  "@starting": {},
+
+  "startLiveStream": "Iniciar Transmisión",
+  "@startLiveStream": {},
+
+  "level": "Nivel",
+  "@level": {},
+
+  "levelValue": "Nivel {level}",
+  "@levelValue": {
+    "placeholders": {
+      "level": { "type": "int" }
+    }
+  },
+
+  "keepStreamingToLevelUp": "Sigue transmitiendo, recibiendo regalos e interactuando para subir de nivel.",
+  "@keepStreamingToLevelUp": {},
+
+  "myBalance": "Mi Saldo",
+  "@myBalance": {},
+
+  "coinBalance": "Saldo de Monedas",
+  "@coinBalance": {},
+
+  "coinsAmount": "{coins} monedas",
+  "@coinsAmount": {
+    "placeholders": {
+      "coins": { "type": "int" }
+    }
+  },
+
+  "buyCoins": "Comprar Monedas",
+  "@buyCoins": {},
+
+  "coinPackLabel": "{coins} monedas • {label}",
+  "@coinPackLabel": {
+    "placeholders": {
+      "coins": { "type": "int" },
+      "label": { "type": "String" }
+    }
+  },
+
+  "buying": "Comprando...",
+  "@buying": {},
+
+  "buy": "Comprar",
+  "@buy": {},
+
+  "myRevenue": "Mis Ingresos",
+  "@myRevenue": {},
+
+  "revenueFromGiftsAndCalls": "Los ingresos de regalos y llamadas pagas aparecen aquí.",
+  "@revenueFromGiftsAndCalls": {},
+
+  "settings": "Configuración",
+  "@settings": {},
+
+  "account": "Cuenta",
+  "@account": {},
+
+  "privacy": "Privacidad",
+  "@privacy": {},
+
+  "notifications": "Notificaciones",
+  "@notifications": {},
+
+  "language": "Idioma",
+  "@language": {},
+
+  "appearance": "Apariencia",
+  "@appearance": {},
+
+  "search": "Buscar",
+  "@search": {},
+
+  "closeSearch": "Cerrar búsqueda",
+  "@closeSearch": {},
+
+  "nameOrId": "Nombre o ID…",
+  "@nameOrId": {},
+
+  "refresh": "Actualizar",
+  "@refresh": {},
+
+  "logout": "Cerrar sesión",
+  "@logout": {},
+
+  "systemDefault": "Predeterminado del sistema",
+  "@systemDefault": {},
+
+  "followDeviceSetting": "Seguir configuración del dispositivo",
+  "@followDeviceSetting": {},
+
+  "lightMode": "Claro",
+  "@lightMode": {},
+
+  "alwaysUseLightMode": "Usar siempre el modo claro",
+  "@alwaysUseLightMode": {},
+
+  "darkMode": "Oscuro",
+  "@darkMode": {},
+
+  "alwaysUseDarkMode": "Usar siempre el modo oscuro",
+  "@alwaysUseDarkMode": {},
+
+  "owner": "PROPIETARIO",
+  "@owner": {},
+
+  "callSessionStarted": "Sesión de llamada iniciada. Facturación activa.",
+  "@callSessionStarted": {},
+
+  "notEnoughCoinsForRandomMatch": "Monedas insuficientes para pareja aleatoria. Recarga primero.",
+  "@notEnoughCoinsForRandomMatch": {},
+
+  "noReceiverAvailable": "No hay receptor disponible para llamada directa. Prueba el modo Aleatorio.",
+  "@noReceiverAvailable": {},
+
+  "callEndedInsufficientBalance": "Llamada finalizada: saldo insuficiente.",
+  "@callEndedInsufficientBalance": {},
+
+  "callEnded": "Llamada finalizada.",
+  "@callEnded": {},
+
+  "noMessagesYet": "Sin mensajes aún",
+  "@noMessagesYet": {},
+
+  "noMessagesYetSayHello": "Sin mensajes aún. ¡Di hola!",
+  "@noMessagesYetSayHello": {},
+
+  "messageHint": "Mensaje…",
+  "@messageHint": {},
+
+  "failedToSend": "Error al enviar: {error}",
+  "@failedToSend": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "findAnyoneByNameOrId": "Encuentra a cualquiera por nombre o ID de 8 dígitos",
+  "@findAnyoneByNameOrId": {},
+
+  "nameOrIdHint": "Nombre o ID de 8 dígitos…",
+  "@nameOrIdHint": {},
+
+  "discoverPeople": "Descubrir personas",
+  "@discoverPeople": {},
+
+  "searchByNameOrId": "Busca por nombre o ingresa\nun ID público de 8 dígitos",
+  "@searchByNameOrId": {},
+
+  "noUsersFound": "No se encontraron usuarios",
+  "@noUsersFound": {},
+
+  "tryDifferentNameOrId": "Prueba un nombre o ID diferente",
+  "@tryDifferentNameOrId": {},
+
+  "myProfile": "Mi Perfil",
+  "@myProfile": {},
+
+  "save": "Guardar",
+  "@save": {},
+
+  "edit": "Editar",
+  "@edit": {},
+
+  "id": "ID",
+  "@id": {},
+
+  "idCopiedToClipboard": "ID copiado",
+  "@idCopiedToClipboard": {},
+
+  "nickname": "Apodo",
+  "@nickname": {},
+
+  "enterNickname": "Ingresa un apodo",
+  "@enterNickname": {},
+
+  "gender": "Género",
+  "@gender": {},
+
+  "male": "Masculino",
+  "@male": {},
+
+  "female": "Femenino",
+  "@female": {},
+
+  "nonBinary": "No binario",
+  "@nonBinary": {},
+
+  "preferNotToSay": "Prefiero no decir",
+  "@preferNotToSay": {},
+
+  "birthday": "Fecha de nacimiento",
+  "@birthday": {},
+
+  "notSet": "No definido",
+  "@notSet": {},
+
+  "country": "País",
+  "@country": {},
+
+  "yourIdIsPermanent": "Tu ID es permanente y no puede cambiarse.",
+  "@yourIdIsPermanent": {},
+
+  "viewPublicProfile": "Ver Perfil Público",
+  "@viewPublicProfile": {},
+
+  "takePhoto": "Tomar Foto",
+  "@takePhoto": {},
+
+  "chooseFromLibrary": "Elegir de la Biblioteca",
+  "@chooseFromLibrary": {},
+
+  "ownerBadge": "👑  PROPIETARIO",
+  "@ownerBadge": {},
+
+  "avatarUpdated": "Avatar actualizado",
+  "@avatarUpdated": {},
+
+  "uploadFailed": "Error al subir: {error}",
+  "@uploadFailed": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "profileSaved": "Perfil guardado",
+  "@profileSaved": {},
+
+  "failedToSaveProfile": "Error al guardar: {error}",
+  "@failedToSaveProfile": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "myCallPrice": "Mi Precio de Llamada",
+  "@myCallPrice": {},
+
+  "spark": "Chispa",
+  "@spark": {},
+
+  "youEarnSparks": "Ganas Chispas cada segundo que estás en una llamada",
+  "@youEarnSparks": {},
+
+  "fairPricingGetsMoreCalls": "Los precios justos te dan más llamadas, más rápido",
+  "@fairPricingGetsMoreCalls": {},
+
+  "callersWillSee": "Las personas que llamen verán:",
+  "@callersWillSee": {},
+
+  "videoCall": "Videollamada",
+  "@videoCall": {},
+
+  "perMinute": "/min",
+  "@perMinute": {},
+
+  "chooseYourRate": "Elige tu tarifa",
+  "@chooseYourRate": {},
+
+  "yourLevelIs": "Tu nivel es {level}. Los niveles más altos se desbloquean en niveles mayores.",
+  "@yourLevelIs": {
+    "placeholders": {
+      "level": { "type": "int" }
+    }
+  },
+
+  "tier": "Nivel",
+  "@tier": {},
+
+  "youEarn": "Ganas",
+  "@youEarn": {},
+
+  "callerPays": "El que llama paga",
+  "@callerPays": {},
+
+  "callRateSaved": "Tarifa de llamada guardada",
+  "@callRateSaved": {},
+
+  "failedToSaveRate": "Error al guardar: {error}",
+  "@failedToSaveRate": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "lockedTiersUnlock": "Los niveles bloqueados se desbloquean al subir de nivel siendo activo en Zephyr.",
+  "@lockedTiersUnlock": {},
+
+  "videoCallWithRate": "Videollamada {rate}",
+  "@videoCallWithRate": {
+    "placeholders": {
+      "rate": { "type": "String" }
+    }
+  },
+
+  "messageButton": "Mensaje",
+  "@messageButton": {},
+
+  "notAvailable": "No disponible",
+  "@notAvailable": {},
+
+  "currentlyBusy": "Ocupado ahora",
+  "@currentlyBusy": {},
+
+  "followers": "Seguidores",
+  "@followers": {},
+
+  "followButton": "Seguir",
+  "@followButton": {},
+
+  "followingButton": "Siguiendo",
+  "@followingButton": {},
+
+  "about": "Acerca de",
+  "@about": {},
+
+  "noBioYet": "Sin biografía aún.",
+  "@noBioYet": {},
+
+  "gifts": "Regalos",
+  "@gifts": {},
+
+  "noGiftsYet": "Sin regalos aún.",
+  "@noGiftsYet": {},
+
+  "getReady": "¡Prepárate!",
+  "@getReady": {},
+
+  "startingYourStream": "Iniciando tu transmisión…",
+  "@startingYourStream": {},
+
+  "cancel": "Cancelar",
+  "@cancel": {},
+
+  "liveIndicator": "EN VIVO",
+  "@liveIndicator": {},
+
+  "endLive": "¿Terminar en vivo?",
+  "@endLive": {},
+
+  "streamWillEndMessage": "Tu transmisión terminará y los espectadores serán desconectados.",
+  "@streamWillEndMessage": {},
+
+  "endLiveButton": "Terminar",
+  "@endLiveButton": {},
+
+  "startingCamera": "Iniciando cámara…",
+  "@startingCamera": {},
+
+  "cameraIsOff": "Cámara apagada",
+  "@cameraIsOff": {},
+
+  "micOn": "Micrófono encendido",
+  "@micOn": {},
+
+  "micOff": "Micrófono apagado",
+  "@micOff": {},
+
+  "camera": "Cámara",
+  "@camera": {},
+
+  "off": "Apagado",
+  "@off": {},
+
+  "flip": "Voltear",
+  "@flip": {},
+
+  "totalWatching": "{total} viendo",
+  "@totalWatching": {
+    "placeholders": {
+      "total": { "type": "int" }
+    }
+  },
+
+  "noViewersYet": "Sin espectadores aún",
+  "@noViewersYet": {},
+
+  "andMoreWatching": "y {count} más viendo…",
+  "@andMoreWatching": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+
+  "saySomething": "Di algo…",
+  "@saySomething": {},
+
+  "welcomeToLive": "¡Bienvenido a mi en vivo! 👋",
+  "@welcomeToLive": {}
+}

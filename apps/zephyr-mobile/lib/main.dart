@@ -105,6 +105,9 @@ class _MyAppState extends State<MyApp> {
       ],
       supportedLocales: const [
         Locale('en'),
+        Locale('ar'),
+        Locale('pt'),
+        Locale('es'),
       ],
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF8F00)),
