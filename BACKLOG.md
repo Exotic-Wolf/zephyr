@@ -38,6 +38,7 @@
 
 ## 🟢 Low Priority / Polish
 
+- [ ] **Go Live page** — swap stock TV icon with SparkIcon (custom flame widget) for brand consistency
 - [ ] **App icon** — replace default Flutter icon with Zephyr brand icon
 - [ ] **Splash screen** — branded launch screen
 - [ ] **Dark mode** — respect system dark mode preference

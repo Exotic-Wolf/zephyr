@@ -23,12 +23,16 @@ class HomeScreen extends StatefulWidget {
     required this.apiClient,
     required this.accessToken,
     required this.onLogout,
+    required this.themeMode,
+    required this.onThemeModeChanged,
     super.key,
   });
 
   final ZephyrApiClient apiClient;
   final String accessToken;
   final VoidCallback onLogout;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -698,7 +702,9 @@ class _HomeScreenState extends State<HomeScreen> {
           style: TextStyle(
             fontSize: 14,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? Colors.black : Colors.black54,
+            color: selected
+                ? Theme.of(context).colorScheme.onSurface
+                : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
           ),
         ),
       ),
@@ -753,14 +759,22 @@ class _HomeScreenState extends State<HomeScreen> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: Material(
-        color: const Color(0xFF1FA4EA),
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(borderRadius),
         child: InkWell(
           borderRadius: BorderRadius.circular(borderRadius),
           onTap: joiningCurrentRoom
               ? null
               : onTap ?? () => _enterRoom(feedCard),
-          child: Stack(
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: <Color>[Color(0xFF1C1C2E), Color(0xFF2D2D44)],
+              ),
+            ),
+            child: Stack(
             children: <Widget>[
               // ── top-left status badge ──────────────────────────────
               Positioned(
@@ -881,6 +895,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),
@@ -1103,90 +1118,125 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildLiveRoomsTab(bool isTablet) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 90,
-              height: 90,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
-                ),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: const Color(0xFF1FA4EA).withValues(alpha: 0.35),
-                    blurRadius: 24,
-                    offset: const Offset(0, 8),
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      color: Colors.transparent,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              // Radial ambient glow behind icon
+              Stack(
+                alignment: Alignment.center,
+                children: <Widget>[
+                  Container(
+                    width: 160,
+                    height: 160,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: <Color>[
+                          const Color(0xFFFF8F00).withValues(alpha: 0.28),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+                  Container(
+                    width: 90,
+                    height: 90,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: <Color>[Color(0xFFFFF176), Color(0xFFFF8F00), Color(0xFFE53935)],
+                        stops: <double>[0.0, 0.5, 1.0],
+                      ),
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: const Color(0xFFFF8F00).withValues(alpha: 0.55),
+                          blurRadius: 32,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.live_tv_rounded, color: Colors.white, size: 42),
                   ),
                 ],
               ),
-              child: const Icon(Icons.live_tv_rounded, color: Colors.white, size: 42),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Go Live',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -0.5),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Start a live stream and connect\nwith your audience in real time',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 15, color: Colors.grey.shade500, height: 1.5),
-            ),
-            const SizedBox(height: 36),
-            GestureDetector(
-              onTap: _creating ? null : () async {
-                await Navigator.of(context).push(MaterialPageRoute<void>(
-                  fullscreenDialog: true,
-                  builder: (_) => GoLiveCountdownPage(
-                    displayName: _me?.displayName ?? 'Me',
-                    avatarUrl: _me?.avatarUrl,
-                    apiClient: widget.apiClient,
-                    accessToken: widget.accessToken,
-                    onEnd: () => _loadData(),
-                    onCancel: () {},
-                  ),
-                ));
-                await _loadData();
-              },
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
-                  ),
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: const Color(0xFF1FA4EA).withValues(alpha: 0.30),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    const Icon(Icons.live_tv_rounded, color: Colors.white, size: 22),
-                    const SizedBox(width: 10),
-                    Text(
-                      _creating ? 'Starting…' : 'Start Live Stream',
-                      style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
-                    ),
-                  ],
+              const SizedBox(height: 24),
+              Text(
+                'Go Live',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.5,
+                  color: dark ? Colors.white : Colors.black87,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                'Start a live stream and connect\nwith your audience in real time',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: dark ? const Color(0xFF8A8A8A) : Colors.black45,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 36),
+              GestureDetector(
+                onTap: _creating ? null : () async {
+                  await Navigator.of(context).push(MaterialPageRoute<void>(
+                    fullscreenDialog: true,
+                    builder: (_) => GoLiveCountdownPage(
+                      displayName: _me?.displayName ?? 'Me',
+                      avatarUrl: _me?.avatarUrl,
+                      apiClient: widget.apiClient,
+                      accessToken: widget.accessToken,
+                      onEnd: () => _loadData(),
+                      onCancel: () {},
+                    ),
+                  ));
+                  await _loadData();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: <Color>[Color(0xFFFF8F00), Color(0xFFE53935)],
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(
+                        color: const Color(0xFFE53935).withValues(alpha: 0.45),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      const Icon(Icons.live_tv_rounded, color: Colors.white, size: 22),
+                      const SizedBox(width: 10),
+                      Text(
+                        _creating ? 'Starting…' : 'Start Live Stream',
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1437,22 +1487,37 @@ class _HomeScreenState extends State<HomeScreen> {
           return Scaffold(
             appBar: AppBar(title: const Text('Settings')),
             body: ListView(
-              children: const <Widget>[
-                ListTile(
+              children: <Widget>[
+                const ListTile(
                   leading: Icon(Icons.person_outline_rounded),
                   title: Text('Account'),
                 ),
-                ListTile(
+                const ListTile(
                   leading: Icon(Icons.privacy_tip_outlined),
                   title: Text('Privacy'),
                 ),
-                ListTile(
+                const ListTile(
                   leading: Icon(Icons.notifications_none_rounded),
                   title: Text('Notifications'),
                 ),
-                ListTile(
+                const ListTile(
                   leading: Icon(Icons.language_rounded),
                   title: Text('Language'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.brightness_6_rounded),
+                  title: const Text('Appearance'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => _AppearancePage(
+                          current: widget.themeMode,
+                          onChanged: widget.onThemeModeChanged,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -1570,8 +1635,13 @@ class _HomeScreenState extends State<HomeScreen> {
             _ => const SizedBox.shrink(),
           };
 
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
+      backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : const Color(0xFFFFF8F5)) : null,
       appBar: AppBar(
+        backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : const Color(0xFFFFF8F5)) : null,
+        foregroundColor: _selectedTabIndex == 1 ? (isDark ? Colors.white : Colors.black87) : null,
         centerTitle: _selectedTabIndex == 0 ? false : null,
         title: _selectedTabIndex == 0
             ? (_searchActive
@@ -1688,8 +1758,22 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: bodyContent,
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Divider(height: 1, thickness: 0.5, color: Color(0xFF2A2A2A)),
+          NavigationBar(
         selectedIndex: _selectedTabIndex,
+        backgroundColor: isDark ? const Color(0xFF111111) : null,
+        indicatorColor: const Color(0xFFFF8F00).withValues(alpha: 0.18),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final bool selected = states.contains(WidgetState.selected);
+          return TextStyle(
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            color: selected ? const Color(0xFFFF8F00) : null,
+          );
+        }),
         onDestinationSelected: (int index) {
           setState(() {
             _selectedTabIndex = index;
@@ -1698,36 +1782,46 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         destinations: <NavigationDestination>[
           NavigationDestination(
-            icon: Icon(Icons.home_rounded),
+            icon: Icon(Icons.home_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
+            selectedIcon: const Icon(Icons.home_rounded, color: Color(0xFFFF8F00)),
             label: 'Home',
           ),
           NavigationDestination(
-            icon: Icon(Icons.live_tv_rounded),
+            icon: Icon(Icons.live_tv_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
+            selectedIcon: const Icon(Icons.live_tv_rounded, color: Color(0xFFFF8F00)),
             label: 'Live',
           ),
           NavigationDestination(
-            icon: Icon(Icons.explore_rounded),
+            icon: Icon(Icons.explore_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
+            selectedIcon: const Icon(Icons.explore_rounded, color: Color(0xFFFF8F00)),
             label: 'Explore',
           ),
           NavigationDestination(
             icon: Badge(
               isLabelVisible: _inboxUnread > 0,
               label: Text(_inboxUnread > 9 ? '9+' : '$_inboxUnread'),
-              child: const Icon(Icons.chat_bubble_rounded),
+              child: Icon(Icons.chat_bubble_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
+            ),
+            selectedIcon: Badge(
+              isLabelVisible: _inboxUnread > 0,
+              label: Text(_inboxUnread > 9 ? '9+' : '$_inboxUnread'),
+              child: const Icon(Icons.chat_bubble_rounded, color: Color(0xFFFF8F00)),
             ),
             label: 'Inbox',
           ),
           NavigationDestination(
             icon: Icon(
               Icons.person_rounded,
-              color: _apiReachable == true ? Colors.green.shade700 : null,
+              color: _apiReachable == true ? Colors.green.shade700 : (isDark ? const Color(0xFF6B6B6B) : null),
             ),
             selectedIcon: Icon(
               Icons.person_rounded,
-              color: _apiReachable == true ? Colors.green.shade700 : null,
+              color: _apiReachable == true ? Colors.green.shade700 : const Color(0xFFFF8F00),
             ),
             label: 'Me',
           ),
+        ],
+      ),
         ],
       ),
     );
@@ -1848,6 +1942,82 @@ class _ShakeCallButtonState extends State<_ShakeCallButton>
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Appearance Settings Page ──────────────────────────────────────────────────
+class _AppearancePage extends StatelessWidget {
+  const _AppearancePage({required this.current, required this.onChanged});
+
+  final ThemeMode current;
+  final ValueChanged<ThemeMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Appearance')),
+      body: ListView(
+        children: <Widget>[
+          _AppearanceTile(
+            icon: Icons.brightness_auto_rounded,
+            label: 'System default',
+            subtitle: 'Follow device setting',
+            mode: ThemeMode.system,
+            current: current,
+            onChanged: onChanged,
+          ),
+          _AppearanceTile(
+            icon: Icons.light_mode_rounded,
+            label: 'Light',
+            subtitle: 'Always use light mode',
+            mode: ThemeMode.light,
+            current: current,
+            onChanged: onChanged,
+          ),
+          _AppearanceTile(
+            icon: Icons.dark_mode_rounded,
+            label: 'Dark',
+            subtitle: 'Always use dark mode',
+            mode: ThemeMode.dark,
+            current: current,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AppearanceTile extends StatelessWidget {
+  const _AppearanceTile({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.mode,
+    required this.current,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final ThemeMode mode;
+  final ThemeMode current;
+  final ValueChanged<ThemeMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool selected = current == mode;
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      subtitle: Text(subtitle),
+      trailing: selected
+          ? Icon(Icons.check_circle_rounded,
+              color: Theme.of(context).colorScheme.primary)
+          : const Icon(Icons.radio_button_unchecked_rounded),
+      onTap: () => onChanged(mode),
     );
   }
 }

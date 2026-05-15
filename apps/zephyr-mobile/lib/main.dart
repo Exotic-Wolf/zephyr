@@ -32,6 +32,7 @@ class _MyAppState extends State<MyApp> {
   static const String _tokenKey = 'access_token';
   String? _accessToken;
   bool _restoringSession = true;
+  ThemeMode _themeMode = ThemeMode.system;
 
   @override
   void initState() {
@@ -82,6 +83,8 @@ class _MyAppState extends State<MyApp> {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.purple),
       ),
+      darkTheme: ThemeData.dark(useMaterial3: true),
+      themeMode: _themeMode,
       home: _accessToken == null
           ? OnboardingScreen(
               apiClient: _apiClient,
@@ -91,6 +94,9 @@ class _MyAppState extends State<MyApp> {
               apiClient: _apiClient,
               accessToken: _accessToken!,
               onLogout: _onLogout,
+              themeMode: _themeMode,
+              onThemeModeChanged: (ThemeMode mode) =>
+                  setState(() => _themeMode = mode),
             ),
     );
   }

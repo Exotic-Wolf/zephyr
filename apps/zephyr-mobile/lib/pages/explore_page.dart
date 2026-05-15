@@ -96,7 +96,6 @@ class _ExplorePageState extends State<ExplorePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
       body: CustomScrollView(
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: <Widget>[
@@ -107,7 +106,7 @@ class _ExplorePageState extends State<ExplorePage> {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
+                  colors: <Color>[Color(0xFFFF8F00), Color(0xFFE53935)],
                 ),
               ),
               padding: EdgeInsets.fromLTRB(
@@ -134,7 +133,9 @@ class _ExplorePageState extends State<ExplorePage> {
                   // Search bar
                   Container(
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? const Color(0xFF2A2A2A)
+                          : Colors.white,
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: <BoxShadow>[
                         BoxShadow(
@@ -149,7 +150,7 @@ class _ExplorePageState extends State<ExplorePage> {
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 14),
                           child: Icon(Icons.search_rounded,
-                              color: Color(0xFF1FA4EA), size: 22),
+                              color: Color(0xFFFF8F00), size: 22),
                         ),
                         Expanded(
                           child: TextField(
@@ -200,7 +201,9 @@ class _ExplorePageState extends State<ExplorePage> {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         gradient: const LinearGradient(
-                          colors: <Color>[Color(0xFF1FA4EA), Color(0xFF7B5EA7)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: <Color>[Color(0xFFFF8F00), Color(0xFFE53935)],
                         ),
                       ),
                       child: const Icon(Icons.explore_rounded,
@@ -211,8 +214,7 @@ class _ExplorePageState extends State<ExplorePage> {
                       'Discover people',
                       style: TextStyle(
                           fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black87),
+                          fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),
                     Text(
