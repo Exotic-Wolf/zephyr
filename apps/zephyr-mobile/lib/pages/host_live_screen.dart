@@ -8,6 +8,7 @@ import '../models/models.dart';
 import '../services/api_client.dart';
 import '../widgets/shared_live_widgets.dart';
 import '../app_constants.dart';
+import '../l10n/app_localizations.dart';
 
 // ── HostLiveScreen ────────────────────────────────────────────────────────────
 
@@ -190,13 +191,13 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       context: context,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('End Live?'),
-        content: const Text('Your stream will end and viewers will be disconnected.'),
+        title: Text(AppLocalizations.of(context)!.endLive),
+        content: Text(AppLocalizations.of(context)!.streamWillEndMessage),
         actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppLocalizations.of(context)!.cancel)),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('End Live', style: TextStyle(color: Colors.red)),
+            child: Text(AppLocalizations.of(context)!.endLiveButton, style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -260,8 +261,8 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                 children: <Widget>[
                   CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                   SizedBox(height: 16),
-                  Text('Starting camera…',
-                      style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  Text(AppLocalizations.of(context)!.startingCamera,
+                      style: const TextStyle(color: Colors.white70, fontSize: 14)),
                 ],
               ),
             ),
@@ -276,8 +277,8 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                     const Icon(Icons.videocam_off_rounded,
                         color: Colors.white54, size: 56),
                     const SizedBox(height: 12),
-                    const Text('Camera is off',
-                        style: TextStyle(color: Colors.white54, fontSize: 14)),
+                    Text(AppLocalizations.of(context)!.cameraIsOff,
+                        style: const TextStyle(color: Colors.white54, fontSize: 14)),
                   ],
                 ),
               ),
@@ -334,7 +335,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                           Container(width: 6, height: 6,
                               decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
                           const SizedBox(width: 4),
-                          const Text('LIVE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11)),
+                          Text(AppLocalizations.of(context)!.liveIndicator, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11)),
                         ],
                       ),
                     ),
@@ -427,7 +428,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                 children: <Widget>[
                   LiveCtrlBtn(
                     icon: _micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
-                    label: _micOn ? 'Mic On' : 'Mic Off',
+                    label: _micOn ? AppLocalizations.of(context)!.micOn : AppLocalizations.of(context)!.micOff,
                     active: _micOn,
                     onTap: () {
                       setState(() => _micOn = !_micOn);
@@ -437,7 +438,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                   ),
                   LiveCtrlBtn(
                     icon: _cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
-                    label: _cameraOn ? 'Camera' : 'Off',
+                    label: _cameraOn ? AppLocalizations.of(context)!.camera : AppLocalizations.of(context)!.off,
                     active: _cameraOn,
                     onTap: () {
                       setState(() => _cameraOn = !_cameraOn);
@@ -447,7 +448,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                   ),
                   LiveCtrlBtn(
                     icon: Icons.flip_camera_ios_rounded,
-                    label: 'Flip',
+                    label: AppLocalizations.of(context)!.flip,
                     active: true,
                     onTap: _flipCamera,
                   ),
@@ -459,8 +460,8 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                         color: Colors.red,
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: const Text('End Live',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+                      child: Text(AppLocalizations.of(context)!.endLive,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
                     ),
                   ),
                 ],
@@ -570,7 +571,7 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
                 const Icon(Icons.remove_red_eye_rounded, color: Colors.white70, size: 18),
                 const SizedBox(width: 8),
                 Text(
-                  '$_total watching',
+                  AppLocalizations.of(context)!.totalWatching(_total),
                   style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ],
@@ -583,9 +584,9 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
               child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2),
             )
           else if (_viewers.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(32),
-              child: Text('No viewers yet', style: TextStyle(color: Colors.white54)),
+            Padding(
+              padding: const EdgeInsets.all(32),
+              child: Text(AppLocalizations.of(context)!.noViewersYet, style: const TextStyle(color: Colors.white54)),
             )
           else
             ConstrainedBox(
@@ -618,7 +619,7 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
               child: Text(
-                'and ${_total - _viewers.length} more watching…',
+                AppLocalizations.of(context)!.andMoreWatching(_total - _viewers.length),
                 style: const TextStyle(color: Colors.white38, fontSize: 13),
               ),
             )

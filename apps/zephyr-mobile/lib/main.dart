@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'l10n/app_localizations.dart';
 import 'services/api_client.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/home_screen.dart';
@@ -95,6 +97,15 @@ class _MyAppState extends State<MyApp> {
     }
     return MaterialApp(
       title: 'Zephyr',
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en'),
+      ],
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF8F00)),
         useMaterial3: true,

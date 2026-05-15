@@ -1,0 +1,499 @@
+{
+  "@@locale": "en",
+
+  "goLiveInSeconds": "Go live in seconds",
+  "@goLiveInSeconds": {},
+
+  "checkingApi": "Checking API...",
+  "@checkingApi": {},
+
+  "apiConnected": "API Connected",
+  "@apiConnected": {},
+
+  "apiOffline": "API Offline",
+  "@apiOffline": {},
+
+  "refreshApiStatus": "Refresh API status",
+  "@refreshApiStatus": {},
+
+  "connecting": "Connecting...",
+  "@connecting": {},
+
+  "continueAsGuest": "Continue as Guest",
+  "@continueAsGuest": {},
+
+  "signingIn": "Signing in...",
+  "@signingIn": {},
+
+  "continueWithGoogle": "Continue with Google",
+  "@continueWithGoogle": {},
+
+  "continueWithApple": "Continue with Apple",
+  "@continueWithApple": {},
+
+  "home": "Home",
+  "@home": {},
+
+  "live": "Live",
+  "@live": {},
+
+  "explore": "Explore",
+  "@explore": {},
+
+  "inbox": "Inbox",
+  "@inbox": {},
+
+  "me": "Me",
+  "@me": {},
+
+  "noOneIsLiveRightNow": "No one is live right now. Check again in a moment.",
+  "@noOneIsLiveRightNow": {},
+
+  "noResultsFor": "No results for \"{query}\".",
+  "@noResultsFor": {
+    "placeholders": {
+      "query": { "type": "String" }
+    }
+  },
+
+  "noOneIsLiveFrom": "No one is live from {location} right now.",
+  "@noOneIsLiveFrom": {
+    "placeholders": {
+      "location": { "type": "String" }
+    }
+  },
+
+  "popular": "Popular",
+  "@popular": {},
+
+  "discover": "Discover",
+  "@discover": {},
+
+  "follow": "Follow",
+  "@follow": {},
+
+  "noPopularStreamersRightNow": "No popular streamers right now. Check again in a moment.",
+  "@noPopularStreamersRightNow": {},
+
+  "noStreamersFrom": "No streamers from {location} right now.",
+  "@noStreamersFrom": {
+    "placeholders": {
+      "location": { "type": "String" }
+    }
+  },
+
+  "noneOfPeopleYouFollowAreLive": "None of the people you follow are live from {location} right now.",
+  "@noneOfPeopleYouFollowAreLive": {
+    "placeholders": {
+      "location": { "type": "String" }
+    }
+  },
+
+  "followSomeoneToSeeThemHere": "Follow someone to see them here.",
+  "@followSomeoneToSeeThemHere": {},
+
+  "openingLive": "Opening live...",
+  "@openingLive": {},
+
+  "randomMatch": "Random match",
+  "@randomMatch": {},
+
+  "goLive": "Go Live",
+  "@goLive": {},
+
+  "startLiveStreamAndConnect": "Start a live stream and connect\nwith your audience in real time",
+  "@startLiveStreamAndConnect": {},
+
+  "starting": "Starting…",
+  "@starting": {},
+
+  "startLiveStream": "Start Live Stream",
+  "@startLiveStream": {},
+
+  "level": "Level",
+  "@level": {},
+
+  "levelValue": "Level {level}",
+  "@levelValue": {
+    "placeholders": {
+      "level": { "type": "int" }
+    }
+  },
+
+  "keepStreamingToLevelUp": "Keep streaming, receiving gifts, and engaging to level up.",
+  "@keepStreamingToLevelUp": {},
+
+  "myBalance": "My Balance",
+  "@myBalance": {},
+
+  "coinBalance": "Coin Balance",
+  "@coinBalance": {},
+
+  "coinsAmount": "{coins} coins",
+  "@coinsAmount": {
+    "placeholders": {
+      "coins": { "type": "int" }
+    }
+  },
+
+  "buyCoins": "Buy Coins",
+  "@buyCoins": {},
+
+  "coinPackLabel": "{coins} coins • {label}",
+  "@coinPackLabel": {
+    "placeholders": {
+      "coins": { "type": "int" },
+      "label": { "type": "String" }
+    }
+  },
+
+  "buying": "Buying...",
+  "@buying": {},
+
+  "buy": "Buy",
+  "@buy": {},
+
+  "myRevenue": "My Revenue",
+  "@myRevenue": {},
+
+  "revenueFromGiftsAndCalls": "Revenue from gifts and paid calls appears here.",
+  "@revenueFromGiftsAndCalls": {},
+
+  "settings": "Settings",
+  "@settings": {},
+
+  "account": "Account",
+  "@account": {},
+
+  "privacy": "Privacy",
+  "@privacy": {},
+
+  "notifications": "Notifications",
+  "@notifications": {},
+
+  "language": "Language",
+  "@language": {},
+
+  "appearance": "Appearance",
+  "@appearance": {},
+
+  "search": "Search",
+  "@search": {},
+
+  "closeSearch": "Close search",
+  "@closeSearch": {},
+
+  "nameOrId": "Name or ID…",
+  "@nameOrId": {},
+
+  "refresh": "Refresh",
+  "@refresh": {},
+
+  "logout": "Logout",
+  "@logout": {},
+
+  "systemDefault": "System default",
+  "@systemDefault": {},
+
+  "followDeviceSetting": "Follow device setting",
+  "@followDeviceSetting": {},
+
+  "lightMode": "Light",
+  "@lightMode": {},
+
+  "alwaysUseLightMode": "Always use light mode",
+  "@alwaysUseLightMode": {},
+
+  "darkMode": "Dark",
+  "@darkMode": {},
+
+  "alwaysUseDarkMode": "Always use dark mode",
+  "@alwaysUseDarkMode": {},
+
+  "owner": "OWNER",
+  "@owner": {},
+
+  "callSessionStarted": "Call session started. Billing is live.",
+  "@callSessionStarted": {},
+
+  "notEnoughCoinsForRandomMatch": "Not enough coins for random match. Top up first.",
+  "@notEnoughCoinsForRandomMatch": {},
+
+  "noReceiverAvailable": "No receiver available for direct call. Try Random mode.",
+  "@noReceiverAvailable": {},
+
+  "callEndedInsufficientBalance": "Call ended: insufficient balance.",
+  "@callEndedInsufficientBalance": {},
+
+  "callEnded": "Call ended.",
+  "@callEnded": {},
+
+  "noMessagesYet": "No messages yet",
+  "@noMessagesYet": {},
+
+  "noMessagesYetSayHello": "No messages yet. Say hello!",
+  "@noMessagesYetSayHello": {},
+
+  "messageHint": "Message…",
+  "@messageHint": {},
+
+  "failedToSend": "Failed to send: {error}",
+  "@failedToSend": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "findAnyoneByNameOrId": "Find anyone by name or 8-digit ID",
+  "@findAnyoneByNameOrId": {},
+
+  "nameOrIdHint": "Name or 8-digit ID…",
+  "@nameOrIdHint": {},
+
+  "discoverPeople": "Discover people",
+  "@discoverPeople": {},
+
+  "searchByNameOrId": "Search by name or enter an\nexact 8-digit public ID",
+  "@searchByNameOrId": {},
+
+  "noUsersFound": "No users found",
+  "@noUsersFound": {},
+
+  "tryDifferentNameOrId": "Try a different name or ID",
+  "@tryDifferentNameOrId": {},
+
+  "myProfile": "My Profile",
+  "@myProfile": {},
+
+  "save": "Save",
+  "@save": {},
+
+  "edit": "Edit",
+  "@edit": {},
+
+  "id": "ID",
+  "@id": {},
+
+  "idCopiedToClipboard": "ID copied to clipboard",
+  "@idCopiedToClipboard": {},
+
+  "nickname": "Nickname",
+  "@nickname": {},
+
+  "enterNickname": "Enter nickname",
+  "@enterNickname": {},
+
+  "gender": "Gender",
+  "@gender": {},
+
+  "male": "Male",
+  "@male": {},
+
+  "female": "Female",
+  "@female": {},
+
+  "nonBinary": "Non-binary",
+  "@nonBinary": {},
+
+  "preferNotToSay": "Prefer not to say",
+  "@preferNotToSay": {},
+
+  "birthday": "Birthday",
+  "@birthday": {},
+
+  "notSet": "Not set",
+  "@notSet": {},
+
+  "country": "Country",
+  "@country": {},
+
+  "yourIdIsPermanent": "Your ID is permanent and cannot be changed.",
+  "@yourIdIsPermanent": {},
+
+  "viewPublicProfile": "View Public Profile",
+  "@viewPublicProfile": {},
+
+  "takePhoto": "Take Photo",
+  "@takePhoto": {},
+
+  "chooseFromLibrary": "Choose from Library",
+  "@chooseFromLibrary": {},
+
+  "ownerBadge": "👑  OWNER",
+  "@ownerBadge": {},
+
+  "avatarUpdated": "Avatar updated",
+  "@avatarUpdated": {},
+
+  "uploadFailed": "Upload failed: {error}",
+  "@uploadFailed": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "profileSaved": "Profile saved",
+  "@profileSaved": {},
+
+  "failedToSaveProfile": "Failed to save: {error}",
+  "@failedToSaveProfile": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "myCallPrice": "My Call Price",
+  "@myCallPrice": {},
+
+  "spark": "Spark",
+  "@spark": {},
+
+  "youEarnSparks": "You earn Sparks every second you're on a call",
+  "@youEarnSparks": {},
+
+  "fairPricingGetsMoreCalls": "Fair pricing gets you more calls, faster",
+  "@fairPricingGetsMoreCalls": {},
+
+  "callersWillSee": "Callers will see:",
+  "@callersWillSee": {},
+
+  "videoCall": "Video call",
+  "@videoCall": {},
+
+  "perMinute": "/min",
+  "@perMinute": {},
+
+  "chooseYourRate": "Choose your rate",
+  "@chooseYourRate": {},
+
+  "yourLevelIs": "Your level is {level}. Higher tiers unlock at higher levels.",
+  "@yourLevelIs": {
+    "placeholders": {
+      "level": { "type": "int" }
+    }
+  },
+
+  "tier": "Tier",
+  "@tier": {},
+
+  "youEarn": "You earn",
+  "@youEarn": {},
+
+  "callerPays": "Caller pays",
+  "@callerPays": {},
+
+  "callRateSaved": "Call rate saved",
+  "@callRateSaved": {},
+
+  "failedToSaveRate": "Failed to save: {error}",
+  "@failedToSaveRate": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "lockedTiersUnlock": "Locked tiers unlock as you level up by being active on Zephyr.",
+  "@lockedTiersUnlock": {},
+
+  "videoCallWithRate": "Video call {rate}",
+  "@videoCallWithRate": {
+    "placeholders": {
+      "rate": { "type": "String" }
+    }
+  },
+
+  "messageButton": "Message",
+  "@messageButton": {},
+
+  "notAvailable": "Not available",
+  "@notAvailable": {},
+
+  "currentlyBusy": "Currently busy",
+  "@currentlyBusy": {},
+
+  "followers": "Followers",
+  "@followers": {},
+
+  "followButton": "Follow",
+  "@followButton": {},
+
+  "followingButton": "Following",
+  "@followingButton": {},
+
+  "about": "About",
+  "@about": {},
+
+  "noBioYet": "No bio yet.",
+  "@noBioYet": {},
+
+  "gifts": "Gifts",
+  "@gifts": {},
+
+  "noGiftsYet": "No gifts yet.",
+  "@noGiftsYet": {},
+
+  "getReady": "Get ready!",
+  "@getReady": {},
+
+  "startingYourStream": "Starting your stream…",
+  "@startingYourStream": {},
+
+  "cancel": "Cancel",
+  "@cancel": {},
+
+  "liveIndicator": "LIVE",
+  "@liveIndicator": {},
+
+  "endLive": "End Live?",
+  "@endLive": {},
+
+  "streamWillEndMessage": "Your stream will end and viewers will be disconnected.",
+  "@streamWillEndMessage": {},
+
+  "endLiveButton": "End Live",
+  "@endLiveButton": {},
+
+  "startingCamera": "Starting camera…",
+  "@startingCamera": {},
+
+  "cameraIsOff": "Camera is off",
+  "@cameraIsOff": {},
+
+  "micOn": "Mic On",
+  "@micOn": {},
+
+  "micOff": "Mic Off",
+  "@micOff": {},
+
+  "camera": "Camera",
+  "@camera": {},
+
+  "off": "Off",
+  "@off": {},
+
+  "flip": "Flip",
+  "@flip": {},
+
+  "totalWatching": "{total} watching",
+  "@totalWatching": {
+    "placeholders": {
+      "total": { "type": "int" }
+    }
+  },
+
+  "noViewersYet": "No viewers yet",
+  "@noViewersYet": {},
+
+  "andMoreWatching": "and {count} more watching…",
+  "@andMoreWatching": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+
+  "saySomething": "Say something…",
+  "@saySomething": {},
+
+  "welcomeToLive": "Welcome to my live! 👋",
+  "@welcomeToLive": {}
+}

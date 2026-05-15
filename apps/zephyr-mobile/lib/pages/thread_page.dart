@@ -4,6 +4,7 @@ import 'package:socket_io_client/socket_io_client.dart' as sio;
 import '../app_constants.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
+import '../l10n/app_localizations.dart';
 
 // ── Message cache (in-memory, survives navigation within session) ─────────────
 
@@ -155,7 +156,7 @@ class _ThreadPageState extends State<ThreadPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to send: $e'),
+        SnackBar(content: Text(AppLocalizations.of(context)!.failedToSend(e.toString())),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating),
       );
@@ -211,7 +212,7 @@ class _ThreadPageState extends State<ThreadPage> {
                 ? const Center(child: CircularProgressIndicator())
                 : _messages.isEmpty
                     ? Center(
-                        child: Text('No messages yet. Say hello!',
+                        child: Text(AppLocalizations.of(context)!.noMessagesYetSayHello,
                             style: TextStyle(color: Colors.grey.shade500)),
                       )
                     : ListView.builder(
@@ -296,12 +297,12 @@ class _ThreadPageState extends State<ThreadPage> {
                       minLines: 1,
                       maxLines: 4,
                       textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         border: InputBorder.none,
-                        hintText: 'Message…',
+                        hintText: AppLocalizations.of(context)!.messageHint,
                         isDense: true,
                         contentPadding:
-                            EdgeInsets.symmetric(vertical: 10),
+                            const EdgeInsets.symmetric(vertical: 10),
                       ),
                       onSubmitted: (_) => _send(),
                     ),

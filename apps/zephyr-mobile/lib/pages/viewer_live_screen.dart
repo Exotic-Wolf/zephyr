@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../services/api_client.dart';
 import '../widgets/shared_live_widgets.dart';
 import '../app_constants.dart';
+import '../l10n/app_localizations.dart';
 
 // ── ViewerLiveScreen ──────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   // LiveKit
   lk.Room? _livekitRoom;
   lk.VideoTrack? _remoteVideoTrack;
+  bool _welcomeAdded = false;
 
   @override
   void initState() {
@@ -61,9 +63,20 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);
     });
-    _comments.add(LiveComment(name: widget.feedCard.hostDisplayName, text: 'Welcome to my live! 👋'));
     _connectSocket();
     _connectLiveKit();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_welcomeAdded) {
+      _welcomeAdded = true;
+      _comments.add(LiveComment(
+        name: widget.feedCard.hostDisplayName,
+        text: AppLocalizations.of(context)!.welcomeToLive,
+      ));
+    }
   }
 
   Future<void> _connectLiveKit() async {
@@ -268,7 +281,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
                           Container(width: 6, height: 6,
                               decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
                           const SizedBox(width: 4),
-                          const Text('LIVE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11)),
+                          Text(AppLocalizations.of(context)!.liveIndicator, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11)),
                         ],
                       ),
                     ),
@@ -372,11 +385,11 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
                       child: TextField(
                         controller: _commentCtrl,
                         style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
-                          hintText: 'Say something…',
-                          hintStyle: TextStyle(color: Colors.white38),
+                        decoration: InputDecoration(
+                          hintText: AppLocalizations.of(context)!.saySomething,
+                          hintStyle: const TextStyle(color: Colors.white38),
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                           isDense: true,
                         ),
                         onSubmitted: (_) => _sendComment(),

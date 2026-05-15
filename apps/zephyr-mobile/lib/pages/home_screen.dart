@@ -18,6 +18,7 @@ import 'thread_page.dart';
 import 'viewer_live_screen.dart';
 import '../app_constants.dart';
 import 'call_price_page.dart';
+import '../l10n/app_localizations.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -646,13 +647,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
 
-  String _titleForTab() {
+  String _titleForTab(AppLocalizations l10n) {
     return switch (_selectedTabIndex) {
-      0 => 'Home',
-      1 => 'Live',
-      2 => 'Explore',
-      3 => 'Inbox',
-      4 => 'Me',
+      0 => l10n.home,
+      1 => l10n.live,
+      2 => l10n.explore,
+      3 => l10n.inbox,
+      4 => l10n.me,
       _ => 'Zephyr',
     };
   }
@@ -674,8 +675,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (_coinBalance < _callQuote!.requiredCoins) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Not enough coins for random match. Top up first.'),
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.notEnoughCoinsForRandomMatch),
         ),
       );
       return;
@@ -925,10 +926,10 @@ class _HomeScreenState extends State<HomeScreen> {
       return Center(
         child: Text(
           _feedCards.isEmpty
-              ? 'No popular streamers right now. Check again in a moment.'
+              ? AppLocalizations.of(context)!.noPopularStreamersRightNow
               : _searchQuery.isNotEmpty
-                  ? 'No results for "$_searchQuery".'
-                  : 'No streamers from ${_filterCountry?.name ?? 'there'} right now.',
+                  ? AppLocalizations.of(context)!.noResultsFor(_searchQuery)
+                  : AppLocalizations.of(context)!.noStreamersFrom(_filterCountry?.name ?? 'there'),
         ),
       );
     }
@@ -982,8 +983,8 @@ class _HomeScreenState extends State<HomeScreen> {
       return Center(
         child: Text(
           _followingIds.isEmpty
-              ? 'Follow someone to see them here.'
-              : 'None of the people you follow are live from ${_filterCountry?.name ?? 'there'} right now.',
+              ? AppLocalizations.of(context)!.followSomeoneToSeeThemHere
+              : AppLocalizations.of(context)!.noneOfPeopleYouFollowAreLive(_filterCountry?.name ?? 'there'),
           textAlign: TextAlign.center,
         ),
       );
@@ -1035,10 +1036,10 @@ class _HomeScreenState extends State<HomeScreen> {
       return Center(
         child: Text(
           _feedCards.isEmpty
-              ? 'No one is live right now. Check again in a moment.'
+              ? AppLocalizations.of(context)!.noOneIsLiveRightNow
               : _searchQuery.isNotEmpty
-                  ? 'No results for "$_searchQuery".'
-                  : 'No one is live from ${_filterCountry?.name ?? 'there'} right now.',
+                  ? AppLocalizations.of(context)!.noResultsFor(_searchQuery)
+                  : AppLocalizations.of(context)!.noOneIsLiveFrom(_filterCountry?.name ?? 'there'),
         ),
       );
     }
@@ -1170,7 +1171,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 24),
               Text(
-                'Go Live',
+                AppLocalizations.of(context)!.goLive,
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
@@ -1180,7 +1181,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Start a live stream and connect\nwith your audience in real time',
+                AppLocalizations.of(context)!.startLiveStreamAndConnect,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 15,
@@ -1228,7 +1229,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       const Icon(Icons.live_tv_rounded, color: Colors.white, size: 22),
                       const SizedBox(width: 10),
                       Text(
-                        _creating ? 'Starting…' : 'Start Live Stream',
+                        _creating ? AppLocalizations.of(context)!.starting : AppLocalizations.of(context)!.startLiveStream,
                         style: const TextStyle(
                             color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
                       ),
@@ -1260,7 +1261,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute<void>(
         builder: (BuildContext context) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Level')),
+            appBar: AppBar(title: Text(AppLocalizations.of(context)!.level)),
             body: Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -1270,15 +1271,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     const Icon(Icons.military_tech_rounded, size: 56),
                     const SizedBox(height: 12),
                     Text(
-                      'Level $_userLevel',
+                      AppLocalizations.of(context)!.levelValue(_userLevel),
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Keep streaming, receiving gifts, and engaging to level up.',
+                    Text(
+                      AppLocalizations.of(context)!.keepStreamingToLevelUp,
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -1352,7 +1353,7 @@ class _HomeScreenState extends State<HomeScreen> {
               }
 
               return Scaffold(
-                appBar: AppBar(title: const Text('My Balance')),
+                appBar: AppBar(title: Text(AppLocalizations.of(context)!.myBalance)),
                 body: ListView(
                   padding: const EdgeInsets.all(16),
                   children: <Widget>[
@@ -1362,16 +1363,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            const Text(
-                              'Coin Balance',
-                              style: TextStyle(
+                            Text(
+                              AppLocalizations.of(context)!.coinBalance,
+                              style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              '${_formatCoins(_coinBalance)} coins',
+                              AppLocalizations.of(context)!.coinsAmount(_coinBalance),
                               style: const TextStyle(
                                 fontSize: 28,
                                 fontWeight: FontWeight.w700,
@@ -1382,9 +1383,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      'Buy Coins',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    Text(
+                      AppLocalizations.of(context)!.buyCoins,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),
                     ..._coinPacks.map((CoinPack pack) {
@@ -1392,7 +1393,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       return ListTile(
                         leading: const CoinIcon(size: 28),
-                        title: Text('${pack.coins} coins • ${pack.label}'),
+                        title: Text(AppLocalizations.of(context)!.coinPackLabel(pack.coins, pack.label)),
                         subtitle: Text(_formatUsd(pack.priceUsd)),
                         trailing: ElevatedButton(
                           onPressed: isPurchasing
@@ -1400,7 +1401,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               : () {
                                   buyCoins(pack);
                                 },
-                          child: Text(isPurchasing ? 'Buying...' : 'Buy'),
+                          child: Text(isPurchasing ? AppLocalizations.of(context)!.buying : AppLocalizations.of(context)!.buy),
                         ),
                       );
                     }),
@@ -1419,7 +1420,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute<void>(
         builder: (BuildContext context) {
           return Scaffold(
-            appBar: AppBar(title: const Text('My Revenue')),
+            appBar: AppBar(title: Text(AppLocalizations.of(context)!.myRevenue)),
             body: Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -1436,8 +1437,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Revenue from gifts and paid calls appears here.',
+                    Text(
+                      AppLocalizations.of(context)!.revenueFromGiftsAndCalls,
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -1486,28 +1487,28 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute<void>(
         builder: (BuildContext context) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Settings')),
+            appBar: AppBar(title: Text(AppLocalizations.of(context)!.settings)),
             body: ListView(
               children: <Widget>[
-                const ListTile(
-                  leading: Icon(Icons.person_outline_rounded),
-                  title: Text('Account'),
+                ListTile(
+                  leading: const Icon(Icons.person_outline_rounded),
+                  title: Text(AppLocalizations.of(context)!.account),
                 ),
-                const ListTile(
-                  leading: Icon(Icons.privacy_tip_outlined),
-                  title: Text('Privacy'),
+                ListTile(
+                  leading: const Icon(Icons.privacy_tip_outlined),
+                  title: Text(AppLocalizations.of(context)!.privacy),
                 ),
-                const ListTile(
-                  leading: Icon(Icons.notifications_none_rounded),
-                  title: Text('Notifications'),
+                ListTile(
+                  leading: const Icon(Icons.notifications_none_rounded),
+                  title: Text(AppLocalizations.of(context)!.notifications),
                 ),
-                const ListTile(
-                  leading: Icon(Icons.language_rounded),
-                  title: Text('Language'),
+                ListTile(
+                  leading: const Icon(Icons.language_rounded),
+                  title: Text(AppLocalizations.of(context)!.language),
                 ),
                 ListTile(
                   leading: const Icon(Icons.brightness_6_rounded),
-                  title: const Text('Appearance'),
+                  title: Text(AppLocalizations.of(context)!.appearance),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () {
                     Navigator.of(context).push(
@@ -1540,7 +1541,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             title: Row(
               children: <Widget>[
-                Text(_me?.displayName ?? 'Me'),
+                Text(_me?.displayName ?? AppLocalizations.of(context)!.me),
                 if (_me?.isAdmin == true) ...<Widget>[
                   const SizedBox(width: 6),
                   Container(
@@ -1551,9 +1552,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Text(
-                      'OWNER',
-                      style: TextStyle(
+                    child: Text(
+                      AppLocalizations.of(context)!.owner,
+                      style: const TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w800,
                         color: Colors.white,
@@ -1574,35 +1575,35 @@ class _HomeScreenState extends State<HomeScreen> {
             children: <Widget>[
               ListTile(
                 leading: const Icon(Icons.military_tech_rounded),
-                title: const Text('Level'),
+                title: Text(AppLocalizations.of(context)!.level),
                 trailing: Text('Lv $_userLevel'),
                 onTap: _openLevelPage,
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.account_balance_wallet_rounded),
-                title: const Text('My Balance'),
-                trailing: Text('${_formatCoins(_coinBalance)} coins'),
+                title: Text(AppLocalizations.of(context)!.myBalance),
+                trailing: Text(AppLocalizations.of(context)!.coinsAmount(_coinBalance)),
                 onTap: _openBalancePage,
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.payments_rounded),
-                title: const Text('My Revenue'),
+                title: Text(AppLocalizations.of(context)!.myRevenue),
                 trailing: Text(_formatUsd(_myRevenue)),
                 onTap: _openRevenuePage,
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.call_rounded),
-                title: const Text('My Call Price'),
+                title: Text(AppLocalizations.of(context)!.myCallPrice),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: _openCallPricePage,
               ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.settings_rounded),
-                title: const Text('Settings'),
+                title: Text(AppLocalizations.of(context)!.settings),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: _openSettingsPage,
               ),
@@ -1616,6 +1617,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final bool isTablet = MediaQuery.sizeOf(context).width >= tabletBreakpoint;
+    final AppLocalizations l10n = AppLocalizations.of(context)!;
 
     final Widget bodyContent = _loading
         ? const Center(child: CircularProgressIndicator())
@@ -1660,19 +1662,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: <Widget>[
-                        _buildHomeTopTab(label: 'Popular', index: 0),
+                        _buildHomeTopTab(label: l10n.popular, index: 0),
                         const SizedBox(width: 12),
-                        _buildHomeTopTab(label: 'Discover', index: 1),
+                        _buildHomeTopTab(label: l10n.discover, index: 1),
                         const SizedBox(width: 12),
-                        _buildHomeTopTab(label: 'Follow', index: 2),
+                        _buildHomeTopTab(label: l10n.follow, index: 2),
                       ],
                     ),
                   ))
-            : Text(_titleForTab()),
+            : Text(_titleForTab(l10n)),
         actions: <Widget>[
           if (_selectedTabIndex == 0) ...<Widget>[
             IconButton(
-              tooltip: _searchActive ? 'Close search' : 'Search',
+              tooltip: _searchActive ? l10n.closeSearch : l10n.search,
               visualDensity: VisualDensity.compact,
               constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               iconSize: 20,
@@ -1746,12 +1748,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ] else ...<Widget>[
             IconButton(
-              tooltip: 'Refresh',
+              tooltip: l10n.refresh,
               onPressed: _loading ? null : _refreshHome,
               icon: const Icon(Icons.refresh),
             ),
             IconButton(
-              tooltip: 'Logout',
+              tooltip: l10n.logout,
               onPressed: widget.onLogout,
               icon: const Icon(Icons.logout),
             ),
@@ -1785,17 +1787,17 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(
             icon: Icon(Icons.home_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
             selectedIcon: const Icon(Icons.home_rounded, color: Color(0xFFFF8F00)),
-            label: 'Home',
+            label: l10n.home,
           ),
           NavigationDestination(
             icon: Icon(Icons.live_tv_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
             selectedIcon: const Icon(Icons.live_tv_rounded, color: Color(0xFFFF8F00)),
-            label: 'Live',
+            label: l10n.live,
           ),
           NavigationDestination(
             icon: Icon(Icons.explore_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
             selectedIcon: const Icon(Icons.explore_rounded, color: Color(0xFFFF8F00)),
-            label: 'Explore',
+            label: l10n.explore,
           ),
           NavigationDestination(
             icon: Badge(
@@ -1808,7 +1810,7 @@ class _HomeScreenState extends State<HomeScreen> {
               label: Text(_inboxUnread > 9 ? '9+' : '$_inboxUnread'),
               child: const Icon(Icons.chat_bubble_rounded, color: Color(0xFFFF8F00)),
             ),
-            label: 'Inbox',
+            label: l10n.inbox,
           ),
           NavigationDestination(
             icon: Icon(
@@ -1819,7 +1821,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Icons.person_rounded,
               color: _apiReachable == true ? Colors.green.shade700 : const Color(0xFFFF8F00),
             ),
-            label: 'Me',
+            label: l10n.me,
           ),
         ],
       ),
@@ -1957,29 +1959,29 @@ class _AppearancePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Appearance')),
+      appBar: AppBar(title: Text(AppLocalizations.of(context)!.appearance)),
       body: ListView(
         children: <Widget>[
           _AppearanceTile(
             icon: Icons.brightness_auto_rounded,
-            label: 'System default',
-            subtitle: 'Follow device setting',
+            label: AppLocalizations.of(context)!.systemDefault,
+            subtitle: AppLocalizations.of(context)!.followDeviceSetting,
             mode: ThemeMode.system,
             current: current,
             onChanged: onChanged,
           ),
           _AppearanceTile(
             icon: Icons.light_mode_rounded,
-            label: 'Light',
-            subtitle: 'Always use light mode',
+            label: AppLocalizations.of(context)!.lightMode,
+            subtitle: AppLocalizations.of(context)!.alwaysUseLightMode,
             mode: ThemeMode.light,
             current: current,
             onChanged: onChanged,
           ),
           _AppearanceTile(
             icon: Icons.dark_mode_rounded,
-            label: 'Dark',
-            subtitle: 'Always use dark mode',
+            label: AppLocalizations.of(context)!.darkMode,
+            subtitle: AppLocalizations.of(context)!.alwaysUseDarkMode,
             mode: ThemeMode.dark,
             current: current,
             onChanged: onChanged,

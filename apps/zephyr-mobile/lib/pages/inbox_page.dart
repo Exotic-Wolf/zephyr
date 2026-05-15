@@ -5,6 +5,7 @@ import '../app_constants.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import 'thread_page.dart';
+import '../l10n/app_localizations.dart';
 
 class InboxPage extends StatefulWidget {
   const InboxPage({
@@ -100,7 +101,7 @@ class _InboxPageState extends State<InboxPage> {
                           Icon(Icons.chat_bubble_outline_rounded,
                               size: 56, color: isDark ? Colors.grey.shade700 : Colors.grey.shade300),
                           const SizedBox(height: 12),
-                          Text('No messages yet',
+                          Text(AppLocalizations.of(context)!.noMessagesYet,
                               style: TextStyle(
                                   fontSize: 16, color: isDark ? Colors.grey.shade500 : Colors.grey.shade500)),
                         ],

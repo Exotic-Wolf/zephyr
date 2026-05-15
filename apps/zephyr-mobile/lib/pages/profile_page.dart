@@ -6,6 +6,7 @@ import '../widgets/hero_bullet.dart';
 import 'thread_page.dart';
 import '../flags.dart';
 import '../widgets/coin_icon.dart';
+import '../l10n/app_localizations.dart';
 
 // ── ProfilePage ─────────────────────────────────────────────────────────────
 
@@ -173,7 +174,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 icon: const Icon(
                     Icons.chat_bubble_outline_rounded,
                     size: 18),
-                label: const Text('Message'),
+                label: Text(AppLocalizations.of(context)!.messageButton),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.black87,
                   padding: const EdgeInsets.symmetric(vertical: 14),
@@ -210,20 +211,20 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
                 child: switch (_card.hostStatus) {
-                  'offline' => const Row(
+                  'offline' => Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: <Widget>[
-                        Icon(Icons.phone_disabled_rounded, size: 18),
-                        SizedBox(width: 6),
-                        Text('Not available'),
+                        const Icon(Icons.phone_disabled_rounded, size: 18),
+                        const SizedBox(width: 6),
+                        Text(AppLocalizations.of(context)!.notAvailable),
                       ],
                     ),
-                  'busy' => const Row(
+                  'busy' => Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: <Widget>[
-                        Icon(Icons.phone_locked_rounded, size: 18),
-                        SizedBox(width: 6),
-                        Text('Currently busy'),
+                        const Icon(Icons.phone_locked_rounded, size: 18),
+                        const SizedBox(width: 6),
+                        Text(AppLocalizations.of(context)!.currentlyBusy),
                       ],
                     ),
                   _ => Row(
@@ -388,7 +389,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   Row(
                     children: <Widget>[
                       StatCell(
-                          label: 'Followers', value: '2.4K'),
+                          label: AppLocalizations.of(context)!.followers, value: '2.4K'),
                     ],
                   ),
 
@@ -414,7 +415,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                       child: Text(
-                        _following ? 'Following' : 'Follow',
+                        _following ? AppLocalizations.of(context)!.followingButton : AppLocalizations.of(context)!.followButton,
                         style: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.w600),
                       ),
@@ -424,14 +425,14 @@ class _ProfilePageState extends State<ProfilePage> {
                   const SizedBox(height: 28),
 
                   // ── bio placeholder ──────────────────────────────
-                  const Text(
-                    'About',
-                    style: TextStyle(
+                  Text(
+                    AppLocalizations.of(context)!.about,
+                    style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'No bio yet.',
+                    AppLocalizations.of(context)!.noBioYet,
                     style: TextStyle(
                         fontSize: 14, color: Colors.grey.shade600),
                   ),
@@ -439,9 +440,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   const SizedBox(height: 28),
 
                   // ── gifts section ─────────────────────────────────
-                  const Text(
-                    'Gifts',
-                    style: TextStyle(
+                  Text(
+                    AppLocalizations.of(context)!.gifts,
+                    style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 12),
@@ -453,7 +454,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Text(
-                      'No gifts yet.',
+                      AppLocalizations.of(context)!.noGiftsYet,
                       style: TextStyle(
                           fontSize: 14, color: Colors.grey.shade500),
                     ),

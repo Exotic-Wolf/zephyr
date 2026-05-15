@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/api_client.dart';
 import 'profile_page.dart';
 import 'thread_page.dart';
+import '../l10n/app_localizations.dart';
 
 // ── ExplorePage ───────────────────────────────────────────────────────────────
 
@@ -125,9 +126,9 @@ class _ExplorePageState extends State<ExplorePage> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Find anyone by name or 8-digit ID',
-                    style: TextStyle(
+                  Text(
+                    AppLocalizations.of(context)!.findAnyoneByNameOrId,
+                    style: const TextStyle(
                         color: Colors.white70, fontSize: 14),
                   ),
                   const SizedBox(height: 16),
@@ -159,12 +160,12 @@ class _ExplorePageState extends State<ExplorePage> {
                             onChanged: _search,
                             textInputAction: TextInputAction.search,
                             onSubmitted: _search,
-                            decoration: const InputDecoration(
-                              hintText: 'Name or 8-digit ID…',
+                            decoration: InputDecoration(
+                              hintText: AppLocalizations.of(context)!.nameOrIdHint,
                               border: InputBorder.none,
                               isDense: true,
                               contentPadding:
-                                  EdgeInsets.symmetric(vertical: 14),
+                                  const EdgeInsets.symmetric(vertical: 14),
                             ),
                           ),
                         ),
@@ -237,15 +238,15 @@ class _ExplorePageState extends State<ExplorePage> {
                       ],
                     ),
                     const SizedBox(height: 20),
-                    const Text(
-                      'Discover people',
-                      style: TextStyle(
+                    Text(
+                      AppLocalizations.of(context)!.discoverPeople,
+                      style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Search by name or enter an\nexact 8-digit public ID',
+                      AppLocalizations.of(context)!.searchByNameOrId,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                           fontSize: 14, color: Colors.grey.shade500),
@@ -263,11 +264,11 @@ class _ExplorePageState extends State<ExplorePage> {
                     Icon(Icons.person_search_rounded,
                         size: 56, color: Colors.grey.shade300),
                     const SizedBox(height: 12),
-                    Text('No users found',
+                    Text(AppLocalizations.of(context)!.noUsersFound,
                         style: TextStyle(
                             fontSize: 16, color: Colors.grey.shade500)),
                     const SizedBox(height: 4),
-                    Text('Try a different name or ID',
+                    Text(AppLocalizations.of(context)!.tryDifferentNameOrId,
                         style: TextStyle(
                             fontSize: 13, color: Colors.grey.shade400)),
                   ],

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import 'host_live_screen.dart';
+import '../l10n/app_localizations.dart';
 
 // ── GoLiveCountdownPage ───────────────────────────────────────────────────────
 
@@ -191,9 +192,9 @@ class _GoLiveCountdownPageState extends State<GoLiveCountdownPage>
                 const SizedBox(height: 32),
                 Text(
                   isLive
-                      ? (_starting ? 'Starting your stream…' : 'Starting your stream…')
-                      : 'Get ready!',
-                  style: TextStyle(color: Colors.white54, fontSize: 15),
+                      ? AppLocalizations.of(context)!.startingYourStream
+                      : AppLocalizations.of(context)!.getReady,
+                  style: const TextStyle(color: Colors.white54, fontSize: 15),
                 ),
                 const SizedBox(height: 60),
 
@@ -212,8 +213,8 @@ class _GoLiveCountdownPageState extends State<GoLiveCountdownPage>
                         border: Border.all(color: Colors.white30),
                         borderRadius: BorderRadius.circular(30),
                       ),
-                      child: const Text('Cancel',
-                          style: TextStyle(
+                      child: Text(AppLocalizations.of(context)!.cancel,
+                          style: const TextStyle(
                               color: Colors.white60,
                               fontSize: 16,
                               fontWeight: FontWeight.w600)),

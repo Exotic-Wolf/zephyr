@@ -5,6 +5,7 @@ import '../services/api_client.dart';
 import '../widgets/coin_icon.dart';
 import '../widgets/spark_icon.dart';
 import '../widgets/hero_bullet.dart';
+import '../l10n/app_localizations.dart';
 
 // ── CallPricePage ────────────────────────────────────────────────────────────
 
@@ -81,10 +82,10 @@ class _CallPricePageState extends State<CallPricePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Call rate saved'),
+        ..showSnackBar(SnackBar(
+          content: Text(AppLocalizations.of(context)!.callRateSaved),
           behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ));
       Navigator.of(context).pop(updated);
     } catch (e) {
@@ -92,7 +93,7 @@ class _CallPricePageState extends State<CallPricePage> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
-          content: Text('Failed to save: $e'),
+          content: Text(AppLocalizations.of(context)!.failedToSaveRate(e.toString())),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.red,
         ));
@@ -106,7 +107,7 @@ class _CallPricePageState extends State<CallPricePage> {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Call Price'),
+        title: Text(AppLocalizations.of(context)!.myCallPrice),
         actions: <Widget>[
           if (_saving)
             const Padding(
@@ -121,8 +122,8 @@ class _CallPricePageState extends State<CallPricePage> {
           else
             TextButton(
               onPressed: _save,
-              child: const Text('Save',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
+              child: Text(AppLocalizations.of(context)!.save,
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
             ),
         ],
       ),
@@ -174,12 +175,12 @@ class _CallPricePageState extends State<CallPricePage> {
                       children: <Widget>[
                         HeroBullet(
                           iconWidget: const SparkIcon(size: 16),
-                          text: 'You earn Sparks every second you\'re on a call',
+                          text: AppLocalizations.of(context)!.youEarnSparks,
                         ),
                         const SizedBox(height: 6),
                         HeroBullet(
                           iconWidget: const Icon(Icons.trending_up_rounded, size: 16, color: Color(0xFFE53935)),
-                          text: 'Fair pricing gets you more calls, faster',
+                          text: AppLocalizations.of(context)!.fairPricingGetsMoreCalls,
                         ),
                       ],
                     ),
@@ -213,15 +214,15 @@ class _CallPricePageState extends State<CallPricePage> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     spacing: 3,
                     children: <Widget>[
-                      const Text('Callers will see:',
-                          style: TextStyle(fontSize: 13)),
-                      Text('Video call  $_selectedCoins',
+                      Text(AppLocalizations.of(context)!.callersWillSee,
+                          style: const TextStyle(fontSize: 13)),
+                      Text('${AppLocalizations.of(context)!.videoCall}  $_selectedCoins',
                           style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700)),
                       const CoinIcon(size: 14),
-                      const Text('/min',
-                          style: TextStyle(fontSize: 13)),
+                      Text(AppLocalizations.of(context)!.perMinute,
+                          style: const TextStyle(fontSize: 13)),
                     ],
                   ),
                 ),
@@ -230,12 +231,11 @@ class _CallPricePageState extends State<CallPricePage> {
           ),
 
           const SizedBox(height: 20),
-          const Text('Choose your rate',
-              style:
-                  TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          Text(AppLocalizations.of(context)!.chooseYourRate,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
           Text(
-            'Your level is ${widget.userLevel}. Higher tiers unlock at higher levels.',
+            AppLocalizations.of(context)!.yourLevelIs(widget.userLevel),
             style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 12),
@@ -254,24 +254,24 @@ class _CallPricePageState extends State<CallPricePage> {
                       horizontal: 16, vertical: 10),
                   child: Row(
                     children: <Widget>[
-                      const Expanded(
+                      Expanded(
                           flex: 3,
-                          child: Text('Tier',
-                              style: TextStyle(
+                          child: Text(AppLocalizations.of(context)!.tier,
+                              style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.grey))),
-                      const Expanded(
+                      Expanded(
                           flex: 3,
-                          child: Text('You earn',
-                              style: TextStyle(
+                          child: Text(AppLocalizations.of(context)!.youEarn,
+                              style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.grey))),
-                      const Expanded(
+                      Expanded(
                           flex: 3,
-                          child: Text('Caller pays',
-                              style: TextStyle(
+                          child: Text(AppLocalizations.of(context)!.callerPays,
+                              style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.grey))),
@@ -391,7 +391,7 @@ class _CallPricePageState extends State<CallPricePage> {
 
           // ── level unlock note ─────────────────────────────────
           Text(
-            '🔒 Locked tiers unlock as you level up by being active on Zephyr.',
+            AppLocalizations.of(context)!.lockedTiersUnlock,
             style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
           ),
 

@@ -9,6 +9,7 @@ import '../models/models.dart';
 import '../services/api_client.dart';
 import '../widgets/language_picker_sheet.dart';
 import 'profile_page.dart';
+import '../l10n/app_localizations.dart';
 
 class MyProfilePage extends StatefulWidget {
   const MyProfilePage({
@@ -87,12 +88,12 @@ class _MyProfilePageState extends State<MyProfilePage> {
           children: <Widget>[
             ListTile(
               leading: const Icon(Icons.camera_alt_rounded),
-              title: const Text('Take Photo'),
+              title: Text(AppLocalizations.of(ctx)!.takePhoto),
               onTap: () => Navigator.pop(ctx, ImageSource.camera),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_rounded),
-              title: const Text('Choose from Library'),
+              title: Text(AppLocalizations.of(ctx)!.chooseFromLibrary),
               onTap: () => Navigator.pop(ctx, ImageSource.gallery),
             ),
           ],
@@ -129,15 +130,15 @@ class _MyProfilePageState extends State<MyProfilePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Avatar updated'),
+        ..showSnackBar(SnackBar(
+          content: Text(AppLocalizations.of(context)!.avatarUpdated),
           behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Upload failed: $e'),
+        content: Text(AppLocalizations.of(context)!.uploadFailed(e.toString())),
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
       ));
@@ -158,7 +159,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
   }
 
   String _formatBirthday() {
-    if (_birthday == null) return 'Not set';
+    if (_birthday == null) return AppLocalizations.of(context)!.notSet;
     return '${_birthday!.day}/${_birthday!.month}/${_birthday!.year}';
   }
 
@@ -186,10 +187,10 @@ class _MyProfilePageState extends State<MyProfilePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Profile saved'),
+        ..showSnackBar(SnackBar(
+          content: Text(AppLocalizations.of(context)!.profileSaved),
           behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ));
       Navigator.of(context).pop(updated);
     } catch (e) {
@@ -197,7 +198,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
-          content: Text('Failed to save: $e'),
+          content: Text(AppLocalizations.of(context)!.failedToSaveProfile(e.toString())),
           behavior: SnackBarBehavior.floating,
           backgroundColor: Colors.red,
         ));
@@ -218,7 +219,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(_pendingReturn),
         ),
-        title: const Text('My Profile'),
+        title: Text(AppLocalizations.of(context)!.myProfile),
         actions: <Widget>[
           if (_saving)
             const Padding(
@@ -233,12 +234,12 @@ class _MyProfilePageState extends State<MyProfilePage> {
           else if (_editing)
             TextButton(
               onPressed: _save,
-              child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w700)),
+              child: Text(AppLocalizations.of(context)!.save, style: const TextStyle(fontWeight: FontWeight.w700)),
             )
           else
             TextButton(
               onPressed: () => setState(() => _editing = true),
-              child: const Text('Edit', style: TextStyle(fontWeight: FontWeight.w700)),
+              child: Text(AppLocalizations.of(context)!.edit, style: const TextStyle(fontWeight: FontWeight.w700)),
             ),
         ],
       ),
@@ -306,9 +307,9 @@ class _MyProfilePageState extends State<MyProfilePage> {
                       ),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Text(
-                      '👑  OWNER',
-                      style: TextStyle(
+                    child: Text(
+                      AppLocalizations.of(context)!.ownerBadge,
+                      style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w800,
                         color: Colors.white,
@@ -333,16 +334,16 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
                 // ID — always read-only
                 ListTile(
-                  title: const Text('ID'),
+                  title: Text(AppLocalizations.of(context)!.id),
                   trailing: GestureDetector(
                     onTap: () {
                       Clipboard.setData(ClipboardData(text: _userId));
                       ScaffoldMessenger.of(context)
                         ..hideCurrentSnackBar()
-                        ..showSnackBar(const SnackBar(
-                          content: Text('ID copied to clipboard'),
+                        ..showSnackBar(SnackBar(
+                          content: Text(AppLocalizations.of(context)!.idCopiedToClipboard),
                           behavior: SnackBarBehavior.floating,
-                          duration: Duration(seconds: 2),
+                          duration: const Duration(seconds: 2),
                         ));
                     },
                     child: Row(
@@ -360,7 +361,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
                 // Nickname
                 ListTile(
-                  title: const Text('Nickname'),
+                  title: Text(AppLocalizations.of(context)!.nickname),
                   trailing: _editing
                       ? SizedBox(
                           width: 160,
@@ -368,10 +369,10 @@ class _MyProfilePageState extends State<MyProfilePage> {
                             controller: _nicknameCtrl,
                             textAlign: TextAlign.end,
                             style: valueStyle,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               border: InputBorder.none,
-                              hintText: 'Enter nickname',
-                              hintStyle: TextStyle(color: Colors.grey),
+                              hintText: AppLocalizations.of(context)!.enterNickname,
+                              hintStyle: const TextStyle(color: Colors.grey),
                               isDense: true,
                               contentPadding: EdgeInsets.zero,
                             ),
@@ -384,7 +385,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
                 // Gender
                 ListTile(
-                  title: const Text('Gender'),
+                  title: Text(AppLocalizations.of(context)!.gender),
                   trailing: _editing
                       ? DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
@@ -413,7 +414,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
                 // Birthday
                 ListTile(
-                  title: const Text('Birthday'),
+                  title: Text(AppLocalizations.of(context)!.birthday),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
@@ -432,12 +433,12 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
                 // Country
                 ListTile(
-                  title: const Text('Country'),
+                  title: Text(AppLocalizations.of(context)!.country),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
                       _country == null
-                          ? Text('Not set', style: TextStyle(fontSize: 14, color: Colors.grey.shade400))
+                          ? Text(AppLocalizations.of(context)!.notSet, style: TextStyle(fontSize: 14, color: Colors.grey.shade400))
                           : Text('${_country!.flagEmoji} ${_country!.name}',
                               style: TextStyle(fontSize: 14, color: valueColor)),
                       if (_editing) ...<Widget>[
@@ -459,11 +460,11 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
                 // Language
                 ListTile(
-                  title: const Text('Language'),
+                  title: Text(AppLocalizations.of(context)!.language),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Text(_language.isEmpty ? 'Not set' : _language,
+                      Text(_language.isEmpty ? AppLocalizations.of(context)!.notSet : _language,
                           style: TextStyle(
                               fontSize: 14,
                               color: _language.isEmpty
@@ -483,7 +484,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Your ID is permanent and cannot be changed.',
+            AppLocalizations.of(context)!.yourIdIsPermanent,
             style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
           ),
           const SizedBox(height: 24),
@@ -513,7 +514,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
               );
             },
             icon: const Icon(Icons.person_search_rounded, size: 18),
-            label: const Text('View Public Profile'),
+            label: Text(AppLocalizations.of(context)!.viewPublicProfile),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(double.infinity, 48),
               shape: RoundedRectangleBorder(

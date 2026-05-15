@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../services/api_client.dart';
 import 'dart:io';
 import '../app_constants.dart';
+import '../l10n/app_localizations.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
@@ -187,7 +188,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final bool isTablet = MediaQuery.sizeOf(context).width >= tabletBreakpoint;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Zephyr Onboarding')),
+      appBar: AppBar(title: Text(AppLocalizations.of(context)!.goLiveInSeconds)),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: maxContentWidth),
@@ -197,7 +198,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               crossAxisAlignment: isTablet ? CrossAxisAlignment.center : CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'Go live in seconds',
+                  AppLocalizations.of(context)!.goLiveInSeconds,
                   style: TextStyle(
                     fontSize: isTablet ? 24 : 20,
                     fontWeight: FontWeight.w700,
@@ -222,10 +223,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                       child: Text(
                         _checkingApiStatus
-                            ? 'Checking API...'
+                            ? AppLocalizations.of(context)!.checkingApi
                             : (_apiReachable == true
-                                  ? 'API Connected'
-                                  : 'API Offline'),
+                                  ? AppLocalizations.of(context)!.apiConnected
+                                  : AppLocalizations.of(context)!.apiOffline),
                         style: TextStyle(
                           color: _checkingApiStatus
                               ? Colors.orange.shade700
@@ -238,7 +239,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                     ),
                     IconButton(
-                      tooltip: 'Refresh API status',
+                      tooltip: AppLocalizations.of(context)!.refreshApiStatus,
                       onPressed: _checkingApiStatus ? null : _refreshApiStatus,
                       icon: const Icon(Icons.refresh, size: 20),
                     ),
@@ -250,7 +251,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   child: ElevatedButton(
                     onPressed: _loading ? null : _continue,
                     child: Text(
-                      _loading ? 'Connecting...' : 'Continue as Guest',
+                      _loading ? AppLocalizations.of(context)!.connecting : AppLocalizations.of(context)!.continueAsGuest,
                     ),
                   ),
                 ),
@@ -271,7 +272,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                     ),
                     label: Text(
-                      _googleLoading ? 'Signing in...' : 'Continue with Google',
+                      _googleLoading ? AppLocalizations.of(context)!.signingIn : AppLocalizations.of(context)!.continueWithGoogle,
                     ),
                   ),
                 ),
@@ -288,8 +289,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       icon: const Icon(Icons.apple),
                       label: Text(
                         _appleLoading
-                            ? 'Signing in...'
-                            : 'Continue with Apple',
+                            ? AppLocalizations.of(context)!.signingIn
+                            : AppLocalizations.of(context)!.continueWithApple,
                       ),
                     ),
                   ),
