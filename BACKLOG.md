@@ -22,9 +22,15 @@
 - [ ] **Google Play Developer account** — $25 once — unlocks Play Store
 
 ### Error Observability (blind in production without this)
-- [ ] **Sentry** — integrate `sentry_flutter` + `sentry` (NestJS) — catches crashes, API errors, unhandled exceptions; free tier sufficient for MVP
-- [ ] Backend: structured error logging — log message send failures, socket errors, DB query failures
-- [ ] No checksum needed at app layer — TCP/TLS handles integrity. What we DO need: idempotency key on `sendMessage` to prevent duplicate sends on retry
+- [ ] **Sentry Flutter** — `sentry_flutter` package; catches all uncaught exceptions, Flutter errors, ANRs; free tier sufficient for MVP. Init in `main.dart` before `runApp()`.
+- [ ] **Sentry NestJS** — `@sentry/nestjs` on backend; catches unhandled exceptions, failed DB queries, 500 errors. Add to `app.module.ts`.
+- [ ] **Sentry source maps** — upload Flutter/Dart symbols so stack traces are readable in production (not obfuscated)
+- [ ] **Custom Sentry breadcrumbs** — log key events: socket connect/disconnect, message send, markRead, login — so we can replay what happened before a crash
+
+### Message Robustness (no silent failures)
+- [ ] **Idempotency key on sendMessage** — generate UUID client-side before HTTP call; include as `X-Idempotency-Key` header; backend rejects duplicate within 60s window — prevents double-send on network retry
+- [ ] **Send failure UI** — if `sendMessage` HTTP call fails, show red `!` on the message bubble with a retry tap; currently fails silently
+- [ ] **Optimistic send** — append message to thread immediately with a "pending" state before server confirms; flip to confirmed on success, red on failure (+4pts messaging score)
 
 ### Remove before production
 - [ ] Mock feed cards (`[Mock] SarahBusy`, `[Mock] TaniaOnline`, `[Mock] MikeOffline`)
