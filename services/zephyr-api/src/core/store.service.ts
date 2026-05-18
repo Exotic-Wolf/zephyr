@@ -1358,11 +1358,15 @@ export class StoreService {
       }>(
         `
           SELECT id, sender_id, receiver_id, body, read_at, created_at
-          FROM messages
-          WHERE (sender_id = $1 AND receiver_id = $2)
-             OR (sender_id = $2 AND receiver_id = $1)
+          FROM (
+            SELECT id, sender_id, receiver_id, body, read_at, created_at
+            FROM messages
+            WHERE (sender_id = $1 AND receiver_id = $2)
+               OR (sender_id = $2 AND receiver_id = $1)
+            ORDER BY created_at DESC
+            LIMIT $3
+          ) sub
           ORDER BY created_at ASC
-          LIMIT $3
         `,
         [userId, partnerId, normalizedLimit],
       );
