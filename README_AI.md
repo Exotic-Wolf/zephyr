@@ -57,6 +57,58 @@ flutter build apk --debug --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onr
 
 ---
 
+## Current status (as of 19 May 2026)
+
+### Latest commit: `4336edf3`
+
+### ✅ Completed (session 18–19 May 2026)
+
+- **Inbox badge 99+ cap** — changed from `9+` to `99+`
+- **Badge real-time via socket** — `_inboxUnread++` on `chat:message`; explicit `chat:join` emitted on every `connect` event in home_screen and thread_page; survives Render server restarts
+- **Badge initial count from API** — `getConversations` summed on launch so badge is accurate from first load
+- **Badge server reconciliation** — resyncs from `getConversations` on socket reconnect AND on `AppLifecycleState.resumed` (app foreground). Server is always the source of truth.
+- **Thread missing messages fixed** — `getThread` was `ORDER BY created_at ASC LIMIT 50` (returned oldest 50). Fixed to DESC subquery re-sorted ASC (returns latest 50). Root cause: 52+ messages in thread, newest 2 always cut off.
+- **Read receipts (✓/✓✓)** — single tick sent, double tick seen. Thread resyncs from API on socket reconnect to catch missed `chat:read` events.
+- **Socket room stability** — explicit `chat:join` on every `connect` callback. `_socketConnectedOnce` flag prevents double `_load()` on first connect.
+
+### ⚠️ Known issues / warnings
+
+- Mock cards (`[Mock] SarahBusy`, `[Mock] TaniaOnline`, `[Mock] MikeOffline`) still in feed — remove before production
+- Mock `_followingIds` hardcoded in `_loadData` — remove before production
+- Debug logs (`[socket]`, `[chat-socket]`) still in `home_screen.dart` — remove before production
+- No push notifications — badge is 0 when app is killed (biggest UX gap)
+- No Apple Developer account — iOS App Store, TestFlight, APNs all blocked
+- No error logging/observability — crashes and API failures are silent in production
+
+### 🚫 Hard blockers to ship
+
+| Blocker | Solution | Cost |
+|---|---|---|
+| No push notifications | Build FCM (Android now, iOS after account) | Free |
+| No Apple Developer account | Enroll at developer.apple.com | $99/year (~Rs 4,550) |
+| No Google Play account | Enroll at play.google.com/console | $25 once (~Rs 1,150) |
+| No error observability | Integrate Sentry | Free tier |
+
+### 📊 Messaging system score vs Chamet: **78/100**
+
+| Gap | Impact |
+|---|---|
+| Push notifications (app closed/background) | -12 pts — critical |
+| Typing indicator | -5 pts — polish |
+| Emoji/sticker sending | -3 pts — polish |
+| Gift sending from DM thread | -2 pts — post-launch |
+
+Push notifications alone → **90/100**. That's the only critical gap.
+
+### 🏗️ Architecture decisions locked in
+
+- **Socket.IO** = foreground real-time (correct, same as WhatsApp/Telegram, cannot be replaced by push)
+- **FCM/APNs** = background/killed state (push notifications, OS sets badge atomically)
+- **Server always truth** — `getConversations` is the authoritative unread count. Socket only does optimistic increments.
+- **On reconnect** — both home screen (badge) and thread page (messages) resync from API
+
+---
+
 ## Current status (as of 12 May 2026)
 
 ### Latest commit: `b323f4ea`

@@ -43,7 +43,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _roomTitleController = TextEditingController();
   final PageController _feedController = PageController();
   UserProfile? _me;
@@ -91,11 +91,27 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadData();
     _refreshApiStatus();
     _connectFeedSocket();
     // Safety net: poll every 5s in case socket drops or hasn't connected yet
     _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App came to foreground — resync badge from server (source of truth)
+      widget.apiClient.getConversations(widget.accessToken).then((convos) {
+        if (!mounted) return;
+        if (_selectedTabIndex != 3) {
+          setState(() {
+            _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
+          });
+        }
+      }).ignore();
+    }
   }
 
   void _connectChatSocket() {
@@ -224,6 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _callTickTimer?.cancel();
     _feedPollTimer?.cancel();
     _feedSocket?.dispose();

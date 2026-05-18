@@ -1,40 +1,57 @@
 # Zephyr — Product Backlog
 
-## 🔴 Critical / Next Up
+> **Messaging score vs Chamet: 78/100** — push notifications alone takes it to 90/100.
+> **Hard blockers to ship**: Apple Developer account ($99/yr) + Google Play account ($25 once).
 
-### Go Live Feature
-- [ ] **Create Room flow** — "Go Live" button on Home tab, prompts for room title
-- [ ] **Live room screen** — host view with mic/camera controls, audience count, end stream button
-- [ ] **Viewer screen** — join a live room, see host, send reactions/gifts
-- [ ] **Real audio/video** — integrate Agora or LiveKit SDK for actual streaming
-- [ ] **Room discovery** — live rooms appear on Home feed in real time (currently mock data)
+---
 
-### Push Notifications
-- [ ] Store FCM device token per user in DB (new `device_tokens` table)
-- [ ] Backend: fire FCM push when message is sent (Firebase Admin SDK)
-- [ ] Flutter: `firebase_messaging` — request permission, get token, handle tap-to-open
-- [ ] Flutter: `flutter_local_notifications` — show notification with sender avatar + message preview
-- [ ] iOS: APNs key uploaded to Firebase console
-- [ ] iOS: Notification Service Extension for rich notifications (avatar image)
+## 🔴 Critical / Blockers
+
+### Push Notifications — the #1 gap vs Chamet
+- [ ] **Android FCM (do first)** — Firebase Admin SDK on backend, `firebase_messaging` on Flutter, store `device_token` per user in DB, fire push on `sendMessage`
+- [ ] **iOS APNs** — requires Apple Developer account first; upload APNs Auth Key (.p8) to Firebase console
+- [ ] Backend: `device_tokens` table — `user_id`, `token`, `platform` (android/ios), `updated_at`
+- [ ] Backend: send FCM push in `sendMessage` with `badge: unreadCount`, sender name, message preview
+- [ ] Flutter: request permission on launch, get FCM token, send to backend on login/token refresh
+- [ ] Flutter: tap-to-open — notification payload includes `senderId`, navigates directly to thread
+- [ ] Flutter: `flutter_local_notifications` — show in-app banner when app is foreground (since OS suppresses push when open)
+- [ ] iOS: Notification Service Extension — for rich notifications with sender avatar
+
+### Store Accounts (hard blockers to ship)
+- [ ] **Apple Developer account** — $99/year — unlocks App Store, TestFlight, APNs, real device testing
+- [ ] **Google Play Developer account** — $25 once — unlocks Play Store
+
+### Error Observability (blind in production without this)
+- [ ] **Sentry** — integrate `sentry_flutter` + `sentry` (NestJS) — catches crashes, API errors, unhandled exceptions; free tier sufficient for MVP
+- [ ] Backend: structured error logging — log message send failures, socket errors, DB query failures
+- [ ] No checksum needed at app layer — TCP/TLS handles integrity. What we DO need: idempotency key on `sendMessage` to prevent duplicate sends on retry
+
+### Remove before production
+- [ ] Mock feed cards (`[Mock] SarahBusy`, `[Mock] TaniaOnline`, `[Mock] MikeOffline`)
+- [ ] Mock `_followingIds` hardcoded in `_loadData`
+- [ ] Debug logs `[socket]`, `[chat-socket]` in `home_screen.dart`
 
 ---
 
 ## 🟡 High Priority
 
-- [x] **Unread badge on Inbox tab** — real-time WebSocket (chat:join on reconnect), initial count from API on launch, 99+ cap, clears on open; resyncs from API on socket reconnect to recover missed messages
-- [x] **Thread missing messages** — `getThread` was returning oldest 50 (ASC LIMIT), now returns latest 50 (DESC LIMIT subquery re-sorted ASC)
-- [x] **Socket room stability** — explicit `chat:join` emitted on every `connect` event in both home screen and thread; survives server restarts without losing room membership
+- [x] **Unread badge on Inbox tab** — real-time socket increment; initial count from API on launch; 99+ cap; clears on open; resyncs from `getConversations` on socket reconnect AND `AppLifecycleState.resumed`
+- [x] **Thread missing messages** — `getThread` now returns latest 50 (DESC LIMIT subquery re-sorted ASC)
+- [x] **Socket room stability** — explicit `chat:join` on every `connect`; `_socketConnectedOnce` flag; thread resyncs `_load()` on reconnect
+- [ ] **Optimistic message send** — message appears instantly in thread before server confirms (currently waits for HTTP response) — +4pts messaging score
 - [ ] **Follow / unfollow UI** — Follow button on ProfilePage, follower/following counts (backend done)
-- [ ] **Onboarding flow** — first-launch screen for new users: set nickname, pick country/language
+- [ ] **Onboarding flow** — first-launch screen: set nickname, pick country/language
 
 ---
 
 ## 🟠 Medium Priority
 
-- [ ] **Profile editing** — verify country, language, birthday save and display correctly end-to-end
-- [ ] **Wallet / coins UI** — balance display, transaction history screen (backend fully done)
-- [ ] **Gift sending in live rooms** — send coins as gifts to hosts during a stream
-- [ ] **Block / report user** — safety feature, backend not yet built
+- [ ] **Typing indicator** — "..." bubble when other user is typing (+5pts messaging score vs Chamet)
+- [ ] **Message pagination** — scroll up to load older messages beyond the 50-message window
+- [ ] **Profile editing** — verify country, language, birthday save/display correctly end-to-end
+- [ ] **Wallet / coins UI** — balance display, transaction history (backend fully done)
+- [ ] **Gift sending from DM thread** — send coins as gift directly from thread (+2pts vs Chamet)
+- [ ] **Block / report user** — safety feature, backend not built
 
 ---
 
@@ -42,8 +59,9 @@
 
 - [ ] **App icon** — replace default Flutter icon with Zephyr brand icon
 - [ ] **Splash screen** — branded launch screen
-- [ ] **Dark mode** — respect system dark mode preference
+- [ ] **Emoji/sticker sending** — basic emoji picker in thread (+3pts vs Chamet)
 - [ ] **Typing indicator** — "..." when other user is typing
+- [ ] **Dark mode** — respect system preference
 
 ---
 
@@ -51,8 +69,8 @@
 
 - [ ] **TestFlight** — iOS release build, App Store Connect submission
 - [ ] **Play Store** — Android release build, signed APK/AAB, store listing
-- [ ] **Calls feature** — 1-on-1 audio/video call (was scrapped, may revisit)
-- [ ] **Web admin panel** — moderate users, manage rooms, view analytics
+- [ ] **Calls feature** — 1-on-1 audio/video call (scrapped, may revisit)
+- [ ] **Web admin panel** — moderate users, manage rooms, analytics
 
 ---
 
