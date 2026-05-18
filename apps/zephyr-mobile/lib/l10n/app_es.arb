@@ -191,6 +191,8 @@
 
   "logout": "Cerrar sesión",
   "@logout": {},
+  "logoutConfirm": "¿Estás seguro de que quieres cerrar sesión?",
+  "@logoutConfirm": {},
 
   "systemDefault": "Predeterminado del sistema",
   "@systemDefault": {},

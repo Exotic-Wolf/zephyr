@@ -190,6 +190,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logout => 'Logout';
 
   @override
+  String get logoutConfirm => 'Are you sure you want to sign out?';
+
+  @override
   String get systemDefault => 'System default';
 
   @override

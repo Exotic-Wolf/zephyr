@@ -8,7 +8,6 @@ import '../flags.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../widgets/coin_icon.dart';
-import '../widgets/zephyr_mascot.dart';
 import 'explore_page.dart';
 import 'go_live_countdown_page.dart';
 import 'inbox_page.dart';
@@ -398,10 +397,6 @@ class _HomeScreenState extends State<HomeScreen> {
       // ignore network errors silently — next poll will retry
       debugPrint('[feed poll] error: $e');
     }
-  }
-
-  Future<void> _refreshHome() async {
-    await Future.wait(<Future<void>>[_loadData(), _refreshApiStatus()]);
   }
 
   Future<void> _loadCallQuote() async {
@@ -1462,6 +1457,7 @@ class _HomeScreenState extends State<HomeScreen> {
           me: _me,
           apiClient: widget.apiClient,
           accessToken: widget.accessToken,
+          onLogout: widget.onLogout,
         ),
       ),
     );
@@ -1760,17 +1756,6 @@ class _HomeScreenState extends State<HomeScreen> {
               iconSize: 20,
               onPressed: () {},
               icon: const Icon(Icons.emoji_events_outlined),
-            ),
-          ] else ...<Widget>[
-            IconButton(
-              tooltip: l10n.refresh,
-              onPressed: _loading ? null : _refreshHome,
-              icon: const Icon(Icons.refresh),
-            ),
-            IconButton(
-              tooltip: l10n.logout,
-              onPressed: widget.onLogout,
-              icon: const Icon(Icons.logout),
             ),
           ],
         ],

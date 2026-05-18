@@ -191,6 +191,8 @@
 
   "logout": "Sair",
   "@logout": {},
+  "logoutConfirm": "Tem certeza que deseja sair?",
+  "@logoutConfirm": {},
 
   "systemDefault": "Padrão do sistema",
   "@systemDefault": {},

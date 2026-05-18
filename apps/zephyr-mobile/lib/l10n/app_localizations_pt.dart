@@ -190,6 +190,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get logout => 'Sair';
 
   @override
+  String get logoutConfirm => 'Tem certeza que deseja sair?';
+
+  @override
   String get systemDefault => 'Padrão do sistema';
 
   @override

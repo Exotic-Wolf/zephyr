@@ -166,9 +166,60 @@ class _ThreadPageState extends State<ThreadPage> {
   }
 
   String _formatTime(DateTime dt) {
-    final String h = dt.hour.toString().padLeft(2, '0');
-    final String m = dt.minute.toString().padLeft(2, '0');
+    final DateTime local = dt.toLocal();
+    final String h = local.hour.toString().padLeft(2, '0');
+    final String m = local.minute.toString().padLeft(2, '0');
     return '$h:$m';
+  }
+
+  bool _isDifferentDay(DateTime a, DateTime b) {
+    final DateTime la = a.toLocal();
+    final DateTime lb = b.toLocal();
+    return la.year != lb.year || la.month != lb.month || la.day != lb.day;
+  }
+
+  String _formatDateHeader(DateTime dt) {
+    final DateTime local = dt.toLocal();
+    final DateTime now = DateTime.now();
+    final DateTime today = DateTime(now.year, now.month, now.day);
+    final DateTime msgDay = DateTime(local.year, local.month, local.day);
+    final int diffDays = today.difference(msgDay).inDays;
+    if (diffDays == 0) return 'Today';
+    if (diffDays == 1) return 'Yesterday';
+    const List<String> months = <String>[
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    if (local.year == now.year) {
+      const List<String> weekdays = <String>[
+        'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
+      ];
+      return '${weekdays[local.weekday - 1]}, ${local.day} ${months[local.month - 1]}';
+    }
+    return '${local.day} ${months[local.month - 1]} ${local.year}';
+  }
+
+  Widget _buildDateHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: <Widget>[
+          const Expanded(child: Divider()),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade500,
+              ),
+            ),
+          ),
+          const Expanded(child: Divider()),
+        ],
+      ),
+    );
   }
 
   @override
@@ -224,7 +275,17 @@ class _ThreadPageState extends State<ThreadPage> {
                           final ZephyrMessage msg = _messages[i];
                           final bool isMe =
                               msg.senderId == widget.myUserId;
-                          return Align(
+                          final bool showHeader = i == 0 ||
+                              _isDifferentDay(
+                                  _messages[i - 1].createdAt,
+                                  msg.createdAt);
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: <Widget>[
+                              if (showHeader)
+                                _buildDateHeader(
+                                    _formatDateHeader(msg.createdAt)),
+                              Align(
                             alignment: isMe
                                 ? Alignment.centerRight
                                 : Alignment.centerLeft,
@@ -275,6 +336,8 @@ class _ThreadPageState extends State<ThreadPage> {
                                 ],
                               ),
                             ),
+                          ),
+                            ],
                           );
                         },
                       ),

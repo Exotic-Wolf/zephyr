@@ -10,6 +10,7 @@ import '../services/api_client.dart';
 import '../widgets/language_picker_sheet.dart';
 import 'profile_page.dart';
 import '../l10n/app_localizations.dart';
+import 'settings_page.dart';
 
 class MyProfilePage extends StatefulWidget {
   const MyProfilePage({
@@ -17,10 +18,12 @@ class MyProfilePage extends StatefulWidget {
     required this.me,
     required this.apiClient,
     required this.accessToken,
+    required this.onLogout,
   });
   final UserProfile? me;
   final ZephyrApiClient apiClient;
   final String accessToken;
+  final VoidCallback onLogout;
 
   @override
   State<MyProfilePage> createState() => _MyProfilePageState();
@@ -221,6 +224,15 @@ class _MyProfilePageState extends State<MyProfilePage> {
         ),
         title: Text(AppLocalizations.of(context)!.myProfile),
         actions: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: AppLocalizations.of(context)!.settings,
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => SettingsPage(onLogout: widget.onLogout),
+              ),
+            ),
+          ),
           if (_saving)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
@@ -522,6 +534,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
               ),
             ),
           ),
+          const SizedBox(height: 12),
         ],
       ),
     );

@@ -191,6 +191,8 @@
 
   "logout": "Logout",
   "@logout": {},
+  "logoutConfirm": "Are you sure you want to sign out?",
+  "@logoutConfirm": {},
 
   "systemDefault": "System default",
   "@systemDefault": {},

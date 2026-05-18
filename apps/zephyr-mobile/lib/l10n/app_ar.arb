@@ -191,6 +191,8 @@
 
   "logout": "تسجيل الخروج",
   "@logout": {},
+  "logoutConfirm": "هل أنت متأكد أنك تريد تسجيل الخروج؟",
+  "@logoutConfirm": {},
 
   "systemDefault": "افتراضي النظام",
   "@systemDefault": {},

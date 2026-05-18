@@ -62,6 +62,9 @@
 - [x] **Mascot PNG background** — stripped solid dark background via flood-fill; image is now transparent
 - [x] **Android adaptive icon** — added `adaptive_icon_background` + `adaptive_icon_foreground` to flutter_launcher_icons config; icon no longer shows white square on Android 8+
 - [x] **ProfilePage dark mode** — bottom bar and modal sheet respect system dark/light theme
+- [x] **Thread date separators** — messages now show "Today / Yesterday / Wed, 14 May / 14 May 2025" headers when the date changes between messages
+- [x] **Inbox header cleanup** — removed refresh + logout buttons from non-home tab AppBar
+- [x] **Settings page** — created `SettingsPage`; logout lives at Me → ⚙ Settings → Sign Out (one place, confirmation dialog)
 
 - [x] Auth — Google, Apple, Guest login (iOS + Android)
 - [x] Home tab — live feed cards, user cards, name/country filter

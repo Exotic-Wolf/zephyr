@@ -190,6 +190,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get logout => 'Cerrar sesión';
 
   @override
+  String get logoutConfirm => '¿Estás seguro de que quieres cerrar sesión?';
+
+  @override
   String get systemDefault => 'Predeterminado del sistema';
 
   @override
