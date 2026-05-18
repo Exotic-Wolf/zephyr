@@ -21,7 +21,7 @@
 
 ## 🟡 High Priority
 
-- [x] **Unread badge on Inbox tab** — real-time WebSocket (chat:join on reconnect), initial count from API on launch, 99+ cap, clears on open
+- [x] **Unread badge on Inbox tab** — real-time WebSocket (chat:join on reconnect), initial count from API on launch, 99+ cap, clears on open; resyncs from API on socket reconnect to recover missed messages
 - [x] **Thread missing messages** — `getThread` was returning oldest 50 (ASC LIMIT), now returns latest 50 (DESC LIMIT subquery re-sorted ASC)
 - [x] **Socket room stability** — explicit `chat:join` emitted on every `connect` event in both home screen and thread; survives server restarts without losing room membership
 - [ ] **Follow / unfollow UI** — Follow button on ProfilePage, follower/following counts (backend done)
