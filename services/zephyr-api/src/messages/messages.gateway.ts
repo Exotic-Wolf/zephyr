@@ -30,7 +30,6 @@ export class MessagesGateway implements OnGatewayInit, OnGatewayConnection {
     // Client sends userId via query param on connect for immediate room join
     const userId = client.handshake.query['userId'] as string | undefined;
     if (userId) {
-      console.log(`[gateway] socket connected, joining room=${userId} socketId=${client.id}`);
       void client.join(userId);
     }
   }
@@ -45,7 +44,6 @@ export class MessagesGateway implements OnGatewayInit, OnGatewayConnection {
 
   emitNewMessage(message: Message): void {
     // Only push to receiver — sender already appended optimistically in the app
-    console.log(`[gateway] emitNewMessage → room=${message.receiverId} msgId=${message.id}`);
     this.server.to(message.receiverId).emit('chat:message', { message });
   }
 

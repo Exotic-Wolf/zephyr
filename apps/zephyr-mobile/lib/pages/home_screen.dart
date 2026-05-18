@@ -111,12 +111,11 @@ class _HomeScreenState extends State<HomeScreen> {
           .disableAutoConnect()
           .build(),
     )
-      ..on('connect', (_) => debugPrint('[chat-socket] connected, userId=$userId'))
-      ..on('disconnect', (_) => debugPrint('[chat-socket] disconnected'))
-      ..on('connect_error', (dynamic e) => debugPrint('[chat-socket] connect_error: $e'))
+      ..on('connect', (_) {
+        _chatSocket?.emit('chat:join', userId); // explicit room join as fallback
+      })
       ..on('chat:message', (dynamic data) {
         if (!mounted) return;
-        debugPrint('[chat-socket] chat:message received');
         // Only bump badge if not currently on Inbox tab
         if (_selectedTabIndex != 3) {
           setState(() => _inboxUnread++);
@@ -309,7 +308,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _me = me;
       });
       // Connect chat socket now that we have userId
-      debugPrint('[chat-socket] _loadData done, _me.id=${_me?.id}, calling _connectChatSocket');
       if (_chatSocket == null) _connectChatSocket();
     } catch (error) {
       setState(() {

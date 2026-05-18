@@ -73,6 +73,9 @@ class _ThreadPageState extends State<ThreadPage> {
           .disableAutoConnect()
           .build(),
     )
+      ..on('connect', (_) {
+        _socket?.emit('chat:join', widget.myUserId); // explicit room join as fallback
+      })
       ..on('chat:read', (dynamic data) {
         if (!mounted) return;
         try {
