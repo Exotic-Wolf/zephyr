@@ -233,6 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
         widget.apiClient.getWalletSummary(widget.accessToken),
         widget.apiClient.listCoinPacks(),
         widget.apiClient.getFollowingIds(widget.accessToken),
+        widget.apiClient.getConversations(widget.accessToken),
       ]);
 
       final UserProfile me = data[0] as UserProfile;
@@ -240,6 +241,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final WalletSummary wallet = data[2] as WalletSummary;
       final Set<String> followingIds = data[4] as Set<String>;
       final List<CoinPack> packs = data[3] as List<CoinPack>;
+      final List<ZephyrConversation> conversations = data[5] as List<ZephyrConversation>;
 
       if (!mounted) {
         return;
@@ -306,6 +308,10 @@ class _HomeScreenState extends State<HomeScreen> {
             ? 0
             : _activeFeedIndex.clamp(0, feedCards.length - 1);
         _me = me;
+        // Set initial unread badge from persisted conversation counts
+        if (_selectedTabIndex != 3) {
+          _inboxUnread = conversations.fold(0, (int sum, ZephyrConversation c) => sum + c.unreadCount);
+        }
       });
       // Connect chat socket now that we have userId
       if (_chatSocket == null) _connectChatSocket();
