@@ -70,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _feedPollTimer;
   sio.Socket? _feedSocket;
   sio.Socket? _chatSocket;
+  bool _chatSocketConnectedOnce = false;
   int _inboxUnread = 0;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
@@ -112,7 +113,20 @@ class _HomeScreenState extends State<HomeScreen> {
           .build(),
     )
       ..on('connect', (_) {
-        _chatSocket?.emit('chat:join', userId); // explicit room join as fallback
+        _chatSocket?.emit('chat:join', userId);
+        if (_chatSocketConnectedOnce) {
+          // Reconnect: resync badge from API to recover missed messages
+          widget.apiClient.getConversations(widget.accessToken).then((convos) {
+            if (!mounted) return;
+            if (_selectedTabIndex != 3) {
+              setState(() {
+                _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
+              });
+            }
+          }).ignore();
+        } else {
+          _chatSocketConnectedOnce = true;
+        }
       })
       ..on('chat:message', (dynamic data) {
         if (!mounted) return;
