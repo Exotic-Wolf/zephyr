@@ -111,18 +111,16 @@ class _HomeScreenState extends State<HomeScreen> {
           .disableAutoConnect()
           .build(),
     )
+      ..on('connect', (_) => debugPrint('[chat-socket] connected, userId=$userId'))
+      ..on('disconnect', (_) => debugPrint('[chat-socket] disconnected'))
+      ..on('connect_error', (dynamic e) => debugPrint('[chat-socket] connect_error: $e'))
       ..on('chat:message', (dynamic data) {
         if (!mounted) return;
-        // Refresh conversation cache
-        widget.apiClient.getConversations(widget.accessToken).then((convos) {
-          MessageCache.instance.conversations = convos;
-          if (!mounted) return;
-          // Only bump badge if not currently on Inbox tab
-          if (_selectedTabIndex != 3) {
-            final int unread = convos.fold(0, (int sum, ZephyrConversation c) => sum + c.unreadCount);
-            setState(() => _inboxUnread = unread);
-          }
-        }).catchError((_) {});
+        debugPrint('[chat-socket] chat:message received');
+        // Only bump badge if not currently on Inbox tab
+        if (_selectedTabIndex != 3) {
+          setState(() => _inboxUnread++);
+        }
       })
       ..connect();
   }
@@ -311,6 +309,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _me = me;
       });
       // Connect chat socket now that we have userId
+      debugPrint('[chat-socket] _loadData done, _me.id=${_me?.id}, calling _connectChatSocket');
       if (_chatSocket == null) _connectChatSocket();
     } catch (error) {
       setState(() {
@@ -1836,12 +1835,12 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(
             icon: Badge(
               isLabelVisible: _inboxUnread > 0,
-              label: Text(_inboxUnread > 9 ? '9+' : '$_inboxUnread'),
+              label: Text(_inboxUnread > 99 ? '99+' : '$_inboxUnread'),
               child: Icon(Icons.chat_bubble_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
             ),
             selectedIcon: Badge(
               isLabelVisible: _inboxUnread > 0,
-              label: Text(_inboxUnread > 9 ? '9+' : '$_inboxUnread'),
+              label: Text(_inboxUnread > 99 ? '99+' : '$_inboxUnread'),
               child: const Icon(Icons.chat_bubble_rounded, color: Color(0xFFFF8F00)),
             ),
             label: l10n.inbox,
