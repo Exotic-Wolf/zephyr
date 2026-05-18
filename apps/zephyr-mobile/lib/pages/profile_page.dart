@@ -40,7 +40,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void _showCallSheet(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -57,7 +57,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: Colors.grey.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -142,10 +142,11 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final double bottomPad = MediaQuery.of(context).padding.bottom;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
+      backgroundColor: isDark ? null : const Color(0xFFF2F2F7),
       bottomNavigationBar: widget.isPreview ? null : Container(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
         padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
         child: Row(
           children: <Widget>[
@@ -176,7 +177,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     size: 18),
                 label: Text(AppLocalizations.of(context)!.messageButton),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.black87,
+                  foregroundColor: isDark ? Colors.white : Colors.black87,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: const RoundedRectangleBorder(
                     borderRadius: BorderRadius.only(
@@ -185,7 +186,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
                   side: BorderSide.none,
-                  backgroundColor: Colors.grey.shade200,
+                  backgroundColor: isDark ? const Color(0xFF2C2C2E) : Colors.grey.shade200,
                 ),
               ),
             ),
@@ -405,10 +406,10 @@ class _ProfilePageState extends State<ProfilePage> {
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor: _following
-                            ? Colors.grey.shade300
+                            ? (isDark ? const Color(0xFF3A3A3C) : Colors.grey.shade300)
                             : const Color(0xFF1FA4EA),
                         foregroundColor:
-                            _following ? Colors.black87 : Colors.white,
+                            _following ? (isDark ? Colors.white : Colors.black87) : Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -450,7 +451,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: isDark ? const Color(0xFF2C2C2E) : Colors.white,
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Text(

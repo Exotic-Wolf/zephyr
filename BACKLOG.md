@@ -58,6 +58,11 @@
 
 ## ✅ Done
 
+- [x] **Google G logo** — replaced broken CustomPainter (only painted 240°) with official SVG paths
+- [x] **Mascot PNG background** — stripped solid dark background via flood-fill; image is now transparent
+- [x] **Android adaptive icon** — added `adaptive_icon_background` + `adaptive_icon_foreground` to flutter_launcher_icons config; icon no longer shows white square on Android 8+
+- [x] **ProfilePage dark mode** — bottom bar and modal sheet respect system dark/light theme
+
 - [x] Auth — Google, Apple, Guest login (iOS + Android)
 - [x] Home tab — live feed cards, user cards, name/country filter
 - [x] Profile page — view profile, direct message button

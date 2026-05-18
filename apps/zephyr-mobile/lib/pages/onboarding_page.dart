@@ -1,10 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../models/models.dart';
 import '../services/api_client.dart';
-import 'dart:io';
 import '../app_constants.dart';
 import '../l10n/app_localizations.dart';
 
@@ -24,11 +26,9 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   late final GoogleSignIn _googleSignIn;
-  bool _loading = false;
   bool _googleLoading = false;
   bool _appleLoading = false;
-  bool _checkingApiStatus = true;
-  bool? _apiReachable;
+  bool _apiOffline = false;
   String? _error;
 
   @override
@@ -36,110 +36,41 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.initState();
     _googleSignIn = GoogleSignIn(
       scopes: <String>['email'],
-      serverClientId: googleServerClientId.isEmpty
-          ? null
-          : googleServerClientId,
+      serverClientId: googleServerClientId.isEmpty ? null : googleServerClientId,
     );
-    _refreshApiStatus();
+    _checkApi();
   }
 
-  Future<void> _refreshApiStatus() async {
-    setState(() {
-      _checkingApiStatus = true;
-    });
-
-    final bool isReachable = await widget.apiClient.ping();
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _apiReachable = isReachable;
-      _checkingApiStatus = false;
-    });
-  }
-
-  Future<void> _continue() async {
-    const String guestName = 'wolf';
-
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final AuthSession session = await widget.apiClient.guestLogin(guestName);
-      if (!mounted) {
-        return;
-      }
-      widget.onLoginSuccess(session.accessToken);
-    } catch (error) {
-      setState(() {
-        _error = error.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-        });
-      }
-    }
+  Future<void> _checkApi() async {
+    final bool ok = await widget.apiClient.ping();
+    if (mounted) setState(() => _apiOffline = !ok);
   }
 
   Future<void> _continueWithGoogle() async {
-    setState(() {
-      _googleLoading = true;
-      _error = null;
-    });
-
+    setState(() { _googleLoading = true; _error = null; });
     try {
       final GoogleSignInAccount? account = await _googleSignIn.signIn();
       if (account == null) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _error = 'Google sign-in canceled.';
-        });
+        if (mounted) setState(() => _error = 'Sign-in cancelled.');
         return;
       }
-
       final GoogleSignInAuthentication auth = await account.authentication;
       final String? idToken = auth.idToken;
       if (idToken == null || idToken.isEmpty) {
-        throw Exception(
-          'Google ID token not available. Set GOOGLE_SERVER_CLIENT_ID '
-          '(Web OAuth client ID) via --dart-define and retry.',
-        );
+        throw Exception('Google ID token unavailable. Ensure GOOGLE_SERVER_CLIENT_ID is set.');
       }
-
       final AuthSession session = await widget.apiClient.googleLogin(idToken);
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       widget.onLoginSuccess(session.accessToken);
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _error = error.toString();
-      });
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      if (mounted) {
-        setState(() {
-          _googleLoading = false;
-        });
-      }
+      if (mounted) setState(() => _googleLoading = false);
     }
   }
 
   Future<void> _continueWithApple() async {
-    setState(() {
-      _appleLoading = true;
-      _error = null;
-    });
-
+    setState(() { _appleLoading = true; _error = null; });
     try {
       final AuthorizationCredentialAppleID credential =
           await SignInWithApple.getAppleIDCredential(
@@ -148,163 +79,241 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               AppleIDAuthorizationScopes.fullName,
             ],
           );
-
       final String? idToken = credential.identityToken;
       if (idToken == null || idToken.isEmpty) {
-        throw Exception(
-          'Apple ID token not available from Sign in with Apple.',
-        );
+        throw Exception('Apple ID token unavailable.');
       }
-
       final AuthSession session = await widget.apiClient.appleLogin(
         idToken: idToken,
         email: credential.email,
         givenName: credential.givenName,
         familyName: credential.familyName,
       );
-
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       widget.onLoginSuccess(session.accessToken);
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _error = error.toString();
-      });
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      if (mounted) {
-        setState(() {
-          _appleLoading = false;
-        });
-      }
+      if (mounted) setState(() => _appleLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final bool isTablet = MediaQuery.sizeOf(context).width >= tabletBreakpoint;
+    final l10n = AppLocalizations.of(context)!;
+    final double screenH = MediaQuery.of(context).size.height;
+    final double bottomPad = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
-      appBar: AppBar(title: Text(AppLocalizations.of(context)!.goLiveInSeconds)),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: maxContentWidth),
-          child: SingleChildScrollView(
-            padding: EdgeInsets.all(isTablet ? 24 : 16),
-            child: Column(
-              crossAxisAlignment: isTablet ? CrossAxisAlignment.center : CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  AppLocalizations.of(context)!.goLiveInSeconds,
-                  style: TextStyle(
-                    fontSize: isTablet ? 24 : 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: <Widget>[
-                    Expanded(child: Text('API: ${widget.apiClient.baseUrl}')),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _checkingApiStatus
-                            ? Colors.orange.shade50
-                            : (_apiReachable == true
-                                  ? Colors.green.shade50
-                                  : Colors.red.shade50),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        _checkingApiStatus
-                            ? AppLocalizations.of(context)!.checkingApi
-                            : (_apiReachable == true
-                                  ? AppLocalizations.of(context)!.apiConnected
-                                  : AppLocalizations.of(context)!.apiOffline),
-                        style: TextStyle(
-                          color: _checkingApiStatus
-                              ? Colors.orange.shade700
-                              : (_apiReachable == true
-                                    ? Colors.green.shade700
-                                    : Colors.red.shade700),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: AppLocalizations.of(context)!.refreshApiStatus,
-                      onPressed: _checkingApiStatus ? null : _refreshApiStatus,
-                      icon: const Icon(Icons.refresh, size: 20),
-                    ),
+      backgroundColor: const Color(0xFF150805),
+      body: Stack(
+        children: <Widget>[
+          // ── Gradient background ───────────────────────────────────────────
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: <Color>[
+                    Color(0xFF150805),
+                    Color(0xFF1E0A06),
+                    Color(0xFF150805),
                   ],
+                  stops: <double>[0.0, 0.5, 1.0],
                 ),
-                SizedBox(height: isTablet ? 20 : 16),
+              ),
+            ),
+          ),
+
+          // ── Content ───────────────────────────────────────────────────────
+          SafeArea(
+            child: Column(
+              children: <Widget>[
+                // ── Top: mascot branding (60% of screen) ─────────────────
                 SizedBox(
-                  width: isTablet ? 320 : double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _loading ? null : _continue,
-                    child: Text(
-                      _loading ? AppLocalizations.of(context)!.connecting : AppLocalizations.of(context)!.continueAsGuest,
+                  height: screenH * 0.58,
+                  child: Center(
+                    child: Image.asset(
+                      'assets/images/zephyr_mascot.png',
+                      width: MediaQuery.of(context).size.width * 0.85,
+                      fit: BoxFit.contain,
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: isTablet ? 320 : double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _googleLoading ? null : _continueWithGoogle,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4285F4),
-                      foregroundColor: Colors.white,
-                    ),
-                    icon: const Text(
-                      'G',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    label: Text(
-                      _googleLoading ? AppLocalizations.of(context)!.signingIn : AppLocalizations.of(context)!.continueWithGoogle,
+
+                // ── Bottom: buttons ───────────────────────────────────────
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(28, 0, 28, bottomPad + 24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: <Widget>[
+                        // Offline warning
+                        if (_apiOffline)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                const Icon(Icons.wifi_off_rounded,
+                                    color: Colors.orange, size: 16),
+                                const SizedBox(width: 6),
+                                Text(
+                                  l10n.apiOffline,
+                                  style: const TextStyle(
+                                      color: Colors.orange,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        // Google button
+                        _SignInButton(
+                          onTap: _googleLoading || _appleLoading
+                              ? null
+                              : _continueWithGoogle,
+                          loading: _googleLoading,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              // Google "G" logo colours
+                              if (!_googleLoading)
+                                const _GoogleLogo(),
+                              if (!_googleLoading) const SizedBox(width: 10),
+                              Text(
+                                _googleLoading
+                                    ? l10n.signingIn
+                                    : l10n.continueWithGoogle,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: const Color(0xFF2A2A2A),
+                        ),
+
+                        if (Platform.isIOS) ...<Widget>[
+                          const SizedBox(height: 12),
+                          // Apple button
+                          _SignInButton(
+                            onTap: _googleLoading || _appleLoading
+                                ? null
+                                : _continueWithApple,
+                            loading: _appleLoading,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                if (!_appleLoading)
+                                  const Icon(Icons.apple,
+                                      color: Colors.white, size: 22),
+                                if (!_appleLoading) const SizedBox(width: 8),
+                                Text(
+                                  _appleLoading
+                                      ? l10n.signingIn
+                                      : l10n.continueWithApple,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            backgroundColor: Colors.black,
+                          ),
+                        ],
+
+                        // Error
+                        if (_error != null) ...<Widget>[
+                          const SizedBox(height: 16),
+                          Text(
+                            _error!,
+                            style: const TextStyle(
+                                color: Colors.redAccent, fontSize: 13),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
-                if (Platform.isIOS) ...<Widget>[
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: isTablet ? 320 : double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _appleLoading ? null : _continueWithApple,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black,
-                        foregroundColor: Colors.white,
-                      ),
-                      icon: const Icon(Icons.apple),
-                      label: Text(
-                        _appleLoading
-                            ? AppLocalizations.of(context)!.signingIn
-                            : AppLocalizations.of(context)!.continueWithApple,
-                      ),
-                    ),
-                  ),
-                ],
-                if (_error != null) ...<Widget>[
-                  const SizedBox(height: 12),
-                  Text(_error!, style: const TextStyle(color: Colors.red)),
-                ],
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Sign-in button ────────────────────────────────────────────────────────────
+
+class _SignInButton extends StatelessWidget {
+  const _SignInButton({
+    required this.child,
+    required this.backgroundColor,
+    required this.onTap,
+    required this.loading,
+  });
+
+  final Widget child;
+  final Color backgroundColor;
+  final VoidCallback? onTap;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: Material(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Center(
+            child: loading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
+                : child,
           ),
         ),
       ),
     );
+  }
+}
+
+// ── Google "G" logo (official SVG paths) ─────────────────────────────────────
+
+class _GoogleLogo extends StatelessWidget {
+  const _GoogleLogo();
+
+  // Official Google G logo paths (same as Google's sign-in button spec).
+  static const String _svg = '''
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+</svg>
+''';
+
+  @override
+  Widget build(BuildContext context) {
+    return SvgPicture.string(_svg, width: 20, height: 20);
   }
 }
 
