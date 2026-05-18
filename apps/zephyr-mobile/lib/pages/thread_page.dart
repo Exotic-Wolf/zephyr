@@ -56,7 +56,6 @@ class _ThreadPageState extends State<ThreadPage> {
     if (cached != null) {
       _messages = cached;
       _loading = false;
-      _scrollToBottom();
     }
     _load();
     _connectSocket();
@@ -137,20 +136,20 @@ class _ThreadPageState extends State<ThreadPage> {
           widget.apiClient.markMessageRead(widget.accessToken, m.id).ignore();
         }
       }
-      _scrollToBottom();
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool jump = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollCtrl.hasClients) {
-        _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
+      if (!_scrollCtrl.hasClients) return;
+      if (jump) {
+        _scrollCtrl.jumpTo(0);
+      } else {
+        _scrollCtrl.animateTo(0,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut);
       }
     });
   }
@@ -282,17 +281,19 @@ class _ThreadPageState extends State<ThreadPage> {
                             style: TextStyle(color: Colors.grey.shade500)),
                       )
                     : ListView.builder(
+                        reverse: true,
                         controller: _scrollCtrl,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 16),
                         itemCount: _messages.length,
                         itemBuilder: (BuildContext ctx, int i) {
-                          final ZephyrMessage msg = _messages[i];
+                          final int msgIdx = _messages.length - 1 - i;
+                          final ZephyrMessage msg = _messages[msgIdx];
                           final bool isMe =
                               msg.senderId == widget.myUserId;
-                          final bool showHeader = i == 0 ||
+                          final bool showHeader = msgIdx == 0 ||
                               _isDifferentDay(
-                                  _messages[i - 1].createdAt,
+                                  _messages[msgIdx - 1].createdAt,
                                   msg.createdAt);
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -353,12 +354,13 @@ class _ThreadPageState extends State<ThreadPage> {
                                                   : (isDark ? Colors.grey.shade500 : Colors.grey.shade400))),
                                       if (isMe) ...<Widget>[
                                         const SizedBox(width: 3),
-                                        Icon(
-                                          msg.readAt != null ? Icons.done_all : Icons.done,
-                                          size: 13,
-                                          color: msg.readAt != null
-                                              ? Colors.blue.shade200
-                                              : Colors.black45,
+                                        SizedBox(
+                                          width: 16,
+                                          child: Icon(
+                                            msg.readAt != null ? Icons.done_all : Icons.done,
+                                            size: 13,
+                                            color: Colors.white,
+                                          ),
                                         ),
                                       ],
                                     ],

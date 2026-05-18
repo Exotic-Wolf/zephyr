@@ -63,7 +63,7 @@
 - [x] **Thread date separators** — messages now show "Today / Yesterday / Wed, 14 May / 14 May 2025" headers when the date changes between messages
 - [x] **Inbox header cleanup** — removed refresh + logout buttons from non-home tab AppBar
 - [x] **Settings page** — created `SettingsPage`; logout lives at Me → ⚙ Settings → Sign Out (one place, confirmation dialog)
-- [x] **Message read receipts** — single tick (sent) / blue double tick (read) in chat bubbles via `readAt` field
+- [x] **Message read receipts** — single tick (sent) / double tick white (seen) in chat bubbles; real-time via WebSocket chat:read event, fixed-width container prevents layout shift on state change
 
 - [x] Auth — Google, Apple, Guest login (iOS + Android)
 - [x] Home tab — live feed cards, user cards, name/country filter
