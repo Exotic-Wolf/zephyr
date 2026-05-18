@@ -62,6 +62,8 @@ export class MessagesController {
     @Param('messageId', new ParseUUIDPipe()) messageId: string,
   ): Promise<Message> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
-    return this.storeService.markMessageRead(messageId, me.id);
+    const message = await this.storeService.markMessageRead(messageId, me.id);
+    this.messagesGateway.emitReadReceipt(message);
+    return message;
   }
 }

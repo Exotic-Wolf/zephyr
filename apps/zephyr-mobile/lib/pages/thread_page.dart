@@ -74,6 +74,21 @@ class _ThreadPageState extends State<ThreadPage> {
           .disableAutoConnect()
           .build(),
     )
+      ..on('chat:read', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final Map<String, dynamic> msgJson =
+              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final ZephyrMessage updated = ZephyrMessage.fromJson(msgJson);
+          final List<ZephyrMessage> next = _messages
+              .map((ZephyrMessage m) => m.id == updated.id ? updated : m)
+              .toList();
+          MessageCache.instance.threads[widget.otherUserId] = next;
+          setState(() => _messages = next);
+        } catch (_) {}
+      })
       ..on('chat:message', (dynamic data) {
         if (!mounted) return;
         try {
@@ -327,12 +342,27 @@ class _ThreadPageState extends State<ThreadPage> {
                                               ? Colors.black87
                                               : (isDark ? Colors.white : Colors.black87))),
                                   const SizedBox(height: 3),
-                                  Text(_formatTime(msg.createdAt),
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: isMe
-                                              ? Colors.black54
-                                              : (isDark ? Colors.grey.shade500 : Colors.grey.shade400))),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: <Widget>[
+                                      Text(_formatTime(msg.createdAt),
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              color: isMe
+                                                  ? Colors.black54
+                                                  : (isDark ? Colors.grey.shade500 : Colors.grey.shade400))),
+                                      if (isMe) ...<Widget>[
+                                        const SizedBox(width: 3),
+                                        Icon(
+                                          msg.readAt != null ? Icons.done_all : Icons.done,
+                                          size: 13,
+                                          color: msg.readAt != null
+                                              ? Colors.blue.shade200
+                                              : Colors.black45,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),

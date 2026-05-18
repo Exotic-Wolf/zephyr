@@ -21,7 +21,7 @@
 
 ## 🟡 High Priority
 
-- [ ] **Unread badge on Inbox tab** — red dot on nav icon when unread messages exist
+- [x] **Unread badge on Inbox tab** — already fully implemented (count badge, 9+ cap, clears on open)
 - [ ] **Follow / unfollow UI** — Follow button on ProfilePage, follower/following counts (backend done)
 - [ ] **Onboarding flow** — first-launch screen for new users: set nickname, pick country/language
 
@@ -38,11 +38,9 @@
 
 ## 🟢 Low Priority / Polish
 
-- [ ] **Go Live page** — swap stock TV icon with SparkIcon (custom flame widget) for brand consistency
 - [ ] **App icon** — replace default Flutter icon with Zephyr brand icon
 - [ ] **Splash screen** — branded launch screen
 - [ ] **Dark mode** — respect system dark mode preference
-- [ ] **Message read receipts UI** — show tick/double-tick in thread bubbles
 - [ ] **Typing indicator** — "..." when other user is typing
 
 ---
@@ -65,6 +63,7 @@
 - [x] **Thread date separators** — messages now show "Today / Yesterday / Wed, 14 May / 14 May 2025" headers when the date changes between messages
 - [x] **Inbox header cleanup** — removed refresh + logout buttons from non-home tab AppBar
 - [x] **Settings page** — created `SettingsPage`; logout lives at Me → ⚙ Settings → Sign Out (one place, confirmation dialog)
+- [x] **Message read receipts** — single tick (sent) / blue double tick (read) in chat bubbles via `readAt` field
 
 - [x] Auth — Google, Apple, Guest login (iOS + Android)
 - [x] Home tab — live feed cards, user cards, name/country filter

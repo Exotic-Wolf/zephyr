@@ -1532,6 +1532,40 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                   },
                 ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.logout, color: Colors.red),
+                  title: Text(
+                    AppLocalizations.of(context)!.logout,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                  onTap: () async {
+                    final bool? confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text(AppLocalizations.of(ctx)!.logout),
+                        content: Text(AppLocalizations.of(ctx)!.logoutConfirm),
+                        actions: <Widget>[
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: Text(AppLocalizations.of(ctx)!.cancel),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: Text(
+                              AppLocalizations.of(ctx)!.logout,
+                              style: const TextStyle(color: Colors.red),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      Navigator.of(context).popUntil((route) => route.isFirst);
+                      widget.onLogout();
+                    }
+                  },
+                ),
               ],
             ),
           );
@@ -1681,7 +1715,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                   ))
-            : Text(_titleForTab(l10n)),
+            : null,
         actions: <Widget>[
           if (_selectedTabIndex == 0) ...<Widget>[
             IconButton(
