@@ -48,4 +48,21 @@ export class FcmService implements OnModuleInit {
       this.logger.error('FCM sendPush error', err);
     }
   }
+
+  async sendReadReceiptPush(tokens: string[], messageId: string, readAt: string): Promise<void> {
+    if (!this.initialized || tokens.length === 0) return;
+    try {
+      await admin.messaging().sendEachForMulticast({
+        tokens,
+        data: { type: 'read_receipt', messageId, readAt },
+        android: { priority: 'high' },
+        apns: {
+          headers: { 'apns-push-type': 'background', 'apns-priority': '5' },
+          payload: { aps: { 'content-available': 1 } },
+        },
+      });
+    } catch (err) {
+      this.logger.error('FCM sendReadReceiptPush error', err);
+    }
+  }
 }

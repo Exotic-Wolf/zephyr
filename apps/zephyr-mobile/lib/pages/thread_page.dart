@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
@@ -48,6 +51,7 @@ class _ThreadPageState extends State<ThreadPage> {
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   sio.Socket? _socket;
+  StreamSubscription<RemoteMessage>? _fcmSub;
 
   @override
   void initState() {
@@ -59,6 +63,30 @@ class _ThreadPageState extends State<ThreadPage> {
     }
     _load();
     _connectSocket();
+    _fcmSub = FirebaseMessaging.onMessage.listen(_onFcmMessage);
+  }
+
+  void _onFcmMessage(RemoteMessage message) {
+    if (!mounted) return;
+    final data = message.data;
+    if (data['type'] != 'read_receipt') return;
+    final String? messageId = data['messageId'] as String?;
+    final String? readAtStr = data['readAt'] as String?;
+    if (messageId == null || readAtStr == null) return;
+    final DateTime readAt = DateTime.parse(readAtStr);
+    final List<ZephyrMessage> next = _messages.map((ZephyrMessage m) {
+      if (m.id != messageId) return m;
+      return ZephyrMessage(
+        id: m.id,
+        senderId: m.senderId,
+        receiverId: m.receiverId,
+        body: m.body,
+        createdAt: m.createdAt,
+        readAt: readAt,
+      );
+    }).toList();
+    MessageCache.instance.threads[widget.otherUserId] = next;
+    setState(() => _messages = next);
   }
 
   void _connectSocket() {
@@ -122,6 +150,7 @@ class _ThreadPageState extends State<ThreadPage> {
 
   @override
   void dispose() {
+    _fcmSub?.cancel();
     _socket?.dispose();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();

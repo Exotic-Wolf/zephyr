@@ -86,7 +86,14 @@ export class MessagesController {
   ): Promise<Message> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     const message = await this.storeService.markMessageRead(messageId, me.id);
+    // Socket: instant when sender is connected
     this.messagesGateway.emitReadReceipt(message);
+    // FCM: reliable fallback — reaches sender even if socket dropped
+    this.storeService.getDeviceTokens(message.senderId).then((tokens) => {
+      if (tokens.length > 0 && message.readAt) {
+        void this.fcmService.sendReadReceiptPush(tokens, message.id, message.readAt);
+      }
+    }).catch(() => {});
     return message;
   }
 }
