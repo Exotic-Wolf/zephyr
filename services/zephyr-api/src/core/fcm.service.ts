@@ -25,13 +25,19 @@ export class FcmService implements OnModuleInit {
   async sendPush(tokens: string[], title: string, body: string, data?: Record<string, string>): Promise<void> {
     if (!this.initialized || tokens.length === 0) return;
     try {
+      // tag = senderId so messages from the same person replace each other (no spam)
+      const tag = data?.senderId ?? 'default';
       const response = await admin.messaging().sendEachForMulticast({
         tokens,
         notification: { title, body },
         data: data ?? {},
         android: {
           priority: 'high',
-          notification: { sound: 'default' },
+          notification: { sound: 'default', tag },
+        },
+        apns: {
+          headers: { 'apns-collapse-id': tag },
+          payload: { aps: { sound: 'default' } },
         },
       });
       const failed = response.responses.filter((r) => !r.success).length;
