@@ -55,6 +55,8 @@ class _ThreadPageState extends State<ThreadPage> {
   final List<_FailedMessage> _failedMessages = <_FailedMessage>[];
   bool _loading = true;
   bool _sending = false;
+  bool _hasMore = false;
+  bool _loadingMore = false;
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   sio.Socket? _socket;
@@ -71,6 +73,12 @@ class _ThreadPageState extends State<ThreadPage> {
     _load();
     _connectSocket();
     _fcmSub = FirebaseMessaging.onMessage.listen(_onFcmMessage);
+    _scrollCtrl.addListener(() {
+      if (_scrollCtrl.position.pixels >=
+          _scrollCtrl.position.maxScrollExtent - 200) {
+        _loadMore();
+      }
+    });
   }
 
   void _onFcmMessage(RemoteMessage message) {
@@ -166,18 +174,48 @@ class _ThreadPageState extends State<ThreadPage> {
 
   Future<void> _load() async {
     try {
-      final List<ZephyrMessage> msgs = await widget.apiClient
+      final result = await widget.apiClient
           .getThread(widget.accessToken, widget.otherUserId);
-      MessageCache.instance.threads[widget.otherUserId] = msgs;
+      MessageCache.instance.threads[widget.otherUserId] = result.messages;
       if (!mounted) return;
-      setState(() { _messages = msgs; _loading = false; });
-      for (final ZephyrMessage m in msgs) {
+      setState(() {
+        _messages = result.messages;
+        _hasMore = result.hasMore;
+        _loading = false;
+      });
+      _scrollToBottom(jump: true);
+      for (final ZephyrMessage m in result.messages) {
         if (m.receiverId == widget.myUserId && m.readAt == null) {
           widget.apiClient.markMessageRead(widget.accessToken, m.id).ignore();
         }
       }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore || _messages.isEmpty) return;
+    setState(() => _loadingMore = true);
+    try {
+      final result = await widget.apiClient.getThread(
+        widget.accessToken,
+        widget.otherUserId,
+        before: _messages.first.createdAt,
+      );
+      if (!mounted) return;
+      final List<ZephyrMessage> merged = <ZephyrMessage>[
+        ...result.messages,
+        ..._messages,
+      ];
+      MessageCache.instance.threads[widget.otherUserId] = merged;
+      setState(() {
+        _messages = merged;
+        _hasMore = result.hasMore;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -325,8 +363,18 @@ class _ThreadPageState extends State<ThreadPage> {
                         controller: _scrollCtrl,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 16),
-                        itemCount: _messages.length + _failedMessages.length,
+                        itemCount: _messages.length +
+                            _failedMessages.length +
+                            (_loadingMore ? 1 : 0),
                         itemBuilder: (BuildContext ctx, int i) {
+                          // Spinner at the top (highest index in reversed list)
+                          if (_loadingMore &&
+                              i == _messages.length + _failedMessages.length) {
+                            return const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                            );
+                          }
                           // Failed messages sit at the bottom (lowest index = bottom in reversed list)
                           if (i < _failedMessages.length) {
                             final _FailedMessage failed =

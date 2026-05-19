@@ -167,17 +167,25 @@ class ZephyrApiClient {
         .toList();
   }
 
-  Future<List<ZephyrMessage>> getThread(
-      String accessToken, String userId) async {
+  Future<({List<ZephyrMessage> messages, bool hasMore})> getThread(
+      String accessToken, String userId, {DateTime? before}) async {
+    final String path = before != null
+        ? '/v1/messages/conversations/$userId?before=${Uri.encodeComponent(before.toUtc().toIso8601String())}'
+        : '/v1/messages/conversations/$userId';
     final dynamic data = await _request(
       method: 'GET',
-      path: '/v1/messages/conversations/$userId',
+      path: path,
       accessToken: accessToken,
     );
-    if (data is! List<dynamic>) throw Exception('Invalid thread response');
-    return data
-        .map((dynamic e) => ZephyrMessage.fromJson(e as Map<String, dynamic>))
-        .toList();
+    if (data is! Map<String, dynamic>) throw Exception('Invalid thread response');
+    final List<dynamic> msgs = data['messages'] as List<dynamic>;
+    final bool hasMore = data['hasMore'] as bool;
+    return (
+      messages: msgs
+          .map((dynamic e) => ZephyrMessage.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      hasMore: hasMore,
+    );
   }
 
   Future<void> registerDeviceToken(String accessToken, String token) async {

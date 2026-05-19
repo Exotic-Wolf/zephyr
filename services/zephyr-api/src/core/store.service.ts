@@ -1371,10 +1371,21 @@ export class StoreService {
     return convos.sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
   }
 
-  async getThread(userId: string, partnerId: string, limit = 50): Promise<Message[]> {
+  async getThread(
+    userId: string,
+    partnerId: string,
+    limit = 50,
+    before?: Date,
+  ): Promise<{ messages: Message[]; hasMore: boolean }> {
     const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
+    const fetchLimit = normalizedLimit + 1;
 
     if (this.databaseService?.isEnabled()) {
+      const params: (string | number)[] = [userId, partnerId, fetchLimit];
+      const beforeClause = before
+        ? `AND created_at < $${params.push(before.toISOString())}`
+        : '';
+
       const result = await this.databaseService.query<{
         id: string;
         sender_id: string;
@@ -1388,34 +1399,46 @@ export class StoreService {
           FROM (
             SELECT id, sender_id, receiver_id, body, read_at, created_at
             FROM messages
-            WHERE (sender_id = $1 AND receiver_id = $2)
-               OR (sender_id = $2 AND receiver_id = $1)
+            WHERE ((sender_id = $1 AND receiver_id = $2)
+               OR (sender_id = $2 AND receiver_id = $1))
+               ${beforeClause}
             ORDER BY created_at DESC
             LIMIT $3
           ) sub
           ORDER BY created_at ASC
         `,
-        [userId, partnerId, normalizedLimit],
+        params,
       );
 
-      return result.rows.map((row) => ({
-        id: row.id,
-        senderId: row.sender_id,
-        receiverId: row.receiver_id,
-        body: row.body,
-        readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
-        createdAt: new Date(row.created_at).toISOString(),
-      }));
+      const hasMore = result.rows.length > normalizedLimit;
+      const rows = hasMore ? result.rows.slice(0, normalizedLimit) : result.rows;
+      return {
+        messages: rows.map((row) => ({
+          id: row.id,
+          senderId: row.sender_id,
+          receiverId: row.receiver_id,
+          body: row.body,
+          readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
+          createdAt: new Date(row.created_at).toISOString(),
+        })),
+        hasMore,
+      };
     }
 
-    return [...this.inMemoryMessages.values()]
+    const all = [...this.inMemoryMessages.values()]
       .filter(
         (m) =>
           (m.senderId === userId && m.receiverId === partnerId) ||
           (m.senderId === partnerId && m.receiverId === userId),
       )
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .slice(0, normalizedLimit);
+      .filter((m) => !before || m.createdAt < before.toISOString())
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    const hasMore = all.length > normalizedLimit;
+    return {
+      messages: all.slice(0, normalizedLimit).reverse(),
+      hasMore,
+    };
   }
 
   async markMessageRead(messageId: string, userId: string): Promise<Message> {
