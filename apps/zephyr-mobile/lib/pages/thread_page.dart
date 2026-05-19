@@ -359,7 +359,7 @@ class _ThreadPageState extends State<ThreadPage> {
                                       const Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: <Widget>[
-                                          Icon(Icons.error_outline,
+                                          Icon(Icons.refresh,
                                               size: 13, color: Colors.white70),
                                           SizedBox(width: 3),
                                           Text('Failed · tap to retry',
