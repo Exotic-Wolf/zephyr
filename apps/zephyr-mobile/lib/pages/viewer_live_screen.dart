@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:socket_io_client/socket_io_client.dart' as sio;
@@ -253,7 +254,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
                         CircleAvatar(
                           radius: 14,
                           backgroundImage: widget.feedCard.hostAvatarUrl != null
-                              ? NetworkImage(widget.feedCard.hostAvatarUrl!)
+                              ? CachedNetworkImageProvider(widget.feedCard.hostAvatarUrl!)
                               : null,
                           child: widget.feedCard.hostAvatarUrl == null
                               ? Text(widget.feedCard.hostDisplayName[0].toUpperCase(),

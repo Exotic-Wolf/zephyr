@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
@@ -135,7 +136,7 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
                             backgroundColor:
                                 const Color(0xFFFF8F00).withValues(alpha: 0.15),
                             backgroundImage: c.avatarUrl != null
-                                ? NetworkImage(c.avatarUrl!)
+                                ? CachedNetworkImageProvider(c.avatarUrl!)
                                 : null,
                             child: c.avatarUrl == null
                                 ? Text(

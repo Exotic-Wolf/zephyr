@@ -11,6 +11,7 @@ class ZephyrApiClient {
   ZephyrApiClient({required this.baseUrl});
 
   final String baseUrl;
+  final HttpClient _httpClient = HttpClient();
 
   Future<bool> ping() async {
     try {
@@ -483,41 +484,36 @@ class ZephyrApiClient {
     Map<String, String>? extraHeaders,
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final HttpClient client = HttpClient();
 
-    try {
-      final HttpClientRequest request = switch (method) {
-        'POST' => await client.postUrl(uri),
-        'PATCH' => await client.patchUrl(uri),
-        'DELETE' => await client.deleteUrl(uri),
-        _ => await client.getUrl(uri),
-      };
+    final HttpClientRequest request = switch (method) {
+      'POST' => await _httpClient.postUrl(uri),
+      'PATCH' => await _httpClient.patchUrl(uri),
+      'DELETE' => await _httpClient.deleteUrl(uri),
+      _ => await _httpClient.getUrl(uri),
+    };
 
-      request.headers.contentType = ContentType.json;
-      if (accessToken != null) {
-        request.headers.set('authorization', 'Bearer $accessToken');
-      }
-      extraHeaders?.forEach(request.headers.set);
-
-      if (body != null) {
-        request.write(jsonEncode(body));
-      }
-
-      final HttpClientResponse response = await request.close();
-      final String responseBody = await response.transform(utf8.decoder).join();
-
-      if (response.statusCode < 200 || response.statusCode > 299) {
-        throw Exception('API ${response.statusCode}: $responseBody');
-      }
-
-      if (responseBody.isEmpty) {
-        return <String, dynamic>{};
-      }
-
-      return jsonDecode(responseBody);
-    } finally {
-      client.close();
+    request.headers.contentType = ContentType.json;
+    if (accessToken != null) {
+      request.headers.set('authorization', 'Bearer $accessToken');
     }
+    extraHeaders?.forEach(request.headers.set);
+
+    if (body != null) {
+      request.write(jsonEncode(body));
+    }
+
+    final HttpClientResponse response = await request.close();
+    final String responseBody = await response.transform(utf8.decoder).join();
+
+    if (response.statusCode < 200 || response.statusCode > 299) {
+      throw Exception('API ${response.statusCode}: $responseBody');
+    }
+
+    if (responseBody.isEmpty) {
+      return <String, dynamic>{};
+    }
+
+    return jsonDecode(responseBody);
   }
 }
 

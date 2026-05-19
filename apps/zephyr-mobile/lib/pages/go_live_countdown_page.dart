@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
@@ -124,7 +125,7 @@ class _GoLiveCountdownPageState extends State<GoLiveCountdownPage>
                   radius: 44,
                   backgroundColor: Colors.white12,
                   backgroundImage: widget.avatarUrl != null
-                      ? NetworkImage(widget.avatarUrl!)
+                      ? CachedNetworkImageProvider(widget.avatarUrl!)
                       : null,
                   child: widget.avatarUrl == null
                       ? Text(

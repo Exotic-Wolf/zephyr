@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
@@ -340,7 +341,7 @@ class _ExploreUserCard extends StatelessWidget {
                   backgroundColor:
                       const Color(0xFF1FA4EA).withValues(alpha: 0.15),
                   backgroundImage: profile.avatarUrl != null
-                      ? NetworkImage(profile.avatarUrl!)
+                      ? CachedNetworkImageProvider(profile.avatarUrl!)
                       : null,
                   child: profile.avatarUrl == null
                       ? Text(

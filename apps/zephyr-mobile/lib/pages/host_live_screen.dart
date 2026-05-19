@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
@@ -306,7 +307,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                         CircleAvatar(
                           radius: 14,
                           backgroundImage: widget.hostAvatarUrl != null
-                              ? NetworkImage(widget.hostAvatarUrl!)
+                              ? CachedNetworkImageProvider(widget.hostAvatarUrl!)
                               : null,
                           child: widget.hostAvatarUrl == null
                               ? Text(widget.hostDisplayName[0].toUpperCase(),
@@ -604,7 +605,7 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
                     leading: CircleAvatar(
                       radius: 18,
                       backgroundColor: Colors.white12,
-                      backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+                      backgroundImage: avatar != null ? CachedNetworkImageProvider(avatar) : null,
                       child: avatar == null
                           ? Text(name[0].toUpperCase(),
                               style: const TextStyle(color: Colors.white, fontSize: 14))

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -260,7 +261,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
                       backgroundColor: widget.me?.isAdmin == true
                           ? const Color(0xFFFFD700).withValues(alpha: 0.18)
                           : const Color(0xFFFF8F00).withValues(alpha: 0.15),
-                      backgroundImage: _avatarUrl != null ? NetworkImage(_avatarUrl!) : null,
+                      backgroundImage: _avatarUrl != null ? CachedNetworkImageProvider(_avatarUrl!) : null,
                       child: _avatarUrl == null
                           ? Text(
                               (widget.me?.displayName ?? 'M').substring(0, 1).toUpperCase(),

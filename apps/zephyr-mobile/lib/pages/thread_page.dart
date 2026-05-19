@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
@@ -329,7 +330,7 @@ class _ThreadPageState extends State<ThreadPage> {
               backgroundColor:
                   const Color(0xFFFF8F00).withValues(alpha: 0.15),
               backgroundImage: widget.otherAvatarUrl != null
-                  ? NetworkImage(widget.otherAvatarUrl!)
+                  ? CachedNetworkImageProvider(widget.otherAvatarUrl!)
                   : null,
               child: widget.otherAvatarUrl == null
                   ? Text(

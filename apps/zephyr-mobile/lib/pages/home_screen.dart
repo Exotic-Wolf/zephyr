@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' show pi, sin;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -1577,7 +1578,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         Card(
           child: ListTile(
             leading: CircleAvatar(
-              backgroundImage: _me?.avatarUrl != null ? NetworkImage(_me!.avatarUrl!) : null,
+              backgroundImage: _me?.avatarUrl != null ? CachedNetworkImageProvider(_me!.avatarUrl!) : null,
               child: _me?.avatarUrl == null ? const Icon(Icons.person_rounded) : null,
             ),
             title: Row(
