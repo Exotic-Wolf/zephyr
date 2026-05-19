@@ -44,8 +44,14 @@ class ThreadPage extends StatefulWidget {
   State<ThreadPage> createState() => _ThreadPageState();
 }
 
+class _FailedMessage {
+  _FailedMessage(this.text);
+  final String text;
+}
+
 class _ThreadPageState extends State<ThreadPage> {
   List<ZephyrMessage> _messages = <ZephyrMessage>[];
+  final List<_FailedMessage> _failedMessages = <_FailedMessage>[];
   bool _loading = true;
   bool _sending = false;
   final TextEditingController _inputCtrl = TextEditingController();
@@ -200,13 +206,10 @@ class _ThreadPageState extends State<ThreadPage> {
       MessageCache.instance.threads[widget.otherUserId] = updated;
       setState(() => _messages = updated);
       _scrollToBottom();
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context)!.failedToSend(e.toString())),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating),
-      );
+      setState(() => _failedMessages.add(_FailedMessage(text)));
+      _scrollToBottom();
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -318,9 +321,61 @@ class _ThreadPageState extends State<ThreadPage> {
                         controller: _scrollCtrl,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 16),
-                        itemCount: _messages.length,
+                        itemCount: _messages.length + _failedMessages.length,
                         itemBuilder: (BuildContext ctx, int i) {
-                          final int msgIdx = _messages.length - 1 - i;
+                          // Failed messages sit at the bottom (lowest index = bottom in reversed list)
+                          if (i < _failedMessages.length) {
+                            final _FailedMessage failed =
+                                _failedMessages[_failedMessages.length - 1 - i];
+                            return Align(
+                              alignment: Alignment.centerRight,
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() => _failedMessages.remove(failed));
+                                  _inputCtrl.text = failed.text;
+                                },
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(vertical: 3),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 10),
+                                  constraints: BoxConstraints(
+                                      maxWidth: MediaQuery.sizeOf(ctx).width * 0.72),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade700,
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(18),
+                                      topRight: Radius.circular(18),
+                                      bottomLeft: Radius.circular(18),
+                                      bottomRight: Radius.circular(4),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: <Widget>[
+                                      Text(failed.text,
+                                          style: const TextStyle(
+                                              fontSize: 15, color: Colors.white)),
+                                      const SizedBox(height: 3),
+                                      const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: <Widget>[
+                                          Icon(Icons.error_outline,
+                                              size: 13, color: Colors.white70),
+                                          SizedBox(width: 3),
+                                          Text('Failed · tap to retry',
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.white70)),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                          final int msgIdx =
+                              _messages.length - 1 - (i - _failedMessages.length);
                           final ZephyrMessage msg = _messages[msgIdx];
                           final bool isMe =
                               msg.senderId == widget.myUserId;
