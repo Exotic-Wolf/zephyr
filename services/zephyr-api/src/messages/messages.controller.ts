@@ -14,6 +14,7 @@ import {
   ParseIntPipe,
 } from '@nestjs/common';
 import { StoreService } from '../core/store.service';
+import { FcmService } from '../core/fcm.service';
 import type { Conversation, Message } from '../core/store.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { MessagesGateway } from './messages.gateway';
@@ -23,7 +24,18 @@ export class MessagesController {
   constructor(
     private readonly storeService: StoreService,
     private readonly messagesGateway: MessagesGateway,
+    private readonly fcmService: FcmService,
   ) {}
+
+  @Post('device-token')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async registerDeviceToken(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { token: string },
+  ): Promise<void> {
+    const me = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.upsertDeviceToken(me.id, body.token);
+  }
 
   @Post()
   async sendMessage(
@@ -34,6 +46,17 @@ export class MessagesController {
     const message = await this.storeService.sendMessage(me.id, body.receiverId, body.body);
     // Push to both sender and receiver in real time
     this.messagesGateway.emitNewMessage(message);
+    // Send FCM push to receiver
+    this.storeService.getDeviceTokens(body.receiverId).then((tokens) => {
+      if (tokens.length > 0) {
+        void this.fcmService.sendPush(
+          tokens,
+          me.displayName,
+          body.body,
+          { senderId: me.id, messageId: message.id },
+        );
+      }
+    }).catch(() => {});
     return message;
   }
 

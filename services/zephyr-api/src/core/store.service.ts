@@ -1225,6 +1225,25 @@ export class StoreService {
 
   private readonly inMemoryMessages = new Map<string, Message>();
 
+  async upsertDeviceToken(userId: string, token: string): Promise<void> {
+    if (!this.databaseService?.isEnabled()) return;
+    await this.databaseService.query(
+      `INSERT INTO device_tokens (user_id, token, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id, token) DO UPDATE SET updated_at = NOW()`,
+      [userId, token],
+    );
+  }
+
+  async getDeviceTokens(userId: string): Promise<string[]> {
+    if (!this.databaseService?.isEnabled()) return [];
+    const result = await this.databaseService.query<{ token: string }>(
+      `SELECT token FROM device_tokens WHERE user_id = $1`,
+      [userId],
+    );
+    return result.rows.map((r) => r.token);
+  }
+
   async sendMessage(senderId: string, receiverId: string, body: string): Promise<Message> {
     if (!body?.trim()) {
       throw new BadRequestException('Message body cannot be empty');

@@ -180,6 +180,15 @@ class ZephyrApiClient {
         .toList();
   }
 
+  Future<void> registerDeviceToken(String accessToken, String token) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/messages/device-token',
+      accessToken: accessToken,
+      body: <String, dynamic>{'token': token},
+    );
+  }
+
   Future<ZephyrMessage> sendMessage(
       String accessToken, String receiverId, String body) async {
     final dynamic data = await _request(

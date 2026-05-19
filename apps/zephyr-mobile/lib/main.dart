@@ -1,3 +1,5 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -19,9 +21,10 @@ const String googleServerClientId = String.fromEnvironment(
   defaultValue: '',
 );
 
-void main() {
+void main() async {
   WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+  await Firebase.initializeApp();
   runApp(const MyApp());
 }
 
@@ -57,7 +60,10 @@ class _MyAppState extends State<MyApp> {
       if (saved != null && saved.isNotEmpty) {
         try {
           await _apiClient.getMe(saved);
-          if (mounted) setState(() => _accessToken = saved);
+          if (mounted) {
+            setState(() => _accessToken = saved);
+            _registerFcmToken(saved);
+          }
         } catch (_) {
           await _storage.delete(key: _tokenKey);
         }
@@ -87,6 +93,18 @@ class _MyAppState extends State<MyApp> {
   void _onLoginSuccess(String accessToken) {
     _storage.write(key: _tokenKey, value: accessToken);
     setState(() => _accessToken = accessToken);
+    _registerFcmToken(accessToken);
+  }
+
+  Future<void> _registerFcmToken(String accessToken) async {
+    try {
+      final messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      final token = await messaging.getToken();
+      if (token != null) {
+        await _apiClient.registerDeviceToken(accessToken, token);
+      }
+    } catch (_) {}
   }
 
   void _onLogout() {

@@ -288,6 +288,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Startup cleanup: removed ${startupClean.rowCount} stale room(s).`);
     }
 
+    // Device tokens for push notifications
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token TEXT NOT NULL,
+        platform TEXT NOT NULL DEFAULT 'android',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, token)
+      )
+    `);
+
     // Periodic cleanup every 10s:
     //  - no heartbeat for 40s → dead (heartbeat sent every 15s, so 2.5x grace)
     //  - any room older than 30 min → dead (host gone / crashed / forgot to end)
