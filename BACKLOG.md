@@ -1,6 +1,6 @@
 # Zephyr — Product Backlog
 
-> **Messaging score vs Chamet: 78/100** — push notifications alone takes it to 90/100.
+> **Robustness score: 68/100** — core messaging solid, gaps: no pagination, no optimistic send, iOS push blocked, no idempotency key, mock data in prod.
 > **Hard blockers to ship**: Apple Developer account ($99/yr) + Google Play account ($25 once).
 
 ---
@@ -22,19 +22,21 @@
 - [ ] **Google Play Developer account** — $25 once — unlocks Play Store
 
 ### Error Observability (blind in production without this)
-- [ ] **Sentry Flutter** — `sentry_flutter` package; catches all uncaught exceptions, Flutter errors, ANRs; free tier sufficient for MVP. Init in `main.dart` before `runApp()`.
-- [ ] **Sentry NestJS** — `@sentry/nestjs` on backend; catches unhandled exceptions, failed DB queries, 500 errors. Add to `app.module.ts`.
+- [x] **Sentry Flutter** — `sentry_flutter` package; `SentryFlutter.init()` wraps `runApp()` in `main.dart`
+- [x] **Sentry NestJS** — `@sentry/nestjs` inlined in `main.ts`; correct DSN hardcoded
 - [ ] **Sentry source maps** — upload Flutter/Dart symbols so stack traces are readable in production (not obfuscated)
 - [ ] **Custom Sentry breadcrumbs** — log key events: socket connect/disconnect, message send, markRead, login — so we can replay what happened before a crash
 
 ### Message Robustness (no silent failures)
 - [ ] **Idempotency key on sendMessage** — generate UUID client-side before HTTP call; include as `X-Idempotency-Key` header; backend rejects duplicate within 60s window — prevents double-send on network retry
-- [ ] **Send failure UI** — if `sendMessage` HTTP call fails, show red `!` on the message bubble with a retry tap; currently fails silently
+- [x] **Send failure UI** — red bubble with `Icons.refresh` + "Failed · tap to retry"; tap restores text to input
 - [ ] **Optimistic send** — append message to thread immediately with a "pending" state before server confirms; flip to confirmed on success, red on failure (+4pts messaging score)
+- [ ] **Message pagination** — scroll up to load older messages; currently loads all at once — will break on long threads
+- [ ] **Inbox badge while in thread** — if a message arrives in another conversation while user is in a thread, the inbox badge doesn't update until they navigate back
 
 ### Needs testing
 - [ ] **Double tick via FCM** — send from iPhone, open thread on Android → verify double tick appears on iPhone in real-time (requires Render deploy + both apps running new build)
-- [ ] **Send failure UI** — disable network, send a message → verify red bubble appears with refresh icon "Failed · tap to retry" → re-enable network, tap bubble → verify message sends
+- [x] **Send failure UI** — disable network, send a message → verified red bubble appears with refresh icon "Failed · tap to retry" → re-enable network, tap bubble → message sends
 - [ ] **Logout stops push** — log in on Android, log out → verify no push notifications received after logout
 
 ### Remove before production
@@ -49,7 +51,8 @@
 - [x] **Unread badge on Inbox tab** — real-time socket increment; initial count from API on launch; 99+ cap; clears on open; resyncs from `getConversations` on socket reconnect AND `AppLifecycleState.resumed`
 - [x] **Thread missing messages** — `getThread` now returns latest 50 (DESC LIMIT subquery re-sorted ASC)
 - [x] **Socket room stability** — explicit `chat:join` on every `connect`; `_socketConnectedOnce` flag; thread resyncs `_load()` on reconnect
-- [ ] **Optimistic message send** — message appears instantly in thread before server confirms (currently waits for HTTP response) — +4pts messaging score
+- [ ] **Optimistic message send** — message appears instantly in thread before server confirms (currently waits for HTTP response)
+- [ ] **Message pagination** — moved to 🔴 Critical (will break on long threads)
 - [ ] **Follow / unfollow UI** — Follow button on ProfilePage, follower/following counts (backend done)
 - [ ] **Onboarding flow** — first-launch screen: set nickname, pick country/language
 
@@ -58,7 +61,7 @@
 ## 🟠 Medium Priority
 
 - [ ] **Typing indicator** — "..." bubble when other user is typing (+5pts messaging score vs Chamet)
-- [ ] **Message pagination** — scroll up to load older messages beyond the 50-message window
+- [x] **Message pagination** — moved to 🔴 Critical
 - [ ] **Profile editing** — verify country, language, birthday save/display correctly end-to-end
 - [ ] **Wallet / coins UI** — balance display, transaction history (backend fully done)
 - [ ] **Gift sending from DM thread** — send coins as gift directly from thread (+2pts vs Chamet)
@@ -95,6 +98,12 @@
 - [x] **Inbox header cleanup** — removed refresh + logout buttons from non-home tab AppBar
 - [x] **Settings page** — created `SettingsPage`; logout lives at Me → ⚙ Settings → Sign Out (one place, confirmation dialog)
 - [x] **Message read receipts** — single tick (sent) / double tick white (seen) in chat bubbles; real-time via WebSocket chat:read event, fixed-width container prevents layout shift on state change; thread resyncs from API on socket reconnect to catch missed events
+- [x] **FCM read receipts** — silent push alongside socket for reliable double-tick delivery even when socket drops
+- [x] **FCM token cleanup on logout** — `DELETE /v1/messages/device-token` called on logout; stops push notifications after sign-out
+- [x] **Badge 60s resync** — periodic timer resyncs unread count from API to prevent drift when socket is down
+- [x] **Send failure UI** — red bubble with tap-to-retry; failed messages restored to input on tap
+- [x] **Sentry Flutter** — `SentryFlutter.init()` in `main.dart`; catches all uncaught exceptions
+- [x] **Sentry NestJS** — `@sentry/nestjs` in `main.ts`; backend errors captured
 
 - [x] Auth — Google, Apple, Guest login (iOS + Android)
 - [x] Home tab — live feed cards, user cards, name/country filter
