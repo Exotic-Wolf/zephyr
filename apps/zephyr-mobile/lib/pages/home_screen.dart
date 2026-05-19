@@ -75,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   sio.Socket? _chatSocket;
   bool _chatSocketConnectedOnce = false;
   int _inboxUnread = 0;
+  String? _activeThreadUserId;
   Timer? _badgeSyncTimer;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
@@ -175,8 +176,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       })
       ..on('chat:message', (dynamic data) {
         if (!mounted) return;
-        // Only bump badge if not currently on Inbox tab
-        if (_selectedTabIndex != 3) {
+        // Bump badge unless the user is actively reading the conversation
+        if (_selectedTabIndex == 3 && _activeThreadUserId != null) {
+          try {
+            final Map<String, dynamic> payload =
+                (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+            final Map<String, dynamic> msgJson =
+                (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
+            final String senderId = msgJson['senderId'] as String;
+            if (senderId == _activeThreadUserId) return;
+          } catch (_) {}
+          setState(() => _inboxUnread++);
+        } else if (_selectedTabIndex != 3) {
           setState(() => _inboxUnread++);
         }
       })
@@ -247,9 +258,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           });
         } catch (_) {}
       })
-      ..on('connect', (_) => debugPrint('[socket] connected to /feed'))
-      ..on('disconnect', (_) => debugPrint('[socket] disconnected from /feed'))
-      ..on('connect_error', (dynamic e) => debugPrint('[socket] connect_error: $e'))
       ..on('feed:room-updated', (dynamic data) {
         if (!mounted) return;
         try {
@@ -313,56 +321,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _me = me;
         _followingIds = followingIds;
         _feedCards = <LiveFeedCard>[
-          // Filter out the logged-in user's own card
           ...feedCards.where((LiveFeedCard c) => c.hostUserId != me.id),
-          // ── mock cards to preview Busy / Online / Offline states ──
-          LiveFeedCard(
-            roomId: 'mock-busy-1',
-            title: 'Busy mock',
-            audienceCount: 0,
-            hostUserId: 'mock-busy-user',
-            hostDisplayName: '[Mock] SarahBusy',
-            hostAvatarUrl: null,
-            hostCountryCode: 'US',
-            hostLanguage: 'English',
-            hostStatus: 'busy',
-            startedAt: DateTime.now(),
-          ),
-          LiveFeedCard(
-            roomId: 'mock-online-1',
-            title: 'Online mock',
-            audienceCount: 0,
-            hostUserId: 'mock-online-user',
-            hostDisplayName: '[Mock] TaniaOnline',
-            hostAvatarUrl: null,
-            hostCountryCode: 'PH',
-            hostLanguage: 'English',
-            hostStatus: 'online',
-            startedAt: DateTime.now(),
-          ),
-          LiveFeedCard(
-            roomId: 'mock-offline-1',
-            title: 'Offline mock',
-            audienceCount: 0,
-            hostUserId: 'mock-offline-user',
-            hostDisplayName: '[Mock] MikeOffline',
-            hostAvatarUrl: null,
-            hostCountryCode: 'NG',
-            hostLanguage: 'English',
-            hostStatus: 'offline',
-            startedAt: DateTime.now(),
-          ),
         ]..sort((LiveFeedCard a, LiveFeedCard b) {
           int rank(String s) => switch (s) {
             'live'    => 0,
             'busy'    => 1,
             'online'  => 2,
-            _         => 3, // offline
+            _         => 3,
           };
           return rank(a.hostStatus).compareTo(rank(b.hostStatus));
         });
-        // ── mock: pretend we follow two of the mock users ──
-        _followingIds = <String>{'mock-busy-user', 'mock-offline-user'};
         _coinBalance = wallet.coinBalance;
         _userLevel = wallet.level;
         _myRevenue = wallet.revenueUsd;
@@ -412,43 +380,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _feedCards = <LiveFeedCard>[
           ...feedCards.where((LiveFeedCard c) => c.hostUserId != _me?.id),
-          // ── mock cards ──
-          LiveFeedCard(
-            roomId: 'mock-busy-1',
-            title: 'Busy mock',
-            audienceCount: 0,
-            hostUserId: 'mock-busy-user',
-            hostDisplayName: '[Mock] SarahBusy',
-            hostAvatarUrl: null,
-            hostCountryCode: 'US',
-            hostLanguage: 'English',
-            hostStatus: 'busy',
-            startedAt: DateTime.now(),
-          ),
-          LiveFeedCard(
-            roomId: 'mock-online-1',
-            title: 'Online mock',
-            audienceCount: 0,
-            hostUserId: 'mock-online-user',
-            hostDisplayName: '[Mock] TaniaOnline',
-            hostAvatarUrl: null,
-            hostCountryCode: 'PH',
-            hostLanguage: 'English',
-            hostStatus: 'online',
-            startedAt: DateTime.now(),
-          ),
-          LiveFeedCard(
-            roomId: 'mock-offline-1',
-            title: 'Offline mock',
-            audienceCount: 0,
-            hostUserId: 'mock-offline-user',
-            hostDisplayName: '[Mock] MikeOffline',
-            hostAvatarUrl: null,
-            hostCountryCode: 'NG',
-            hostLanguage: 'English',
-            hostStatus: 'offline',
-            startedAt: DateTime.now(),
-          ),
         ]..sort((LiveFeedCard a, LiveFeedCard b) {
           int rank(String s) => switch (s) {
             'live'   => 0,
@@ -459,9 +390,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           return rank(a.hostStatus).compareTo(rank(b.hostStatus));
         });
       });
-    } catch (e) {
-      // ignore network errors silently — next poll will retry
-      debugPrint('[feed poll] error: $e');
+    } catch (_) {
+      // ignore — next poll will retry
     }
   }
 
@@ -1745,6 +1675,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 apiClient: widget.apiClient,
                 accessToken: widget.accessToken,
                 myUserId: _me?.id ?? '',
+                onThreadChanged: (String? userId) {
+                  setState(() => _activeThreadUserId = userId);
+                },
               ),
             4 => _buildMeTab(),
             _ => const SizedBox.shrink(),

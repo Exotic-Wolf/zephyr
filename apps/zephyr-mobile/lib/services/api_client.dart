@@ -199,12 +199,15 @@ class ZephyrApiClient {
   }
 
   Future<ZephyrMessage> sendMessage(
-      String accessToken, String receiverId, String body) async {
+      String accessToken, String receiverId, String body, {String? idempotencyKey}) async {
     final dynamic data = await _request(
       method: 'POST',
       path: '/v1/messages',
       accessToken: accessToken,
       body: <String, dynamic>{'receiverId': receiverId, 'body': body},
+      extraHeaders: idempotencyKey != null
+          ? <String, String>{'X-Idempotency-Key': idempotencyKey}
+          : null,
     );
     return ZephyrMessage.fromJson(data as Map<String, dynamic>);
   }
@@ -469,6 +472,7 @@ class ZephyrApiClient {
     required String path,
     String? accessToken,
     Map<String, dynamic>? body,
+    Map<String, String>? extraHeaders,
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
     final HttpClient client = HttpClient();
@@ -485,6 +489,7 @@ class ZephyrApiClient {
       if (accessToken != null) {
         request.headers.set('authorization', 'Bearer $accessToken');
       }
+      extraHeaders?.forEach(request.headers.set);
 
       if (body != null) {
         request.write(jsonEncode(body));

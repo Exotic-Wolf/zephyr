@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -198,9 +199,12 @@ class _ThreadPageState extends State<ThreadPage> {
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     _inputCtrl.clear();
+    final String idempotencyKey =
+        '${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(999999)}';
     try {
       final ZephyrMessage msg = await widget.apiClient.sendMessage(
-          widget.accessToken, widget.otherUserId, text);
+          widget.accessToken, widget.otherUserId, text,
+          idempotencyKey: idempotencyKey);
       if (!mounted) return;
       final updated = <ZephyrMessage>[..._messages, msg];
       MessageCache.instance.threads[widget.otherUserId] = updated;
