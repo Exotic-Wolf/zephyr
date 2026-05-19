@@ -75,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   sio.Socket? _chatSocket;
   bool _chatSocketConnectedOnce = false;
   int _inboxUnread = 0;
+  Timer? _badgeSyncTimer;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
   bool _rtcLoading = false;
@@ -104,6 +105,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _connectFeedSocket();
     // Safety net: poll every 5s in case socket drops or hasn't connected yet
     _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
+    // Periodic badge resync: covers socket-drop gap when app stays open without a resume event
+    _badgeSyncTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (!mounted || _selectedTabIndex == 3) return;
+      widget.apiClient.getConversations(widget.accessToken).then((convos) {
+        if (!mounted || _selectedTabIndex == 3) return;
+        setState(() {
+          _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
+        });
+      }).ignore();
+    });
     // FCM foreground: only used to refresh InboxPage when it's open.
     // Badge is owned by the socket (chat:message) — do NOT increment here to avoid double-count.
     _fcmSub = FirebaseMessaging.onMessage.listen((_) {
@@ -263,6 +274,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _callTickTimer?.cancel();
     _feedPollTimer?.cancel();
+    _badgeSyncTimer?.cancel();
     _feedSocket?.dispose();
     _chatSocket?.dispose();
     _roomTitleController.dispose();
