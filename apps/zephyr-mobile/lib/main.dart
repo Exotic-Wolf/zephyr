@@ -40,10 +40,7 @@ void main() async {
       options.dsn = 'https://72291af0e04cf5281a0224c462ba5f59@o4511418834354176.ingest.us.sentry.io/4511418852638720';
       options.tracesSampleRate = 0.2;
     },
-    appRunner: () {
-      Sentry.captureMessage('Sentry test from zephyr-mobile');
-      return runApp(const MyApp());
-    },
+    appRunner: () => runApp(const MyApp()),
   );
 }
 
