@@ -1,6 +1,32 @@
 # Zephyr — Product Backlog
 
 > **State**: Core messaging is production-grade (82/100). Two store accounts away from shipping on Android. iOS needs APNs. First impression needs onboarding and populated feed before real users arrive.
+> **Revenue model**: Random video calls (Olamet model) — 17+ rating, general social, no explicit content policy, report button ends call and flags user. LiveKit already integrated. Coins/gifts backend already done.
+
+---
+
+## 💰 0. Revenue Feature — Random Call (Olamet model)
+
+> **Store compliance**: 17+ age rating (set in App Store Connect + Play Console). ToS prohibits explicit content. Report button = safety net. No AI moderation needed at v1 — reactive bans only. Exactly how Olamet, Azar, BIGO Live operate.
+
+### Backend
+- [ ] **Matchmaking queue** — Socket.IO event `call:join_queue` / `call:leave_queue`; server pairs two waiting users and emits `call:matched` with LiveKit room token to both
+- [ ] **Call session table** — `call_sessions` (id, user_a_id, user_b_id, livekit_room, started_at, ended_at, ended_by)
+- [ ] **Report endpoint** — `POST /v1/calls/:sessionId/report`; stores report, ends LiveKit room, increments report count on reported user
+- [ ] **Auto-ban threshold** — user with 5+ reports in 7 days gets `is_banned = true`; banned users rejected from queue
+- [ ] **Coin deduction** — deduct X coins per minute from caller (or flat per call); existing economy service handles transaction
+
+### Flutter
+- [ ] **"Find a Call" entry point** — button on Home tab or dedicated tab; checks coin balance before joining queue
+- [ ] **Waiting screen** — animated UI while in queue; cancel button emits `call:leave_queue`
+- [ ] **In-call screen** — full-screen video (LiveKit), flip camera, mute, end call, report button; gift coins button (economy already wired)
+- [ ] **Post-call screen** — "Call ended", option to send a DM to the person you just met
+- [ ] **Skip / next** — ends current call, re-joins queue immediately
+
+### Store compliance (one-time setup, no code)
+- [ ] **Set 17+ rating** — App Store Connect → My Apps → [App] → Age Rating
+- [ ] **Set 17+ rating** — Google Play Console → Content Rating wizard
+- [ ] **Terms of Service** — add "Users must be 17+. Explicit content is prohibited." to ToS page
 
 ---
 
