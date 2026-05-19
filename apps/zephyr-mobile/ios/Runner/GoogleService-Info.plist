@@ -6,9 +6,31 @@
 	<string>724639603736-n8v2kjqfg40l7bqkt26kov8cmofhn2db.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
 	<string>com.googleusercontent.apps.724639603736-n8v2kjqfg40l7bqkt26kov8cmofhn2db</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>724639603736-08tovsj719dsb6atip932tqo1jg0gtl2.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyD1kFTnH3y8nolB-ubATas2oJU1TUJX0-4</string>
+	<key>GCM_SENDER_ID</key>
+	<string>724639603736</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
 	<string>com.zephyr.zephyrMobile</string>
+	<key>PROJECT_ID</key>
+	<string>zephyr-495115</string>
+	<key>STORAGE_BUCKET</key>
+	<string>zephyr-495115.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:724639603736:ios:d7df64a9e5bf3d5a44376d</string>
 </dict>
 </plist>
