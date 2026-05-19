@@ -104,14 +104,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _connectFeedSocket();
     // Safety net: poll every 5s in case socket drops or hasn't connected yet
     _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
-    // FCM foreground backup: refresh inbox when a message push arrives
+    // FCM foreground: only used to refresh InboxPage when it's open.
+    // Badge is owned by the socket (chat:message) — do NOT increment here to avoid double-count.
     _fcmSub = FirebaseMessaging.onMessage.listen((_) {
       if (!mounted) return;
-      if (_selectedTabIndex == 3) {
-        setState(() => _inboxRefreshSignal++);
-      } else {
-        setState(() => _inboxUnread++);
-      }
+      if (_selectedTabIndex == 3) setState(() => _inboxRefreshSignal++);
     });
   }
 
