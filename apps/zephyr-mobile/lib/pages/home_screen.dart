@@ -28,6 +28,7 @@ class HomeScreen extends StatefulWidget {
     required this.onThemeModeChanged,
     required this.locale,
     required this.onLocaleChanged,
+    this.tabNotifier,
     super.key,
   });
 
@@ -38,6 +39,7 @@ class HomeScreen extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Locale? locale;
   final ValueChanged<Locale?> onLocaleChanged;
+  final ValueNotifier<int>? tabNotifier;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -92,11 +94,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _selectedTabIndex = widget.tabNotifier?.value ?? 0;
+    widget.tabNotifier?.addListener(_onTabNotify);
     _loadData();
     _refreshApiStatus();
     _connectFeedSocket();
     // Safety net: poll every 5s in case socket drops or hasn't connected yet
     _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
+  }
+
+  void _onTabNotify() {
+    final int tab = widget.tabNotifier?.value ?? 0;
+    if (mounted) setState(() { _selectedTabIndex = tab; if (tab == 3) _inboxUnread = 0; });
   }
 
   @override
@@ -240,6 +249,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    widget.tabNotifier?.removeListener(_onTabNotify);
     WidgetsBinding.instance.removeObserver(this);
     _callTickTimer?.cancel();
     _feedPollTimer?.cancel();

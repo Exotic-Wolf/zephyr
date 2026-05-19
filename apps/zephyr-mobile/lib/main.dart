@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -52,11 +54,32 @@ class _MyAppState extends State<MyApp> {
   bool _restoringSession = true;
   ThemeMode _themeMode = ThemeMode.dark;
   Locale? _locale; // null = follow device
+  final ValueNotifier<int> _tabNotifier = ValueNotifier<int>(0);
+  StreamSubscription<RemoteMessage>? _fcmOpenSub;
 
   @override
   void initState() {
     super.initState();
     _restoreSession();
+    _setupFcmHandlers();
+  }
+
+  void _setupFcmHandlers() {
+    // App launched from terminated state by tapping a notification
+    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+      if (message != null && mounted) _tabNotifier.value = 3;
+    });
+    // App in background, user taps notification
+    _fcmOpenSub = FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      if (mounted) _tabNotifier.value = 3;
+    });
+  }
+
+  @override
+  void dispose() {
+    _fcmOpenSub?.cancel();
+    _tabNotifier.dispose();
+    super.dispose();
   }
 
   Future<void> _restoreSession() async {
@@ -156,6 +179,7 @@ class _MyAppState extends State<MyApp> {
               apiClient: _apiClient,
               accessToken: _accessToken!,
               onLogout: _onLogout,
+              tabNotifier: _tabNotifier,
               themeMode: _themeMode,
               onThemeModeChanged: (ThemeMode mode) {
                 _storage.write(key: _themeModeKey, value: switch (mode) {
