@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' show pi, sin;
 import 'package:country_picker/country_picker.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
@@ -87,6 +88,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool? _apiReachable;
   bool _loading = true;
   final bool _creating = false;
+  int _inboxRefreshSignal = 0;
+  StreamSubscription<RemoteMessage>? _fcmSub;
   String? _joiningRoomId;
   String? _error;
 
@@ -101,6 +104,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _connectFeedSocket();
     // Safety net: poll every 5s in case socket drops or hasn't connected yet
     _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
+    // FCM foreground backup: refresh inbox when a message push arrives
+    _fcmSub = FirebaseMessaging.onMessage.listen((_) {
+      if (!mounted) return;
+      if (_selectedTabIndex == 3) {
+        setState(() => _inboxRefreshSignal++);
+      } else {
+        setState(() => _inboxUnread++);
+      }
+    });
   }
 
   void _onTabNotify() {
@@ -249,6 +261,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _fcmSub?.cancel();
     widget.tabNotifier?.removeListener(_onTabNotify);
     WidgetsBinding.instance.removeObserver(this);
     _callTickTimer?.cancel();
@@ -1719,6 +1732,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 myUserId: _me?.id ?? '',
               ),
             3 => InboxPage(
+                key: ValueKey(_inboxRefreshSignal),
                 apiClient: widget.apiClient,
                 accessToken: widget.accessToken,
                 myUserId: _me?.id ?? '',

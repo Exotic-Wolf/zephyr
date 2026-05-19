@@ -23,7 +23,7 @@ class InboxPage extends StatefulWidget {
   State<InboxPage> createState() => _InboxPageState();
 }
 
-class _InboxPageState extends State<InboxPage> {
+class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
   List<ZephyrConversation> _conversations = <ZephyrConversation>[];
   bool _loading = true;
   String? _error;
@@ -32,6 +32,7 @@ class _InboxPageState extends State<InboxPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final cached = MessageCache.instance.conversations;
     if (cached != null) {
       _conversations = cached;
@@ -65,7 +66,13 @@ class _InboxPageState extends State<InboxPage> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) _refresh();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _socket?.dispose();
     super.dispose();
   }

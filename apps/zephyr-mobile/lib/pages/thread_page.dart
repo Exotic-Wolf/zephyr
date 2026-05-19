@@ -48,7 +48,6 @@ class _ThreadPageState extends State<ThreadPage> {
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   sio.Socket? _socket;
-  bool _socketConnectedOnce = false;
 
   @override
   void initState() {
@@ -76,11 +75,7 @@ class _ThreadPageState extends State<ThreadPage> {
     )
       ..on('connect', (_) {
         _socket?.emit('chat:join', widget.myUserId);
-        if (_socketConnectedOnce) {
-          _load(); // resync on reconnect to catch any missed chat:read events
-        } else {
-          _socketConnectedOnce = true;
-        }
+        if (mounted) _load(); // always resync — catches chat:read events missed during connection
       })
       ..on('chat:read', (dynamic data) {
         if (!mounted) return;
