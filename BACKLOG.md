@@ -32,6 +32,11 @@
 - [ ] **Send failure UI** — if `sendMessage` HTTP call fails, show red `!` on the message bubble with a retry tap; currently fails silently
 - [ ] **Optimistic send** — append message to thread immediately with a "pending" state before server confirms; flip to confirmed on success, red on failure (+4pts messaging score)
 
+### Needs testing
+- [ ] **Double tick via FCM** — send from iPhone, open thread on Android → verify double tick appears on iPhone in real-time (requires Render deploy + both apps running new build)
+- [ ] **Send failure UI** — disable network, send a message → verify red bubble appears with refresh icon "Failed · tap to retry" → re-enable network, tap bubble → verify message sends
+- [ ] **Logout stops push** — log in on Android, log out → verify no push notifications received after logout
+
 ### Remove before production
 - [ ] Mock feed cards (`[Mock] SarahBusy`, `[Mock] TaniaOnline`, `[Mock] MikeOffline`)
 - [ ] Mock `_followingIds` hardcoded in `_loadData`

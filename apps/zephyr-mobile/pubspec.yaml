@@ -49,6 +49,7 @@ dependencies:
   http: ^1.2.2
   firebase_core: ^4.9.0
   firebase_messaging: ^16.2.2
+  sentry_flutter: ^8.14.2
 
 dev_dependencies:
   flutter_test:
