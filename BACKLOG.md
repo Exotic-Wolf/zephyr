@@ -1,58 +1,61 @@
 # Zephyr — Product Backlog
 
-> **Robustness score: 68/100** — core messaging solid, gaps: no pagination, no optimistic send, iOS push blocked, no idempotency key, mock data in prod.
+> **Inbox messaging robustness: 80/100** — dual-path delivery (socket + FCM), reliable read receipts, badge accuracy fixed, failure UI with retry, Sentry on both sides. Gaps: no pagination (will break on long threads), no optimistic send, backend doesn't deduplicate on idempotency key yet, iOS APNs requires Apple Dev account.
 > **Hard blockers to ship**: Apple Developer account ($99/yr) + Google Play account ($25 once).
 
 ---
 
 ## 🔴 Critical / Blockers
 
-### Push Notifications — the #1 gap vs Chamet
-- [ ] **Android FCM (do first)** — Firebase Admin SDK on backend, `firebase_messaging` on Flutter, store `device_token` per user in DB, fire push on `sendMessage`
-- [ ] **iOS APNs** — requires Apple Developer account first; upload APNs Auth Key (.p8) to Firebase console
-- [ ] Backend: `device_tokens` table — `user_id`, `token`, `platform` (android/ios), `updated_at`
-- [ ] Backend: send FCM push in `sendMessage` with `badge: unreadCount`, sender name, message preview
-- [ ] Flutter: request permission on launch, get FCM token, send to backend on login/token refresh
-- [ ] Flutter: tap-to-open — notification payload includes `senderId`, navigates directly to thread
-- [ ] Flutter: `flutter_local_notifications` — show in-app banner when app is foreground (since OS suppresses push when open)
-- [ ] iOS: Notification Service Extension — for rich notifications with sender avatar
+### Push Notifications
+- [x] **Android FCM** — Firebase Admin SDK on backend, `firebase_messaging` Flutter, device token stored in DB, push fires on `sendMessage`, coalesced per sender
+- [x] **Tap notification → Inbox tab** — notification payload opens inbox directly
+- [x] **FCM token cleanup on logout** — `DELETE /v1/messages/device-token` on sign-out; no push after logout
+- [x] **FCM foreground no double-count** — foreground FCM does not increment badge (socket already handles it)
+- [x] **FCM silent push read receipts** — double-tick delivered via silent FCM push, more reliable than socket alone
+- [ ] **iOS APNs** — requires Apple Developer account ($99); upload APNs Auth Key (.p8) to Firebase console
 
 ### Store Accounts (hard blockers to ship)
-- [ ] **Apple Developer account** — $99/year — unlocks App Store, TestFlight, APNs, real device testing
+- [ ] **Apple Developer account** — $99/year — unlocks App Store, TestFlight, APNs, real device push
 - [ ] **Google Play Developer account** — $25 once — unlocks Play Store
 
-### Error Observability (blind in production without this)
-- [x] **Sentry Flutter** — `sentry_flutter` package; `SentryFlutter.init()` wraps `runApp()` in `main.dart`
-- [x] **Sentry NestJS** — `@sentry/nestjs` inlined in `main.ts`; correct DSN hardcoded
-- [ ] **Sentry source maps** — upload Flutter/Dart symbols so stack traces are readable in production (not obfuscated)
-- [ ] **Custom Sentry breadcrumbs** — log key events: socket connect/disconnect, message send, markRead, login — so we can replay what happened before a crash
+### Error Observability
+- [x] **Sentry Flutter** — `SentryFlutter.init()` in `main.dart`; catches all uncaught exceptions
+- [x] **Sentry NestJS** — `@sentry/nestjs` in `main.ts`; backend errors captured
+- [ ] **Sentry source maps** — upload Flutter/Dart symbols so stack traces are readable (not obfuscated)
+- [ ] **Custom Sentry breadcrumbs** — log socket connect/disconnect, message send, markRead, login
 
-### Message Robustness (no silent failures)
-- [ ] **Idempotency key on sendMessage** — generate UUID client-side before HTTP call; include as `X-Idempotency-Key` header; backend rejects duplicate within 60s window — prevents double-send on network retry
+### Message Robustness
 - [x] **Send failure UI** — red bubble with `Icons.refresh` + "Failed · tap to retry"; tap restores text to input
-- [ ] **Optimistic send** — append message to thread immediately with a "pending" state before server confirms; flip to confirmed on success, red on failure (+4pts messaging score)
-- [ ] **Message pagination** — scroll up to load older messages; currently loads all at once — will break on long threads
-- [ ] **Inbox badge while in thread** — if a message arrives in another conversation while user is in a thread, the inbox badge doesn't update until they navigate back
+- [x] **Idempotency key (client-side)** — `X-Idempotency-Key` header sent on every `sendMessage`; backend not yet deduplicating
+- [ ] **Backend idempotency dedup** — reject duplicate `X-Idempotency-Key` within 60s window in `MessagesService`
+- [ ] **Message pagination** — scroll-up to load older messages; currently loads all at once — **will break on long threads**
+- [ ] **Optimistic send** — show message immediately in thread before server confirms; reduces perceived latency
+
+### Badge / Inbox Accuracy
+- [x] **Unread badge** — socket increment + 60s resync + clears on open + resyncs on reconnect + app-resume refresh
+- [x] **Badge accurate while in thread** — messages from other conversations bump the badge even when a thread is open
+- [x] **Inbox re-fetches on socket connect** — catches messages missed while disconnected
 
 ### Needs testing
-- [ ] **Double tick via FCM** — send from iPhone, open thread on Android → verify double tick appears on iPhone in real-time (requires Render deploy + both apps running new build)
-- [x] **Send failure UI** — disable network, send a message → verified red bubble appears with refresh icon "Failed · tap to retry" → re-enable network, tap bubble → message sends
-- [ ] **Logout stops push** — log in on Android, log out → verify no push notifications received after logout
+- [ ] **Double tick cross-device** — send from iPhone, read on Android → verify double tick appears on iPhone
+- [ ] **Logout stops push** — log in on Android, log out → verify no push received after logout
+- [x] **Send failure UI** — verified: disable network → red bubble → re-enable → tap retry → sends
 
 ### Remove before production
-- [ ] Mock feed cards (`[Mock] SarahBusy`, `[Mock] TaniaOnline`, `[Mock] MikeOffline`)
-- [ ] Mock `_followingIds` hardcoded in `_loadData`
-- [ ] Debug logs `[socket]`, `[chat-socket]` in `home_screen.dart`
+- [x] Mock feed cards (`[Mock] SarahBusy`, `[Mock] TaniaOnline`, `[Mock] MikeOffline`) — removed
+- [x] Mock `_followingIds` override in `_loadData` — removed
+- [x] Debug logs `[socket]` in `home_screen.dart` — removed
 
 ---
 
 ## 🟡 High Priority
 
-- [x] **Unread badge on Inbox tab** — real-time socket increment; initial count from API on launch; 99+ cap; clears on open; resyncs from `getConversations` on socket reconnect AND `AppLifecycleState.resumed`
-- [x] **Thread missing messages** — `getThread` now returns latest 50 (DESC LIMIT subquery re-sorted ASC)
-- [x] **Socket room stability** — explicit `chat:join` on every `connect`; `_socketConnectedOnce` flag; thread resyncs `_load()` on reconnect
-- [ ] **Optimistic message send** — message appears instantly in thread before server confirms (currently waits for HTTP response)
-- [ ] **Message pagination** — moved to 🔴 Critical (will break on long threads)
+- [x] **Thread missing messages** — `getThread` returns latest 50 (DESC LIMIT subquery re-sorted ASC)
+- [x] **Socket room stability** — `chat:join` on every `connect`; thread resyncs on reconnect
+- [x] **Thread date separators** — Today / Yesterday / date headers between messages
+- [ ] **Optimistic message send** — message appears instantly before server confirms
+- [ ] **Message pagination** — moved to 🔴 Critical
 - [ ] **Follow / unfollow UI** — Follow button on ProfilePage, follower/following counts (backend done)
 - [ ] **Onboarding flow** — first-launch screen: set nickname, pick country/language
 
@@ -60,11 +63,10 @@
 
 ## 🟠 Medium Priority
 
-- [ ] **Typing indicator** — "..." bubble when other user is typing (+5pts messaging score vs Chamet)
-- [x] **Message pagination** — moved to 🔴 Critical
+- [ ] **Typing indicator** — "..." bubble when other user is typing
 - [ ] **Profile editing** — verify country, language, birthday save/display correctly end-to-end
 - [ ] **Wallet / coins UI** — balance display, transaction history (backend fully done)
-- [ ] **Gift sending from DM thread** — send coins as gift directly from thread (+2pts vs Chamet)
+- [ ] **Gift sending from DM thread** — send coins as gift directly from thread
 - [ ] **Block / report user** — safety feature, backend not built
 
 ---
@@ -73,11 +75,8 @@
 
 - [ ] **App icon** — replace default Flutter icon with Zephyr brand icon
 - [ ] **Splash screen** — branded launch screen
-- [ ] **Emoji/sticker sending** — basic emoji picker in thread (+3pts vs Chamet)
-- [ ] **Typing indicator** — "..." when other user is typing
+- [ ] **Emoji/sticker sending** — basic emoji picker in thread
 - [ ] **Dark mode** — respect system preference
-
----
 
 ## ⚪ Later / Post-Launch
 
@@ -90,21 +89,30 @@
 
 ## ✅ Done
 
-- [x] **Google G logo** — replaced broken CustomPainter (only painted 240°) with official SVG paths
-- [x] **Mascot PNG background** — stripped solid dark background via flood-fill; image is now transparent
-- [x] **Android adaptive icon** — added `adaptive_icon_background` + `adaptive_icon_foreground` to flutter_launcher_icons config; icon no longer shows white square on Android 8+
+- [x] **Android FCM push** — Firebase Admin SDK + `firebase_messaging`; device token stored; push on `sendMessage`; coalesced per sender; foreground no double-count
+- [x] **Tap notification → Inbox** — FCM tap payload opens inbox tab directly
+- [x] **FCM token cleanup on logout** — `DELETE /v1/messages/device-token` on sign-out
+- [x] **FCM silent push read receipts** — double-tick via FCM, more reliable than socket alone
+- [x] **Inbox re-fetches on socket connect** — catches messages missed while disconnected
+- [x] **Badge accurate while in thread** — messages from other convos bump badge even when thread open
+- [x] **Mock data removed** — mock feed cards, mock followingIds, debug logs all gone
+- [x] **Idempotency key (client-side)** — `X-Idempotency-Key` header sent on every sendMessage
+- [x] **iOS Firebase init** — `firebase_options.dart` with explicit `FirebaseOptions`; Podfile iOS 15.0
+- [x] **Google G logo** — replaced broken CustomPainter with official SVG paths
+- [x] **Mascot PNG background** — stripped solid dark background via flood-fill; transparent
+- [x] **Android adaptive icon** — `adaptive_icon_background` + `adaptive_icon_foreground`; no white square on Android 8+
 - [x] **ProfilePage dark mode** — bottom bar and modal sheet respect system dark/light theme
-- [x] **Thread date separators** — messages now show "Today / Yesterday / Wed, 14 May / 14 May 2025" headers when the date changes between messages
-- [x] **Inbox header cleanup** — removed refresh + logout buttons from non-home tab AppBar
-- [x] **Settings page** — created `SettingsPage`; logout lives at Me → ⚙ Settings → Sign Out (one place, confirmation dialog)
-- [x] **Message read receipts** — single tick (sent) / double tick white (seen) in chat bubbles; real-time via WebSocket chat:read event, fixed-width container prevents layout shift on state change; thread resyncs from API on socket reconnect to catch missed events
-- [x] **FCM read receipts** — silent push alongside socket for reliable double-tick delivery even when socket drops
-- [x] **FCM token cleanup on logout** — `DELETE /v1/messages/device-token` called on logout; stops push notifications after sign-out
-- [x] **Badge 60s resync** — periodic timer resyncs unread count from API to prevent drift when socket is down
+- [x] **Thread date separators** — Today / Yesterday / date headers between messages
+- [x] **Inbox header cleanup** — removed refresh + logout from non-home tab AppBar
+- [x] **Settings page** — `SettingsPage`; logout at Me → ⚙ Settings → Sign Out
+- [x] **Message read receipts** — single/double tick in chat bubbles; real-time via socket + FCM
+- [x] **Badge 60s resync** — periodic timer prevents drift when socket is down
 - [x] **Send failure UI** — red bubble with tap-to-retry; failed messages restored to input on tap
-- [x] **Sentry Flutter** — `SentryFlutter.init()` in `main.dart`; catches all uncaught exceptions
-- [x] **Sentry NestJS** — `@sentry/nestjs` in `main.ts`; backend errors captured
-
+- [x] **Sentry Flutter** — `SentryFlutter.init()` in `main.dart`
+- [x] **Sentry NestJS** — `@sentry/nestjs` in `main.ts`
+- [x] **Unread badge** — socket increment + 60s resync + clears on open + reconnect resync + app-resume
+- [x] **Thread missing messages** — `getThread` returns latest 50 (DESC LIMIT subquery re-sorted ASC)
+- [x] **Socket room stability** — `chat:join` on every `connect`; thread resyncs on reconnect
 - [x] Auth — Google, Apple, Guest login (iOS + Android)
 - [x] Home tab — live feed cards, user cards, name/country filter
 - [x] Profile page — view profile, direct message button
