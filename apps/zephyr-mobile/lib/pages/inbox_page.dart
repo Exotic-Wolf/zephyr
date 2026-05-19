@@ -53,6 +53,10 @@ class _InboxPageState extends State<InboxPage> {
           .disableAutoConnect()
           .build(),
     )
+      ..on('connect', (dynamic _) {
+        // Re-fetch on connect to catch messages sent during the connection gap
+        if (mounted) _refresh();
+      })
       ..on('chat:message', (dynamic _) {
         // Any new message — refresh conversation list
         if (mounted) _refresh();
