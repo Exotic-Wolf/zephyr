@@ -1235,6 +1235,14 @@ export class StoreService {
     );
   }
 
+  async deleteDeviceToken(userId: string, token: string): Promise<void> {
+    if (!this.databaseService?.isEnabled()) return;
+    await this.databaseService.query(
+      `DELETE FROM device_tokens WHERE user_id = $1 AND token = $2`,
+      [userId, token],
+    );
+  }
+
   async getDeviceTokens(userId: string): Promise<string[]> {
     if (!this.databaseService?.isEnabled()) return [];
     const result = await this.databaseService.query<{ token: string }>(

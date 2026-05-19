@@ -138,8 +138,19 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _onLogout() {
+    final token = _accessToken;
     _storage.delete(key: _tokenKey);
     setState(() => _accessToken = null);
+    if (token != null) _unregisterFcmToken(token);
+  }
+
+  Future<void> _unregisterFcmToken(String accessToken) async {
+    try {
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken != null) {
+        await _apiClient.unregisterDeviceToken(accessToken, fcmToken);
+      }
+    } catch (_) {}
   }
 
   @override

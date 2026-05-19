@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -35,6 +36,16 @@ export class MessagesController {
   ): Promise<void> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     await this.storeService.upsertDeviceToken(me.id, body.token);
+  }
+
+  @Delete('device-token')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async unregisterDeviceToken(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { token: string },
+  ): Promise<void> {
+    const me = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.deleteDeviceToken(me.id, body.token);
   }
 
   @Post()
