@@ -1,6 +1,6 @@
 # Zephyr — Product Backlog
 
-> **State**: Core messaging is production-grade (82/100). Two store accounts away from shipping on Android. iOS needs APNs. First impression needs onboarding and populated feed before real users arrive.
+> **State**: Ship blockers cleared. Push notifications wired (APNs → Firebase done; Xcode capability needs verification on device). Apple Sign In missing — required by App Store if Google Sign In is offered. Ready to move into first impression + store submission work.
 > **Revenue model**: Random video calls (Olamet model) — 17+ rating, general social, no explicit content policy, report button ends call and flags user. LiveKit already integrated. Coins/gifts backend already done.
 
 ---
@@ -34,9 +34,10 @@
 
 - [x] **Apple Developer account** ($99/yr) — unlocks App Store, TestFlight, APNs, real device push on iOS
 - [x] **Google Play Developer account** ($25 once) — unlocks Play Store
-- [x] **iOS APNs** — upload APNs Auth Key (.p8) to Firebase; requires Apple Dev account above
-- [ ] **Backend idempotency dedup** — client sends `X-Idempotency-Key`; backend must reject duplicates within 60s window in `MessagesService` — fast retry currently creates duplicate messages in DB
-- [ ] **Sentry source maps** — upload Flutter/Dart debug symbols; production crashes show `Symbol6` not `sendMessage` — blind in production
+- [x] **iOS APNs** — APNs Auth Key uploaded to Firebase ✅; still need to enable Push Notifications capability in Xcode (Runner → Signing & Capabilities → + Push Notifications)
+- [x] **Backend idempotency dedup** — done: backend checks `X-Idempotency-Key`, returns existing message within 60s window, skips duplicate socket/FCM
+- [x] **Sentry source maps** — plugin configured; run `dart run sentry_dart_plugin` after each release build
+- [ ] **Sign in with Apple** — App Store REQUIRES this if Google Sign In is offered; package already in pubspec; need Apple Dev portal config + Xcode capability + Flutter screens
 
 ---
 
