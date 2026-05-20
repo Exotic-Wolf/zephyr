@@ -591,7 +591,9 @@ class _ThreadPageState extends State<ThreadPage> {
                                           child: Icon(
                                             msg.readAt != null ? Icons.done_all : Icons.done,
                                             size: 13,
-                                            color: Colors.white,
+                                            color: msg.readAt != null
+                                                ? Colors.blue.shade300
+                                                : Colors.black54,
                                           ),
                                         ),
                                       ],
