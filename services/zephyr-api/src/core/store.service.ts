@@ -1446,7 +1446,10 @@ export class StoreService {
 
       // For after-cursor queries there is no pagination — return all missed messages
       const hasMore = after ? false : result.rows.length > normalizedLimit;
-      const rows = hasMore ? result.rows.slice(0, normalizedLimit) : result.rows;
+      // Rows are ASC-sorted: index 0 = oldest, index N = newest.
+      // When hasMore, we fetched limit+1 rows. The extra row is the oldest (index 0) —
+      // it proves there are older messages. Slice it off; keep the newest `limit` rows.
+      const rows = hasMore ? result.rows.slice(1) : result.rows;
       return {
         messages: rows.map((row) => ({
           id: row.id,

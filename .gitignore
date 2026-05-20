@@ -3,3 +3,5 @@ node_modules/
 services/zephyr-api/dist/
 *.log
 .DS_Store
+.env
+**/.env
