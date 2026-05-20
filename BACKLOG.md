@@ -32,9 +32,9 @@
 
 ## 🔴 1. Ship Blockers — can't release without these
 
-- [ ] **Apple Developer account** ($99/yr) — unlocks App Store, TestFlight, APNs, real device push on iOS
-- [ ] **Google Play Developer account** ($25 once) — unlocks Play Store
-- [ ] **iOS APNs** — upload APNs Auth Key (.p8) to Firebase; requires Apple Dev account above
+- [x] **Apple Developer account** ($99/yr) — unlocks App Store, TestFlight, APNs, real device push on iOS
+- [x] **Google Play Developer account** ($25 once) — unlocks Play Store
+- [x] **iOS APNs** — upload APNs Auth Key (.p8) to Firebase; requires Apple Dev account above
 - [ ] **Backend idempotency dedup** — client sends `X-Idempotency-Key`; backend must reject duplicates within 60s window in `MessagesService` — fast retry currently creates duplicate messages in DB
 - [ ] **Sentry source maps** — upload Flutter/Dart debug symbols; production crashes show `Symbol6` not `sendMessage` — blind in production
 
