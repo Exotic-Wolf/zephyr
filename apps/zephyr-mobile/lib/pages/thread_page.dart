@@ -21,6 +21,19 @@ class MessageCache {
   final Map<String, List<ZephyrMessage>> threads = <String, List<ZephyrMessage>>{};
 }
 
+// ── Message bus — home_screen publishes here; open threads subscribe ──────────
+
+class MessageBus {
+  MessageBus._();
+  static final MessageBus instance = MessageBus._();
+
+  final StreamController<ZephyrMessage> _ctrl =
+      StreamController<ZephyrMessage>.broadcast();
+
+  Stream<ZephyrMessage> get stream => _ctrl.stream;
+  void emit(ZephyrMessage msg) => _ctrl.add(msg);
+}
+
 // ── InboxPage ─────────────────────────────────────────────────────────────────
 
 
@@ -62,7 +75,8 @@ class _ThreadPageState extends State<ThreadPage> {
   final ScrollController _scrollCtrl = ScrollController();
   sio.Socket? _socket;
   StreamSubscription<RemoteMessage>? _fcmSub;
-  Timer? _pollTimer;
+  StreamSubscription<ZephyrMessage>? _busSub;
+  bool _syncInFlight = false;
 
   @override
   void initState() {
@@ -74,7 +88,7 @@ class _ThreadPageState extends State<ThreadPage> {
     }
     _load();
     _connectSocket();
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _loadSilent());
+    _busSub = MessageBus.instance.stream.listen(_onBusMessage);
     _fcmSub = FirebaseMessaging.onMessage.listen(_onFcmMessage);
     _scrollCtrl.addListener(() {
       if (_scrollCtrl.position.pixels >=
@@ -107,6 +121,23 @@ class _ThreadPageState extends State<ThreadPage> {
     setState(() => _messages = next);
   }
 
+  /// Called by [MessageBus] when home_screen's working socket receives a message.
+  void _onBusMessage(ZephyrMessage msg) {
+    if (!mounted) return;
+    final bool relevant =
+        (msg.senderId == widget.otherUserId && msg.receiverId == widget.myUserId) ||
+        (msg.senderId == widget.myUserId && msg.receiverId == widget.otherUserId);
+    if (!relevant) return;
+    if (_messages.any((ZephyrMessage m) => m.id == msg.id)) return;
+    final updated = <ZephyrMessage>[..._messages, msg];
+    MessageCache.instance.threads[widget.otherUserId] = updated;
+    setState(() => _messages = updated);
+    _scrollToBottom();
+    if (msg.receiverId == widget.myUserId && msg.readAt == null) {
+      widget.apiClient.markMessageRead(widget.accessToken, msg.id).ignore();
+    }
+  }
+
   void _connectSocket() {
     _socket = sio.io(
       '$apiBaseUrl/chat',
@@ -121,7 +152,14 @@ class _ThreadPageState extends State<ThreadPage> {
     )
       ..on('connect', (_) {
         _socket?.emit('chat:join', widget.myUserId);
-        if (mounted) _load(); // always resync — catches chat:read events missed during connection
+        // On initial connect load full thread; on reconnect only sync missed messages
+        if (mounted) {
+          if (_messages.isEmpty) {
+            _load();
+          } else {
+            _syncMissed();
+          }
+        }
       })
       ..on('chat:read', (dynamic data) {
         if (!mounted) return;
@@ -168,7 +206,7 @@ class _ThreadPageState extends State<ThreadPage> {
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    _busSub?.cancel();
     _fcmSub?.cancel();
     _socket?.dispose();
     _inputCtrl.dispose();
@@ -210,29 +248,42 @@ class _ThreadPageState extends State<ThreadPage> {
     }
   }
 
-  /// Silent poll — merges fresh messages without showing spinner or jumping scroll.
-  Future<void> _loadSilent() async {
-    if (_loadingMore || !mounted) return;
+  /// Cursor-based sync — fetches ONLY messages newer than the last known message.
+  /// Called on socket reconnect so we catch anything missed while disconnected.
+  /// Zero wasted queries: if nothing is missed, returns immediately with 0 rows.
+  Future<void> _syncMissed() async {
+    if (_syncInFlight || !mounted || _messages.isEmpty) return;
+    _syncInFlight = true;
     try {
-      final result = await widget.apiClient
-          .getThread(widget.accessToken, widget.otherUserId);
+      final DateTime after = _messages.last.createdAt;
+      final result = await widget.apiClient.getThread(
+        widget.accessToken,
+        widget.otherUserId,
+        after: after,
+      );
       if (!mounted) return;
-      final merged = _merge(result.messages);
-      if (merged.length == _messages.length) return; // nothing new
-      MessageCache.instance.threads[widget.otherUserId] = merged;
+      if (result.messages.isEmpty) return;
+      final List<ZephyrMessage> updated = <ZephyrMessage>[..._messages];
+      for (final ZephyrMessage m in result.messages) {
+        if (!updated.any((ZephyrMessage x) => x.id == m.id)) {
+          updated.add(m);
+        }
+      }
+      updated.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      MessageCache.instance.threads[widget.otherUserId] = updated;
       final bool atBottom = !_scrollCtrl.hasClients ||
           _scrollCtrl.position.pixels < 80;
-      setState(() {
-        _messages = merged;
-        _hasMore = result.hasMore;
-      });
+      setState(() => _messages = updated);
       if (atBottom) _scrollToBottom();
       for (final ZephyrMessage m in result.messages) {
         if (m.receiverId == widget.myUserId && m.readAt == null) {
           widget.apiClient.markMessageRead(widget.accessToken, m.id).ignore();
         }
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _syncInFlight = false;
+    }
   }
 
   Future<void> _loadMore() async {

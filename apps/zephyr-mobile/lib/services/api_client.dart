@@ -11,7 +11,9 @@ class ZephyrApiClient {
   ZephyrApiClient({required this.baseUrl});
 
   final String baseUrl;
-  final HttpClient _httpClient = HttpClient();
+  final HttpClient _httpClient = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 30)
+    ..idleTimeout = const Duration(seconds: 30);
 
   Future<bool> ping() async {
     try {
@@ -169,10 +171,14 @@ class ZephyrApiClient {
   }
 
   Future<({List<ZephyrMessage> messages, bool hasMore})> getThread(
-      String accessToken, String userId, {DateTime? before}) async {
-    final String path = before != null
-        ? '/v1/messages/conversations/$userId?before=${Uri.encodeComponent(before.toUtc().toIso8601String())}'
-        : '/v1/messages/conversations/$userId';
+      String accessToken, String userId, {DateTime? before, DateTime? after}) async {
+    final StringBuffer query = StringBuffer();
+    if (before != null) {
+      query.write('?before=${Uri.encodeComponent(before.toUtc().toIso8601String())}');
+    } else if (after != null) {
+      query.write('?after=${Uri.encodeComponent(after.toUtc().toIso8601String())}');
+    }
+    final String path = '/v1/messages/conversations/$userId${query.toString()}';
     final dynamic data = await _request(
       method: 'GET',
       path: path,

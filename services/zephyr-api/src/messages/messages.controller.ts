@@ -88,10 +88,12 @@ export class MessagesController {
     @Param('userId', new ParseUUIDPipe()) userId: string,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
     @Query('before') before?: string,
+    @Query('after') after?: string,
   ): Promise<{ messages: Message[]; hasMore: boolean }> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     const beforeDate = before ? new Date(before) : undefined;
-    return this.storeService.getThread(me.id, userId, limit, beforeDate);
+    const afterDate = after ? new Date(after) : undefined;
+    return this.storeService.getThread(me.id, userId, limit, beforeDate, afterDate);
   }
 
   @Patch(':messageId/read')

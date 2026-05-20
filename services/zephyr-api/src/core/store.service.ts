@@ -1395,6 +1395,7 @@ export class StoreService {
     partnerId: string,
     limit = 50,
     before?: Date,
+    after?: Date,
   ): Promise<{ messages: Message[]; hasMore: boolean }> {
     const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
     const fetchLimit = normalizedLimit + 1;
@@ -1403,6 +1404,10 @@ export class StoreService {
       const params: (string | number)[] = [userId, partnerId, fetchLimit];
       const beforeClause = before
         ? `AND created_at < $${params.push(before.toISOString())}`
+        : '';
+      // after-cursor: fetch messages newer than this timestamp (no LIMIT needed, just get all missed)
+      const afterClause = after
+        ? `AND created_at > $${params.push(after.toISOString())}`
         : '';
 
       const result = await this.databaseService.query<{
@@ -1413,7 +1418,17 @@ export class StoreService {
         read_at: string | null;
         created_at: string;
       }>(
-        `
+        after
+          ? // Cursor sync: fetch everything after a timestamp, no DESC/LIMIT wrapping needed
+            `
+            SELECT id, sender_id, receiver_id, body, read_at, created_at
+            FROM messages
+            WHERE ((sender_id = $1 AND receiver_id = $2)
+               OR (sender_id = $2 AND receiver_id = $1))
+               ${afterClause}
+            ORDER BY created_at ASC
+          `
+          : `
           SELECT id, sender_id, receiver_id, body, read_at, created_at
           FROM (
             SELECT id, sender_id, receiver_id, body, read_at, created_at
@@ -1429,7 +1444,8 @@ export class StoreService {
         params,
       );
 
-      const hasMore = result.rows.length > normalizedLimit;
+      // For after-cursor queries there is no pagination — return all missed messages
+      const hasMore = after ? false : result.rows.length > normalizedLimit;
       const rows = hasMore ? result.rows.slice(0, normalizedLimit) : result.rows;
       return {
         messages: rows.map((row) => ({
