@@ -34,10 +34,8 @@
 
 - [x] **Apple Developer account** ($99/yr) — unlocks App Store, TestFlight, APNs, real device push on iOS
 - [x] **Google Play Developer account** ($25 once) — unlocks Play Store
-- [x] **iOS APNs** — APNs Auth Key uploaded to Firebase ✅; still need to enable Push Notifications capability in Xcode (Runner → Signing & Capabilities → + Push Notifications)
-- [x] **Backend idempotency dedup** — done: backend checks `X-Idempotency-Key`, returns existing message within 60s window, skips duplicate socket/FCM
-- [x] **Sentry source maps** — plugin configured; run `dart run sentry_dart_plugin` after each release build
-- [ ] **Sign in with Apple** — App Store REQUIRES this if Google Sign In is offered; package already in pubspec; need Apple Dev portal config + Xcode capability + Flutter screens
+- [x] **iOS APNs** — APNs Auth Key uploaded to Firebase ✅; Push Notifications entitlement added to Xcode ✅; App ID registered with Push Notifications capability ✅
+- [x] **Sign in with Apple** — App ID registered with Sign in with Apple capability ✅; Xcode entitlement added ✅; Flutter UI + backend endpoint already existed ✅
 
 ---
 
