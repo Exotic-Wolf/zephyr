@@ -66,7 +66,7 @@ sentry:
   upload_sources: true
   project: zephyr-mobile
   org: zephyr-xb
-  auth_token: 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
+  auth_token: SENTRY_AUTH_TOKEN
 
 flutter_launcher_icons:
   android: "launcher_icon"
