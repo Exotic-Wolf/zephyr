@@ -62,6 +62,7 @@ class _ThreadPageState extends State<ThreadPage> {
   final ScrollController _scrollCtrl = ScrollController();
   sio.Socket? _socket;
   StreamSubscription<RemoteMessage>? _fcmSub;
+  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -73,6 +74,7 @@ class _ThreadPageState extends State<ThreadPage> {
     }
     _load();
     _connectSocket();
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _loadSilent());
     _fcmSub = FirebaseMessaging.onMessage.listen(_onFcmMessage);
     _scrollCtrl.addListener(() {
       if (_scrollCtrl.position.pixels >=
@@ -166,6 +168,7 @@ class _ThreadPageState extends State<ThreadPage> {
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _fcmSub?.cancel();
     _socket?.dispose();
     _inputCtrl.dispose();
@@ -173,14 +176,26 @@ class _ThreadPageState extends State<ThreadPage> {
     super.dispose();
   }
 
+  /// Merges [fresh] from API with any socket-appended messages not yet in DB,
+  /// so a _load() return never silently drops in-flight socket messages.
+  List<ZephyrMessage> _merge(List<ZephyrMessage> fresh) {
+    final Set<String> freshIds = fresh.map((m) => m.id).toSet();
+    final List<ZephyrMessage> socketOnly =
+        _messages.where((m) => !freshIds.contains(m.id)).toList();
+    final List<ZephyrMessage> merged = <ZephyrMessage>[...fresh, ...socketOnly];
+    merged.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return merged;
+  }
+
   Future<void> _load() async {
     try {
       final result = await widget.apiClient
           .getThread(widget.accessToken, widget.otherUserId);
-      MessageCache.instance.threads[widget.otherUserId] = result.messages;
       if (!mounted) return;
+      final merged = _merge(result.messages);
+      MessageCache.instance.threads[widget.otherUserId] = merged;
       setState(() {
-        _messages = result.messages;
+        _messages = merged;
         _hasMore = result.hasMore;
         _loading = false;
       });
@@ -193,6 +208,31 @@ class _ThreadPageState extends State<ThreadPage> {
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Silent poll — merges fresh messages without showing spinner or jumping scroll.
+  Future<void> _loadSilent() async {
+    if (_loadingMore || !mounted) return;
+    try {
+      final result = await widget.apiClient
+          .getThread(widget.accessToken, widget.otherUserId);
+      if (!mounted) return;
+      final merged = _merge(result.messages);
+      if (merged.length == _messages.length) return; // nothing new
+      MessageCache.instance.threads[widget.otherUserId] = merged;
+      final bool atBottom = !_scrollCtrl.hasClients ||
+          _scrollCtrl.position.pixels < 80;
+      setState(() {
+        _messages = merged;
+        _hasMore = result.hasMore;
+      });
+      if (atBottom) _scrollToBottom();
+      for (final ZephyrMessage m in result.messages) {
+        if (m.receiverId == widget.myUserId && m.readAt == null) {
+          widget.apiClient.markMessageRead(widget.accessToken, m.id).ignore();
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadMore() async {

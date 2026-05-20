@@ -78,6 +78,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _inboxUnread = 0;
   String? _activeThreadUserId;
   Timer? _badgeSyncTimer;
+  Timer? _keepAliveTimer;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
   bool _rtcLoading = false;
@@ -116,6 +117,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
         });
       }).ignore();
+    });
+    // Keep Render awake — free tier sleeps after 15 min; ping every 4 min prevents it
+    _keepAliveTimer = Timer.periodic(const Duration(minutes: 4), (_) {
+      widget.apiClient.ping().ignore();
     });
     // FCM foreground: only used to refresh InboxPage when it's open.
     // Badge is owned by the socket (chat:message) — do NOT increment here to avoid double-count.
@@ -284,6 +289,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _callTickTimer?.cancel();
     _feedPollTimer?.cancel();
     _badgeSyncTimer?.cancel();
+    _keepAliveTimer?.cancel();
     _feedSocket?.dispose();
     _chatSocket?.dispose();
     _roomTitleController.dispose();

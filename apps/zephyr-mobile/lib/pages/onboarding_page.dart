@@ -170,6 +170,37 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             ),
                           ),
 
+                        // Apple button (iOS only, shown first)
+                        if (Platform.isIOS) ...<Widget>[
+                          _SignInButton(
+                            onTap: _googleLoading || _appleLoading
+                                ? null
+                                : _continueWithApple,
+                            loading: _appleLoading,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                if (!_appleLoading)
+                                  const Icon(Icons.apple,
+                                      color: Colors.white, size: 22),
+                                if (!_appleLoading) const SizedBox(width: 8),
+                                Text(
+                                  _appleLoading
+                                      ? l10n.signingIn
+                                      : l10n.continueWithApple,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            backgroundColor: Colors.black,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
                         // Google button
                         _SignInButton(
                           onTap: _googleLoading || _appleLoading
@@ -197,37 +228,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           ),
                           backgroundColor: const Color(0xFF2A2A2A),
                         ),
-
-                        if (Platform.isIOS) ...<Widget>[
-                          const SizedBox(height: 12),
-                          // Apple button
-                          _SignInButton(
-                            onTap: _googleLoading || _appleLoading
-                                ? null
-                                : _continueWithApple,
-                            loading: _appleLoading,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: <Widget>[
-                                if (!_appleLoading)
-                                  const Icon(Icons.apple,
-                                      color: Colors.white, size: 22),
-                                if (!_appleLoading) const SizedBox(width: 8),
-                                Text(
-                                  _appleLoading
-                                      ? l10n.signingIn
-                                      : l10n.continueWithApple,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            backgroundColor: Colors.black,
-                          ),
-                        ],
 
                         // Error
                         if (_error != null) ...<Widget>[
