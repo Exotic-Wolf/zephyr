@@ -224,6 +224,16 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       );
     `);
 
+    await this.pool.query(`
+      ALTER TABLE messages ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+    `);
+
+    await this.pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS messages_idempotency_key_idx
+      ON messages(idempotency_key)
+      WHERE idempotency_key IS NOT NULL;
+    `);
+
     // Seed: promote the owner account to admin based on env var.
     // Safe to re-run — only updates if the email matches.
     const ownerEmail = process.env.OWNER_GOOGLE_EMAIL?.trim();

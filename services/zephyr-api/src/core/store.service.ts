@@ -1252,12 +1252,31 @@ export class StoreService {
     return result.rows.map((r) => r.token);
   }
 
-  async sendMessage(senderId: string, receiverId: string, body: string): Promise<Message> {
+  async sendMessage(senderId: string, receiverId: string, body: string, idempotencyKey?: string): Promise<{ message: Message; isNew: boolean }> {
     if (!body?.trim()) {
       throw new BadRequestException('Message body cannot be empty');
     }
     if (body.trim().length > 2000) {
       throw new BadRequestException('Message body too long (max 2000 chars)');
+    }
+
+    if (idempotencyKey && this.databaseService?.isEnabled()) {
+      const existing = await this.databaseService.query<{
+        id: string; sender_id: string; receiver_id: string;
+        body: string; read_at: string | null; created_at: string;
+      }>(
+        `SELECT id, sender_id, receiver_id, body, read_at, created_at
+         FROM messages
+         WHERE idempotency_key = $1 AND created_at > NOW() - INTERVAL '60 seconds'`,
+        [idempotencyKey],
+      );
+      if (existing.rows.length > 0) {
+        const r = existing.rows[0];
+        return {
+          message: { id: r.id, senderId: r.sender_id, receiverId: r.receiver_id, body: r.body, readAt: r.read_at, createdAt: r.created_at },
+          isNew: false,
+        };
+      }
     }
 
     const msg: Message = {
@@ -1272,16 +1291,16 @@ export class StoreService {
     if (this.databaseService?.isEnabled()) {
       await this.databaseService.query(
         `
-          INSERT INTO messages (id, sender_id, receiver_id, body, created_at)
-          VALUES ($1, $2, $3, $4, $5)
+          INSERT INTO messages (id, sender_id, receiver_id, body, created_at, idempotency_key)
+          VALUES ($1, $2, $3, $4, $5, $6)
         `,
-        [msg.id, msg.senderId, msg.receiverId, msg.body, msg.createdAt],
+        [msg.id, msg.senderId, msg.receiverId, msg.body, msg.createdAt, idempotencyKey ?? null],
       );
-      return msg;
+      return { message: msg, isNew: true };
     }
 
     this.inMemoryMessages.set(msg.id, msg);
-    return msg;
+    return { message: msg, isNew: true };
   }
 
   async getConversations(userId: string): Promise<Conversation[]> {

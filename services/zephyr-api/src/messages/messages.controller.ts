@@ -51,23 +51,26 @@ export class MessagesController {
   @Post()
   async sendMessage(
     @Headers('authorization') authorization: string | undefined,
+    @Headers('x-idempotency-key') idempotencyKey: string | undefined,
     @Body() body: SendMessageDto,
   ): Promise<Message> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
-    const message = await this.storeService.sendMessage(me.id, body.receiverId, body.body);
-    // Push to both sender and receiver in real time
-    this.messagesGateway.emitNewMessage(message);
-    // Send FCM push to receiver
-    this.storeService.getDeviceTokens(body.receiverId).then((tokens) => {
-      if (tokens.length > 0) {
-        void this.fcmService.sendPush(
-          tokens,
-          me.displayName,
-          body.body,
-          { senderId: me.id, messageId: message.id },
-        );
-      }
-    }).catch(() => {});
+    const { message, isNew } = await this.storeService.sendMessage(me.id, body.receiverId, body.body, idempotencyKey);
+    if (isNew) {
+      // Push to both sender and receiver in real time
+      this.messagesGateway.emitNewMessage(message);
+      // Send FCM push to receiver
+      this.storeService.getDeviceTokens(body.receiverId).then((tokens) => {
+        if (tokens.length > 0) {
+          void this.fcmService.sendPush(
+            tokens,
+            me.displayName,
+            body.body,
+            { senderId: me.id, messageId: message.id },
+          );
+        }
+      }).catch(() => {});
+    }
     return message;
   }
 

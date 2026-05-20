@@ -58,6 +58,15 @@ dev_dependencies:
   flutter_native_splash: ^2.4.6
   flutter_launcher_icons: ^0.14.3
   flutter_lints: ^5.0.0
+  sentry_dart_plugin: ^2.2.0
+
+sentry:
+  upload_debug_symbols: true
+  upload_source_maps: true
+  upload_sources: true
+  project: zephyr-mobile
+  org: YOUR_SENTRY_ORG_SLUG
+  auth_token: YOUR_SENTRY_AUTH_TOKEN
 
 flutter_launcher_icons:
   android: "launcher_icon"
