@@ -18,6 +18,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     });
 
+    this.pool.on('error', (err) => {
+      this.logger.error('Idle DB client error', err.message);
+    });
+
     void this.ensureSchema();
   }
 
