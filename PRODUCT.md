@@ -361,3 +361,122 @@ Random calls are priced cheap intentionally (600 coins/min = ~$0.11/min to calle
 - If declined: caller is not charged for that minute
 - Rate is set by receiver based on their level (2,100 → 27,000 coins/min)
 - Receiver earns 60% of the rate they set
+
+---
+
+## Backlog
+
+### 💰 0. Revenue Feature — Random Call (Agora)
+
+> Store compliance: 17+ age rating. ToS prohibits explicit content. Report button = safety net. Reactive bans only at v1.
+
+**Backend**
+- [ ] Matchmaking queue — `call:join_queue` / `call:leave_queue` Socket.IO events; server pairs two waiting users and emits `call:matched` with Agora token to both
+- [ ] Call session table — `call_sessions` (id, user_a_id, user_b_id, agora_channel, started_at, ended_at, ended_by)
+- [ ] Report endpoint — `POST /v1/calls/:sessionId/report`; stores report, ends Agora channel, increments report count on reported user
+- [ ] Auto-ban threshold — 5+ reports in 7 days → `is_banned = true`; banned users rejected from queue
+- [ ] Coin deduction — deduct 600 coins/min from caller; economy service handles transaction
+
+**Flutter**
+- [ ] "Find a Call" entry point — button on Home tab; checks coin balance before joining queue
+- [ ] Waiting screen — animated UI while in queue; cancel button emits `call:leave_queue`
+- [ ] In-call screen — full-screen video (Agora), flip camera, mute, end call, report button, gift coins button
+- [ ] Post-call screen — "Call ended", option to send a DM
+- [ ] Skip / Next — ends current call, screen blurs, re-joins queue immediately, no coin charge during transition
+
+**Store compliance (one-time setup, no code)**
+- [ ] Set 17+ rating — App Store Connect → Age Rating
+- [ ] Set 17+ rating — Google Play Console → Content Rating wizard
+- [ ] Terms of Service — "Users must be 17+. Explicit content is prohibited."
+
+---
+
+### 🔴 1. Ship Blockers
+
+- [x] Apple Developer account ($99/yr)
+- [x] Google Play Developer account ($25 once)
+- [x] iOS APNs — APNs Auth Key uploaded to Firebase; Push Notifications entitlement added
+- [x] Sign in with Apple — App ID registered, Xcode entitlement added, backend endpoint done
+
+---
+
+### 🟠 2. First Impression
+
+- [ ] Onboarding flow — first-launch screen: set nickname, pick country/language
+- [ ] Follow / unfollow UI — Follow button on ProfilePage, follower/following counts (backend done, no UI)
+- [ ] Empty feed state — "Find people" prompt or curated suggestions when following 0 people
+- [ ] Optimistic message send — bubble appears instantly before server ACK (~8% messaging gap)
+
+---
+
+### 🟡 3. Product Completeness
+
+- [ ] Wallet / coins UI — balance display, transaction history (backend done, no UI)
+- [ ] Gift sending from DM — send coins as gift from thread (backend done)
+- [ ] Typing indicator — "..." bubble when other user is typing
+- [ ] Message ordering under rapid fire — no sequence numbers; 3 fast messages can appear out of order (~3% gap)
+- [ ] MessageCache eviction — thread messages unbounded in memory; causes pressure on long sessions (~2% gap)
+- [ ] Block / report user — safety feature; backend not built
+- [ ] Custom Sentry breadcrumbs — log socket events, message send, login
+
+---
+
+### 🟢 4. Needs Testing
+
+- [ ] Double tick cross-device — send from iPhone, read on Android → verify blue tick on iPhone
+- [ ] Render upgrade — free tier sleeps after 15 min; upgrade to Standard ($25/mo) before real users
+- [ ] Redis on Render — add Redis Starter ($10/mo) + set `REDIS_URL` env var; code already wired
+- [ ] Logout stops push — verify no push received after logout
+- [x] Send failure UI — verified: red bubble → tap retry → sends
+
+---
+
+### 🔵 5. Polish
+
+- [ ] App icon — replace default Flutter icon with Zephyr brand
+- [ ] Splash screen — branded launch screen
+- [ ] Emoji / sticker picker — basic emoji in thread
+- [ ] Dark mode — respect system preference
+- [ ] Profile editing QA — verify country, language, birthday save/display end-to-end
+
+---
+
+### ⚪ 6. Post-Launch
+
+- [ ] TestFlight — iOS release build, App Store Connect submission
+- [ ] Play Store — signed AAB, store listing, screenshots
+- [ ] Web admin panel — moderate users, manage rooms, analytics
+
+---
+
+### ✅ Done
+
+- [x] Message pagination — cursor-based; backend returns `hasMore`; scroll-to-top triggers fetch
+- [x] Pagination slice bug fixed — `getThread` slice(1) fix; was cutting off newest message >50 msgs
+- [x] Send failure UI — red bubble + retry
+- [x] Idempotency key — `X-Idempotency-Key` header on every `sendMessage`
+- [x] Message read receipts — single tick (dark) = sent, double tick (blue) = read
+- [x] Thread date separators — Today / Yesterday / date headers
+- [x] Socket room stability — `chat:join` on every `connect`
+- [x] Real-time delivery — MessageBus singleton routes socket messages to open ThreadPage
+- [x] Cursor-based reconnect sync — fetches only messages after last known timestamp on reconnect
+- [x] Cross-device send confirmation — gateway emits to both sender and receiver rooms
+- [x] Android FCM — push on message send, coalesced per sender
+- [x] Tap notification → Inbox tab
+- [x] FCM token cleanup on logout
+- [x] iOS Firebase init — `firebase_options.dart`, Podfile iOS 15.0
+- [x] Unread badge — socket increment + 60s resync + clears on open + app-resume refresh
+- [x] Avatar image caching — `CachedNetworkImageProvider` across all screens
+- [x] Persistent HttpClient — single client reused across all API calls
+- [x] Sentry Flutter + NestJS — uncaught exceptions captured
+- [x] Auth — Google, Apple, Guest (iOS + Android)
+- [x] Home feed — live cards, user cards, real-time socket
+- [x] Inbox — conversation list, unread badges, timestamps
+- [x] Thread (DM) — chat bubbles, send, mark-read, auto-scroll
+- [x] Explore — search by name or 8-digit public ID
+- [x] Live streaming — host + viewer screens, timer, viewer count
+- [x] Avatar upload — Cloudinary, camera/gallery picker
+- [x] Profile editing — nickname, gender, birthday, country, language
+- [x] Settings — logout at Me → ⚙ Settings → Sign Out
+- [x] Redis Socket.IO adapter — wired, no-op without `REDIS_URL`
+- [x] Mock data removed — mock feed cards, mock followingIds, debug logs gone
