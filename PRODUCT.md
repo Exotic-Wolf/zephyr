@@ -364,7 +364,80 @@ Random calls are priced cheap intentionally (600 coins/min = ~$0.11/min to calle
 
 ---
 
-## Backlog
+## Screens & UI
+
+### App Shell
+
+5-tab bottom navigation bar (accent `#FF8F00` amber):
+
+| Index | Icon | Label | Badge |
+|---|---|---|---|
+| 0 | home_rounded | Home | — |
+| 1 | live_tv_rounded | Live | — |
+| 2 | explore_rounded | Explore | — |
+| 3 | chat_bubble_rounded | Inbox | Unread count (99+ cap) |
+| 4 | person_rounded | Me | — |
+
+---
+
+### Tab 0 — Home
+
+App bar has 3 sub-tabs: **Popular · Discover · Follow** (default: Discover). Country filter + name search in top bar.
+
+**Popular sub-tab:**
+- 2-column grid of `LiveFeedCard` cards
+- Tap card → opens `ProfilePage`
+- Green **"Random match"** button pinned at bottom
+
+**Discover sub-tab:**
+- Vertical `PageView` — swipe up/down through cards (full-height cards)
+- Live cards show a preview box (top-right) for future video feed
+- Green **"Random match"** button pinned at bottom
+
+**Follow sub-tab:**
+- Same 2-column grid, filtered to followed users only
+- Empty state: "Follow someone to see them here"
+- Green **"Random match"** button pinned at bottom
+
+**Feed card anatomy:**
+- Background gradient: `#1C1C2E` → `#2D2D44` (dark purple-blue)
+- Top-left: status badge — `Live` (red `#FF3B30`) / `Busy` (orange `#FF9500`) / `Online` (green `#34C759`) / `Offline` (grey `#8E8E93`)
+- Bottom-left: host display name + country flag + language
+- Bottom-right: shake-animated call button
+
+**Random match button:**
+- Color: `#7BEA3B` (bright green), black text
+- Tapping: checks coin balance, switches to Explore tab, starts a call session at 600 coins/min
+
+---
+
+### Tab 1 — Live
+
+Centered screen with:
+- Radial amber glow behind a flame-gradient circle icon (`live_tv_rounded`)
+- Large "Go Live" heading
+- Subtitle: "Start Live Stream and Connect"
+- Button → `GoLiveCountdownPage` (3-2-1 countdown) → `HostLiveScreen`
+
+---
+
+### Tab 2 — Explore
+
+→ `ExplorePage` — search users by name or 8-digit public ID
+
+---
+
+### Tab 3 — Inbox
+
+→ `InboxPage` — conversation list, unread badges, timestamps
+
+---
+
+### Tab 4 — Me
+
+→ `MyProfilePage` — view/edit profile, settings, logout
+
+---
 
 ### 💰 0. Revenue Feature — Random Call (Agora)
 
