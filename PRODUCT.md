@@ -1,6 +1,203 @@
-# Zephyr Pricing Strategy
+# Zephyr — Product & Technical Reference
 
-> Work in progress — being defined incrementally.
+> This file is the single source of truth for product decisions, pricing, architecture, and development context. Read this first before touching any code or starting a new session.
+
+---
+
+## Product Vision
+
+- **Chamet/Olamet-style MVP** in Flutter + NestJS
+- Target market: **Arab Gulf users** calling Philippines/Asia hosts
+- Revenue: coin-based gifts + random video calls (Agora)
+- Ship fast. Scale infra after revenue.
+
+---
+
+## Architecture
+
+| Layer | Stack | Location |
+|---|---|---|
+| Mobile | Flutter (Dart) | `apps/zephyr-mobile` |
+| Backend API | NestJS (TypeScript) | `services/zephyr-api` |
+| Database | PostgreSQL (Render) | Singapore region |
+| Real-time | Socket.IO (`/chat`, `/feed` namespaces) | Backend |
+| Video | Agora (calls + live streaming) | SDK in mobile |
+| Deploy | Render (auto-deploy from `main`) | `https://zephyr-api-wr1s.onrender.com` |
+
+---
+
+## Run Commands
+
+```bash
+# iOS (iPhone 17 Pro Max simulator)
+cd apps/zephyr-mobile && flutter run -d 8B6780BE-FC4B-47F0-8980-3D9D7504004A --dart-define=ENVIRONMENT=development
+
+# Android emulator
+cd apps/zephyr-mobile && flutter run -d emulator-5554 --dart-define=ENVIRONMENT=development
+
+# Launch Android emulator if not running
+flutter emulators --launch Medium_Phone_API_36.1
+
+# Build debug APK
+cd apps/zephyr-mobile && flutter build apk --debug --dart-define=ENVIRONMENT=development
+
+# Run API locally (hits real production DB via .env)
+pnpm --filter zephyr-api start:dev
+```
+
+---
+
+## Flutter App Structure (`apps/zephyr-mobile/lib/`)
+
+| File | Purpose |
+|------|---------|
+| `main.dart` | App bootstrap, session restore via `flutter_secure_storage` |
+| `app_constants.dart` | `apiBaseUrl`, `googleServerClientId`, env constants |
+| `models/models.dart` | All data models: `UserProfile`, `Room`, `ZephyrMessage`, `WalletSummary`, `CoinPack`, `CallSession`, etc. |
+| `services/api_client.dart` | All HTTP calls — GET/POST/PATCH/DELETE |
+| `pages/home_screen.dart` | Feed, socket connection, inbox badge, 5s poll fallback |
+| `pages/host_live_screen.dart` | Host live stream, heartbeat timer (15s) |
+| `pages/go_live_countdown_page.dart` | 3-2-1 countdown, creates room |
+| `pages/viewer_live_screen.dart` | Viewer live stream, reactions, comments |
+| `pages/onboarding_page.dart` | Google Sign-In, Apple Sign-In, guest login |
+| `pages/explore_page.dart` | Search users by name or 8-digit public ID |
+| `pages/inbox_page.dart` | Conversation list |
+| `pages/thread_page.dart` | DM chat bubbles, real-time via MessageBus, read receipts |
+| `pages/my_profile_page.dart` | View/edit profile |
+| `widgets/` | Shared widgets: gifts, spark icon, coin icon, language picker |
+
+---
+
+## Backend Structure (`services/zephyr-api/src/`)
+
+| File | Notes |
+|------|-------|
+| `main.ts` | Bootstrap — uses `RedisIoAdapter` (falls back to in-memory if no `REDIS_URL`) |
+| `redis-io.adapter.ts` | Custom Socket.IO adapter for horizontal scaling |
+| `core/store.service.ts` | All DB logic — messages, rooms, economy, wallets |
+| `core/database.service.ts` | Schema init, migrations, periodic cleanup |
+| `core/rtc.service.ts` | Agora token generation |
+| `messages/messages.gateway.ts` | Socket.IO `/chat` namespace — emits to both sender and receiver |
+| `rooms/rooms.gateway.ts` | Socket.IO `/feed` namespace — room created/ended/updated |
+| `economy/economy.controller.ts` | All economy endpoints |
+
+---
+
+## DB Schema (Postgres)
+
+Tables: `users`, `wallets`, `spark_wallets`, `wallet_transactions`, `user_following`, `rooms`, `messages`, `call_sessions`, `gifts`
+
+Key columns:
+- `users.public_id TEXT UNIQUE` — 8-digit derived hash
+- `users.call_rate_coins_per_minute INT` — receiver sets their direct call rate
+- `rooms.last_heartbeat TIMESTAMPTZ` — updated every 15s by host
+- `messages.read_at TIMESTAMPTZ` — null = unread, set = read (blue tick)
+
+---
+
+## API Endpoints
+
+```
+GET  /v1/health/live, /v1/health/ready
+POST /v1/auth/guest-login, /google-login, /apple-login
+GET  /v1/users/me
+PATCH /v1/users/me
+GET  /v1/users/by-public-id/:publicId
+GET  /v1/users/:userId
+POST /v1/users/:userId/follow
+DELETE /v1/users/:userId/follow
+GET  /v1/rooms
+POST /v1/rooms
+POST /v1/rooms/:roomId/join
+POST /v1/rooms/:roomId/heartbeat
+DELETE /v1/rooms/:roomId
+GET  /v1/feed/live
+GET  /v1/economy/config, /coin-packs, /wallet
+POST /v1/economy/purchase-coins
+GET  /v1/economy/gifts/catalog
+POST /v1/economy/calls/start, /tick, /end, /rtc-token
+POST /v1/messages
+GET  /v1/messages/conversations
+GET  /v1/messages/conversations/:userId
+PATCH /v1/messages/:messageId/read
+```
+
+WebSocket namespaces:
+- `/chat` — real-time messaging (`chat:message`, `chat:read`, `chat:join`)
+- `/feed` — live room events (`feed:room-created`, `feed:room-ended`, `feed:room-updated`)
+
+---
+
+## Flutter Packages
+
+| Package | Purpose |
+|---|---|
+| `socket_io_client: 3.1.4` | Real-time Socket.IO |
+| `flutter_secure_storage: 10.1.0` | Token in iOS Keychain / Android Keystore |
+| `google_sign_in` | Google OAuth |
+| `sign_in_with_apple` | Apple Sign-In |
+| `country_picker: ^2.0.27` | Country flag + dial code picker |
+| `flutter_svg` | SVG rendering |
+
+---
+
+## Architecture Decisions (Locked)
+
+- **Agora** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
+- **Socket.IO** — foreground real-time for messaging and matchmaking
+- **FCM/APNs** — background/killed state push notifications (not yet built)
+- **Redis Socket.IO adapter** — wired, falls back to in-memory. Enable by setting `REDIS_URL` on Render. Required at 5K+ users.
+- **Server always truth** — `getConversations` is authoritative unread count. Socket does optimistic increments only.
+
+---
+
+## Scaling Plan
+
+| Users | Infrastructure | Est. cost |
+|---|---|---|
+| 0–5K | Current Render free tier | ~$0 |
+| 5K–10K | Upgrade API to Standard + Redis Starter | ~$40/mo |
+| 10K–100K | 3x instances + Pro Postgres + PgBouncer | ~$200/mo |
+| 100K+ | Migrate to AWS/GCP with auto-scaling | Variable |
+
+**Pre-production must-do:** Upgrade API from free (sleeps after 15 min) to Standard ($25/mo).
+
+---
+
+## MVP Completion Status
+
+| Area | Status | % |
+|------|--------|---|
+| Auth (Google / Apple / Guest) | ✅ Done | 100% |
+| Home feed (cards, status, real-time) | ✅ Done | 90% |
+| Go Live / Host screen | ✅ Done | 80% |
+| Viewer screen | ✅ Basic done | 60% |
+| Direct messages (real-time, WebSocket) | ✅ Done | 90% |
+| Explore / Search | ✅ Done | 85% |
+| My Profile | ✅ Done | 75% |
+| Persistent login | ✅ Done | 100% |
+| Economy backend (coins, sparks, calls, gifts) | ✅ Built | 80% |
+| Real video/audio (Agora) | ❌ Not started | 0% |
+| Push notifications (FCM) | ❌ Not started | 0% |
+| Follow/unfollow UI | ❌ Partial | 20% |
+| Wallet / coins UI | ❌ Partial | 30% |
+| Gifts during live | ❌ Partial | 10% |
+| App icon + splash | ❌ Missing | 0% |
+| Onboarding flow | ❌ Missing | 0% |
+
+---
+
+## Known Blockers Before Ship
+
+| Blocker | Solution |
+|---|---|
+| No real video/audio | Agora SDK integration |
+| No push notifications | Firebase Cloud Messaging (FCM) |
+| Mock cards in feed | Remove `[Mock]` cards before production |
+| No Apple Developer account | Enroll at developer.apple.com ($99/year) |
+| Render API sleeps | Upgrade to Standard plan ($25/mo) |
+
+---
 
 ---
 
