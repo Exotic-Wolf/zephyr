@@ -182,16 +182,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       })
       ..on('chat:message', (dynamic data) {
         if (!mounted) return;
-        // Bump badge unless the user is actively reading the conversation
+        // Parse and forward to any open ThreadPage via MessageBus
+        ZephyrMessage? msg;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final Map<String, dynamic> msgJson =
+              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
+          msg = ZephyrMessage.fromJson(msgJson);
+          MessageBus.instance.emit(msg);
+        } catch (_) {}
+        // Bump badge unless the user is actively reading that conversation
         if (_selectedTabIndex == 3 && _activeThreadUserId != null) {
-          try {
-            final Map<String, dynamic> payload =
-                (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-            final Map<String, dynamic> msgJson =
-                (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
-            final String senderId = msgJson['senderId'] as String;
-            if (senderId == _activeThreadUserId) return;
-          } catch (_) {}
+          if (msg != null && msg.senderId == _activeThreadUserId) return;
           setState(() => _inboxUnread++);
         } else if (_selectedTabIndex != 3) {
           setState(() => _inboxUnread++);

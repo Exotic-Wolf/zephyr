@@ -44,7 +44,7 @@
 - [ ] **Onboarding flow** — first-launch screen: set nickname, pick country/language; no one should land on an empty home tab with a default name
 - [ ] **Follow / unfollow UI** — Follow button on ProfilePage, follower/following counts; backend is done, button doesn't exist — users can't build a social graph
 - [ ] **Empty feed state** — if following 0 people, feed is a blank screen; needs a "Find people" prompt or curated suggestions
-- [ ] **Optimistic message send** — bubble appears instantly before server ACK; right now there's a 150–300ms dead gap after tapping Send — feels like 2010
+- [ ] **Optimistic message send** — bubble appears instantly before server ACK; right now there's a 150–300ms dead gap after tapping Send — feels like 2010 *(messaging robustness: ~8% gap)*
 
 ---
 
@@ -53,6 +53,8 @@
 - [ ] **Wallet / coins UI** — balance display, transaction history (backend fully done, no UI)
 - [ ] **Gift sending from DM** — send coins as gift directly from thread (backend done)
 - [ ] **Typing indicator** — "..." bubble when other user is typing
+- [ ] **Message ordering under rapid fire** — no sequence numbers; if you send 3 messages fast, HTTP responses can return out of order; messages may appear in wrong order *(messaging robustness: ~3% gap)*
+- [ ] **MessageCache eviction** — Flutter keeps all thread messages in memory unbounded; will cause memory pressure on long sessions *(messaging robustness: ~2% gap)*
 - [ ] **Block / report user** — safety feature; backend not built
 - [ ] **Custom Sentry breadcrumbs** — log socket connect/disconnect, message send, markRead, login; makes debugging production issues 10× faster
 
@@ -60,7 +62,9 @@
 
 ## 🟢 4. Needs Testing — done but unverified
 
-- [ ] **Double tick cross-device** — send from iPhone, read on Android → verify double tick appears on iPhone
+- [ ] **Double tick cross-device** — send from iPhone, read on Android → verify blue double tick appears on iPhone
+- [ ] **Render upgrade** — free tier sleeps after 15min; cold start = 10-15s first message delay; upgrade to paid plan before real users
+- [ ] **Redis on Render** — add Redis Starter ($10/mo) + set `REDIS_URL` env var + scale API to 2 instances; code already wired, just needs the service created
 - [ ] **Logout stops push** — log in on Android, log out → verify no push received after logout
 - [x] **Send failure UI** — verified: disable network → red bubble → re-enable → tap retry → sends
 
@@ -90,12 +94,16 @@
 
 ### Messaging
 - [x] **Message pagination** — cursor-based (`before=ISO8601`); backend returns `hasMore`; scroll-to-top triggers fetch; spinner at top
+- [x] **Pagination slice bug fixed** — `getThread` was slicing off newest message when >50 msgs in thread; fixed to `slice(1)` (remove oldest sentinel, keep newest 50)
 - [x] **Send failure UI** — red bubble with `Icons.refresh` + "Failed · tap to retry"; tap restores text to input
 - [x] **Idempotency key (client-side)** — `X-Idempotency-Key` header sent on every `sendMessage`
-- [x] **Message read receipts** — single/double tick; real-time via socket + FCM silent push
+- [x] **Message read receipts** — single tick (dark) = sent, double tick (blue) = read; real-time via socket + FCM silent push
 - [x] **Thread date separators** — Today / Yesterday / date headers between messages
 - [x] **Thread missing messages** — `getThread` returns latest 50 (DESC LIMIT subquery re-sorted ASC)
 - [x] **Socket room stability** — `chat:join` on every `connect`; thread resyncs on reconnect
+- [x] **Real-time delivery** — MessageBus singleton routes messages from home_screen socket to open ThreadPage; home_screen always mounted (thread pushed on top)
+- [x] **Cursor-based reconnect sync** — replaces 5s poll; on socket reconnect fetches only messages after last known timestamp
+- [x] **Cross-device send confirmation** — gateway emits `chat:message` to both sender and receiver rooms
 
 ### Push Notifications
 - [x] **Android FCM** — Firebase Admin SDK, `firebase_messaging` Flutter, device token in DB, push on send, coalesced per sender

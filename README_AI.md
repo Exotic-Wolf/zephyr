@@ -7,8 +7,10 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 
 ## Product aim
 
-- Build a **minimal Chamet-like MVP** in Flutter + NestJS.
-- Ship fast. Budget: **$50–$100/month**, scale infra after revenue.
+- Build a **Chamet/Olamet-like MVP** in Flutter + NestJS.
+- Target market: **Arab Gulf users** calling Philippines/Asia hosts.
+- Revenue: coin-based gifts + random video calls (Agora).
+- Ship fast. Scale infra after revenue.
 
 ---
 
@@ -27,16 +29,19 @@ This file is a handoff snapshot so we can resume Zephyr quickly in the next sess
 
 ```bash
 # iOS (iPhone 17 Pro Max simulator)
-cd apps/zephyr-mobile && flutter run -d "8B6780BE-FC4B-47F0-8980-3D9D7504004A" --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
+cd apps/zephyr-mobile && flutter run -d 8B6780BE-FC4B-47F0-8980-3D9D7504004A --dart-define=ENVIRONMENT=development
 
 # Android emulator
-cd apps/zephyr-mobile && flutter run -d emulator-5554 --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
+cd apps/zephyr-mobile && flutter run -d emulator-5554 --dart-define=ENVIRONMENT=development
 
 # Launch Android emulator if not running
 flutter emulators --launch Medium_Phone_API_36.1
 
 # Build debug APK
-flutter build apk --debug --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onrender.com
+cd apps/zephyr-mobile && flutter build apk --debug --dart-define=ENVIRONMENT=development
+
+# Run API locally (hits real production DB)
+pnpm --filter zephyr-api start:dev
 ```
 
 ---
@@ -47,13 +52,60 @@ flutter build apk --debug --dart-define=API_BASE_URL=https://zephyr-api-wr1s.onr
 |------|-------|
 | iOS Google client ID | `724639603736-n8v2kjqfg40l7bqkt26kov8cmofhn2db.apps.googleusercontent.com` |
 | Android Google client ID | `724639603736-08tovsj719dsb6atip932tqo1jg0gtl2.apps.googleusercontent.com` |
-| Web Google client ID (`GOOGLE_SERVER_CLIENT_ID`) | `724639603736-f7v5k8112bjpfaq2igjm0b5fndlm8vc8.apps.googleusercontent.com` |
+| Web Google client ID | `724639603736-f7v5k8112bjpfaq2igjm0b5fndlm8vc8.apps.googleusercontent.com` |
 | Owner Google email | `mr.gopaul.akshay@gmail.com` |
 | Owner UUID | `4a21364d-d84c-4ac2-8d57-1e7ce033b0dc` |
 | Owner publicId | `28282828` |
 | Android debug SHA-1 | `10:60:A8:68:95:90:87:37:4A:C7:7A:39:C6:F8:48:D4:BF:31:07:66` |
 | iOS simulator UDID | `8B6780BE-FC4B-47F0-8980-3D9D7504004A` |
 | Android emulator ID | `emulator-5554` / `Medium_Phone_API_36.1` |
+| Production DB | `postgresql://zephyr_user:VJ63W2mWMGbaR1NXARxRIpDqYvwK2Qfy@dpg-d7r3tobbc2fs738585m0-a.singapore-postgres.render.com/zephyr` |
+
+---
+
+## Economy model (Olamet-style)
+
+- **User buys**: $9.99 → 55,000 coins (1 coin = $0.0001816)
+- **Gift conversion**: 1 coin spent → host receives 0.60 sparks
+- **Spark cash-out rate**: 449 sparks = $0.04 (1 spark = $0.0000891)
+- **Host real cash per coin**: 0.60 × $0.0000891 = $0.0000535 per coin
+
+**Profitability per $100 user gift spend:**
+| | Amount |
+|---|---|
+| User spends | $100 |
+| Store takes 30% | -$30 |
+| You receive | $70 |
+| Host cash-out value | -$29.50 |
+| **You keep** | **$40.50 = 40% margin** |
+
+Host earns ~$29.50 per $100 user spend (29.5% of gross). The coin→spark gap is the platform margin — same model as Olamet/BIGO/Chamet.
+
+---
+
+## Architecture decisions locked
+
+- **Agora** replaces LiveKit for ALL video (calls + live streaming) — proprietary protocol bypasses Gulf WebRTC filtering
+- **LiveKit removed** — reduces APK by ~25MB
+- **Socket.IO** for real-time messaging + matchmaking
+- **Redis Socket.IO adapter** wired (falls back to in-memory if `REDIS_URL` unset) — enables horizontal scaling to 10K+ users
+- **FCM/APNs** for push when app is background/killed
+- **Server always truth** — `getConversations` is authoritative unread count
+
+---
+
+## Scaling plan
+
+| Users | Infrastructure | Cost |
+|---|---|---|
+| 0–5K | Current free setup | $0 |
+| 5K–10K | Upgrade API to Standard + Redis Starter | ~$40/mo |
+| 10K–100K | 3x instances + Pro Postgres + PgBouncer | ~$200/mo |
+| 100K+ | Migrate to AWS/GCP with auto-scaling | Variable |
+
+**Pre-production must-do**: Upgrade API from free (sleeps after 15min) to Standard ($25/mo).
+
+---
 
 ---
 
