@@ -147,28 +147,28 @@ class CallSessionTickResult {
 class RtcJoinInfo {
   RtcJoinInfo({
     required this.provider,
-    required this.wsUrl,
-    required this.roomName,
-    required this.identity,
+    required this.appId,
+    required this.channelName,
+    required this.uid,
     required this.role,
     required this.token,
     required this.expiresInSeconds,
   });
 
   final String provider;
-  final String wsUrl;
-  final String roomName;
-  final String identity;
+  final String appId;
+  final String channelName;
+  final int uid;
   final String role;
   final String token;
   final int expiresInSeconds;
 
   factory RtcJoinInfo.fromJson(Map<String, dynamic> json) {
     return RtcJoinInfo(
-      provider: (json['provider'] as String?) ?? 'livekit',
-      wsUrl: (json['wsUrl'] as String?) ?? '',
-      roomName: (json['roomName'] as String?) ?? '',
-      identity: (json['identity'] as String?) ?? '',
+      provider: (json['provider'] as String?) ?? 'agora',
+      appId: (json['appId'] as String?) ?? '',
+      channelName: (json['channelName'] as String?) ?? '',
+      uid: (json['uid'] as num?)?.toInt() ?? 0,
       role: (json['role'] as String?) ?? 'caller',
       token: (json['token'] as String?) ?? '',
       expiresInSeconds: (json['expiresInSeconds'] as num?)?.toInt() ?? 0,

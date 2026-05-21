@@ -1,7 +1,7 @@
 import 'dart:async';
+import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
@@ -51,9 +51,9 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   final List<FloatingGift> _gifts = <FloatingGift>[];
   late final AnimationController _pulseCtrl;
 
-  // LiveKit
-  lk.Room? _livekitRoom;
-  lk.VideoTrack? _localVideoTrack;
+  // Agora
+  RtcEngine? _engine;
+  bool _engineReady = false;
 
   @override
   void initState() {
@@ -64,7 +64,6 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
-    // Heartbeat: tell server host is still live every 15s
     widget.apiClient
         .heartbeatRoom(widget.accessToken, widget.room.id)
         .ignore();
@@ -74,47 +73,57 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           .heartbeatRoom(widget.accessToken, widget.room.id)
           .ignore(),
     );
-    // Real-time viewer count via socket
     _connectSocket();
-    // LiveKit RTC
-    _connectLiveKit();
+    _initAgora();
   }
 
-  Future<void> _connectLiveKit() async {
-    // Request camera + mic permissions first
+  Future<void> _initAgora() async {
     final camera = await Permission.camera.request();
     final mic = await Permission.microphone.request();
     if (!camera.isGranted || !mic.isGranted) {
-      debugPrint('[LiveKit host] permissions denied');
+      debugPrint('[Agora host] permissions denied');
+      if (mounted) setState(() => _cameraLoading = false);
       return;
     }
+
     try {
       final info = await widget.apiClient.getRoomRtcToken(
           widget.accessToken, widget.room.id);
-      _livekitRoom = lk.Room(
-        roomOptions: const lk.RoomOptions(adaptiveStream: true, dynacast: true),
+
+      final engine = createAgoraRtcEngine();
+      await engine.initialize(RtcEngineContext(appId: info.appId));
+
+      await engine.setChannelProfile(
+          ChannelProfileType.channelProfileLiveBroadcasting);
+      await engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
+      await engine.enableVideo();
+      await engine.enableAudio();
+      await engine.startPreview();
+
+      await engine.joinChannel(
+        token: info.token,
+        channelId: info.channelName,
+        uid: info.uid,
+        options: const ChannelMediaOptions(
+          publishCameraTrack: true,
+          publishMicrophoneTrack: true,
+          clientRoleType: ClientRoleType.clientRoleBroadcaster,
+        ),
       );
-      await _livekitRoom!.connect(
-        info.wsUrl,
-        info.token,
-      );
-      await _livekitRoom!.localParticipant?.setCameraEnabled(true);
-      await _livekitRoom!.localParticipant?.setMicrophoneEnabled(true);
+
+      _engine = engine;
       if (mounted) {
         setState(() {
-          _localVideoTrack = _livekitRoom!
-              .localParticipant
-              ?.videoTrackPublications
-              .firstOrNull
-              ?.track as lk.VideoTrack?;
+          _engineReady = true;
           _cameraLoading = false;
         });
-        _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        _ticker = Timer.periodic(
+            const Duration(seconds: 1), (_) {
           if (mounted) setState(() => _elapsedSeconds++);
         });
       }
     } catch (e) {
-      debugPrint('[LiveKit host] error: $e');
+      debugPrint('[Agora host] init error: $e');
       if (mounted) setState(() => _cameraLoading = false);
     }
   }
@@ -153,9 +162,8 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _socket?.dispose();
     _viewerCountNotifier.dispose();
     _pulseCtrl.dispose();
-    _livekitRoom?.disconnect();
-    _livekitRoom?.dispose();
-    // End the room automatically if host navigates away or closes the app
+    _engine?.leaveChannel();
+    _engine?.release();
     widget.apiClient.endRoom(widget.accessToken, widget.room.id)
         .then((_) => debugPrint('[endRoom dispose] success'))
         .catchError((Object e) { debugPrint('[endRoom dispose] error: $e'); });
@@ -207,25 +215,15 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     setState(() => _ending = true);
     try {
       await widget.apiClient.endRoom(widget.accessToken, widget.room.id);
-      debugPrint('[endRoom] success');
     } catch (e) {
       debugPrint('[endRoom] error: $e');
-      // ignore API error — pop anyway so user isn't stuck
     }
     if (mounted) Navigator.of(context).pop();
     widget.onEnd();
   }
 
-  void _flipCamera() async {
-    final devices = await lk.Hardware.instance.enumerateDevices();
-    final cameras = devices.where((d) => d.kind == 'videoinput').toList();
-    if (cameras.length < 2) return;
-    final currentId = lk.Hardware.instance.selectedVideoInput?.deviceId;
-    final next = cameras.firstWhere(
-      (d) => d.deviceId != currentId,
-      orElse: () => cameras.first,
-    );
-    await _livekitRoom?.setVideoInputDevice(next);
+  void _flipCamera() {
+    _engine?.switchCamera();
   }
 
   @override
@@ -235,25 +233,26 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       body: SizedBox.expand(
         child: Stack(
         children: <Widget>[
-          // ── Background (live camera or placeholder) ──────────────────────
-          if (_localVideoTrack != null)
+          // ── Background (live camera preview or placeholder) ───────────────
+          if (_engineReady && _engine != null)
             Positioned.fill(
-              child: SizedBox.expand(
-                child: lk.VideoTrackRenderer(
-                  _localVideoTrack!,
+              child: AgoraVideoView(
+                controller: VideoViewController(
+                  rtcEngine: _engine!,
+                  canvas: const VideoCanvas(uid: 0),
                 ),
               ),
             )
           else
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: <Color>[Color(0xFF1a1a2e), Color(0xFF16213e), Color(0xFF0f3460)],
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: <Color>[Color(0xFF1a1a2e), Color(0xFF16213e), Color(0xFF0f3460)],
+                ),
               ),
             ),
-          ),
           // Camera loading spinner
           if (_cameraLoading)
             Center(
@@ -285,16 +284,15 @@ class _HostLiveScreenState extends State<HostLiveScreen>
               ),
             ),
 
-          // ── Floating gift animations ──────────────────────────────────────
+          // ── Floating gift animations ────────────────────────────────────────
           ..._gifts.map((g) => FloatingGiftWidget(gift: g)),
 
-          // ── Top bar ──────────────────────────────────────────────────────
+          // ── Top bar ────────────────────────────────────────────────────────
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: <Widget>[
-                  // Host info pill
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
@@ -321,7 +319,6 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // LIVE badge
                   AnimatedBuilder(
                     animation: _pulseCtrl,
                     builder: (_, __) => Container(
@@ -342,7 +339,6 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Viewer count — tappable
                   GestureDetector(
                     onTap: _showViewerList,
                     child: Container(
@@ -362,15 +358,13 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                     ),
                   ),
                   const Spacer(),
-                  // Timer
                   Text(_elapsed, style: const TextStyle(color: Colors.white70, fontSize: 13)),
                   const SizedBox(width: 8),
-                  // Close
                   GestureDetector(
                     onTap: _ending ? null : _end,
                     child: Container(
                       width: 32, height: 32,
-                      decoration: BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                      decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
                       child: _ending
                           ? const Padding(padding: EdgeInsets.all(6), child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                           : const Icon(Icons.close_rounded, color: Colors.white, size: 18),
@@ -381,7 +375,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
             ),
           ),
 
-          // ── Comments feed ────────────────────────────────────────────────
+          // ── Comments feed ──────────────────────────────────────────────────
           Positioned(
             left: 12,
             right: 120,
@@ -412,7 +406,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
             ),
           ),
 
-          // ── Bottom controls ──────────────────────────────────────────────
+          // ── Bottom controls ────────────────────────────────────────────────
           Positioned(
             left: 0, right: 0, bottom: 0,
             child: Container(
@@ -433,8 +427,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                     active: _micOn,
                     onTap: () {
                       setState(() => _micOn = !_micOn);
-                      _livekitRoom?.localParticipant
-                          ?.setMicrophoneEnabled(_micOn);
+                      _engine?.muteLocalAudioStream(!_micOn);
                     },
                   ),
                   LiveCtrlBtn(
@@ -443,8 +436,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
                     active: _cameraOn,
                     onTap: () {
                       setState(() => _cameraOn = !_cameraOn);
-                      _livekitRoom?.localParticipant
-                          ?.setCameraEnabled(_cameraOn);
+                      _engine?.muteLocalVideoStream(!_cameraOn);
                     },
                   ),
                   LiveCtrlBtn(
@@ -506,9 +498,7 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
   void initState() {
     super.initState();
     _total = widget.viewerCountNotifier.value;
-    // Instant update when socket fires
     widget.viewerCountNotifier.addListener(_onCountChanged);
-    // Initial fetch + 5s safety-net poll (handles socket gaps / first load)
     _load();
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _load());
   }
@@ -521,12 +511,11 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
   }
 
   void _onCountChanged() {
-    // Viewer count changed via socket — fetch immediately
     _load();
   }
 
   Future<void> _load() async {
-    if (_fetching) return; // skip if a request is already in flight
+    if (_fetching) return;
     _fetching = true;
     try {
       final result = await widget.apiClient.getRoomViewers(
@@ -555,7 +544,6 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          // Handle bar
           Container(
             width: 36,
             height: 4,
@@ -631,4 +619,3 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
     );
   }
 }
-

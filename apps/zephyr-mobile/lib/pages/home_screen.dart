@@ -19,6 +19,7 @@ import 'thread_page.dart';
 import 'viewer_live_screen.dart';
 import '../app_constants.dart';
 import 'call_price_page.dart';
+import 'random_call_screen.dart';
 import '../l10n/app_localizations.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -664,30 +665,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _startRandomMatchFromHome() async {
-    if (_callActionLoading || _quoteLoading) {
-      return;
-    }
+    final String? userId = _me?.id;
+    if (userId == null) return;
 
-    setState(() {
-      _callMode = 'random';
-      _selectedTabIndex = 2;
-    });
-
-    await _loadCallQuote();
-    if (!mounted || _callQuote == null) {
-      return;
-    }
-
-    if (_coinBalance < _callQuote!.requiredCoins) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(AppLocalizations.of(context)!.notEnoughCoinsForRandomMatch),
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => RandomCallScreen(
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          userId: userId,
         ),
-      );
-      return;
-    }
-
-    await _startCallSession();
+      ),
+    );
   }
 
   Widget _buildHomeTopTab({

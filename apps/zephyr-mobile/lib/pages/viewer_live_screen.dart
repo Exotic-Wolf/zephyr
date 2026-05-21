@@ -1,7 +1,7 @@
 import 'dart:async';
+import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import '../models/models.dart';
@@ -50,9 +50,10 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   Timer? _ticker;
   sio.Socket? _socket;
 
-  // LiveKit
-  lk.Room? _livekitRoom;
-  lk.VideoTrack? _remoteVideoTrack;
+  // Agora
+  RtcEngine? _engine;
+  int? _hostUid;
+  bool _engineReady = false;
   bool _welcomeAdded = false;
 
   @override
@@ -65,7 +66,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
       if (mounted) setState(() => _elapsedSeconds++);
     });
     _connectSocket();
-    _connectLiveKit();
+    _initAgora();
   }
 
   @override
@@ -80,37 +81,44 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     }
   }
 
-  Future<void> _connectLiveKit() async {
+  Future<void> _initAgora() async {
     if (widget.feedCard.roomId == null) return;
     try {
       final info = await widget.apiClient.getRoomRtcToken(
           widget.accessToken, widget.feedCard.roomId!);
-      _livekitRoom = lk.Room(
-        roomOptions: const lk.RoomOptions(adaptiveStream: true, dynacast: true),
+
+      final engine = createAgoraRtcEngine();
+      await engine.initialize(RtcEngineContext(appId: info.appId));
+
+      engine.registerEventHandler(RtcEngineEventHandler(
+        onUserJoined: (connection, remoteUid, elapsed) {
+          if (mounted) setState(() => _hostUid = remoteUid);
+        },
+        onUserOffline: (connection, remoteUid, reason) {
+          if (mounted) setState(() => _hostUid = null);
+        },
+      ));
+
+      await engine.setChannelProfile(
+          ChannelProfileType.channelProfileLiveBroadcasting);
+      await engine.setClientRole(role: ClientRoleType.clientRoleAudience);
+      await engine.enableVideo();
+
+      await engine.joinChannel(
+        token: info.token,
+        channelId: info.channelName,
+        uid: info.uid,
+        options: const ChannelMediaOptions(
+          autoSubscribeVideo: true,
+          autoSubscribeAudio: true,
+          clientRoleType: ClientRoleType.clientRoleAudience,
+        ),
       );
-      _livekitRoom!.addListener(_onRoomChanged);
-      await _livekitRoom!.connect(
-        info.wsUrl,
-        info.token,
-      );
-      if (mounted) _findRemoteVideo();
+
+      _engine = engine;
+      if (mounted) setState(() => _engineReady = true);
     } catch (e) {
-      debugPrint('[LiveKit viewer] error: $e');
-    }
-  }
-
-  void _onRoomChanged() {
-    if (mounted) _findRemoteVideo();
-  }
-
-  void _findRemoteVideo() {
-    for (final p in (_livekitRoom?.remoteParticipants.values ?? <lk.RemoteParticipant>[])) {
-      for (final pub in p.videoTrackPublications) {
-        if (pub.track != null && !pub.muted) {
-          setState(() => _remoteVideoTrack = pub.track as lk.VideoTrack);
-          return;
-        }
-      }
+      debugPrint('[Agora viewer] init error: $e');
     }
   }
 
@@ -120,10 +128,8 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     _socket?.dispose();
     _pulseCtrl.dispose();
     _commentCtrl.dispose();
-    _livekitRoom?.removeListener(_onRoomChanged);
-    _livekitRoom?.disconnect();
-    _livekitRoom?.dispose();
-    // Call leaveRoom only if we successfully joined
+    _engine?.leaveChannel();
+    _engine?.release();
     if (widget.didJoin && widget.feedCard.roomId != null) {
       widget.apiClient
           .leaveRoom(widget.accessToken, widget.feedCard.roomId!)
@@ -191,11 +197,15 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
         child: Stack(
         children: <Widget>[
           // ── Background ───────────────────────────────────────────────────
-          if (_remoteVideoTrack != null)
+          if (_engineReady && _engine != null && _hostUid != null)
             Positioned.fill(
-              child: SizedBox.expand(
-                child: lk.VideoTrackRenderer(
-                  _remoteVideoTrack!,
+              child: AgoraVideoView(
+                controller: VideoViewController.remote(
+                  rtcEngine: _engine!,
+                  canvas: VideoCanvas(uid: _hostUid!),
+                  connection: RtcConnection(
+                    channelId: widget.feedCard.roomId ?? '',
+                  ),
                 ),
               ),
             )
@@ -210,7 +220,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
             ),
           ),
           // Host avatar center (shown only when no remote video yet)
-          if (_remoteVideoTrack == null)
+          if (!(_engineReady && _hostUid != null))
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
