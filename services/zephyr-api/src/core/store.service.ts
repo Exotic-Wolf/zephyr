@@ -1163,6 +1163,51 @@ export class StoreService {
     // in-memory: no-op
   }
 
+  async blockUser(blockerId: string, blockedId: string): Promise<void> {
+    if (blockerId === blockedId) {
+      throw new BadRequestException('Cannot block yourself');
+    }
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [blockerId, blockedId],
+      );
+    }
+  }
+
+  async unblockUser(blockerId: string, blockedId: string): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2`,
+        [blockerId, blockedId],
+      );
+    }
+  }
+
+  async isBlocked(blockerId: string, blockedId: string): Promise<boolean> {
+    if (!this.databaseService?.isEnabled()) return false;
+    const result = await this.databaseService.query<{ exists: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2) AS exists`,
+      [blockerId, blockedId],
+    );
+    return result.rows[0]?.exists ?? false;
+  }
+
+  /** Returns all user IDs that are blocked by OR have blocked the given user (bidirectional). */
+  async getBlockedIds(userId: string): Promise<Set<string>> {
+    if (!this.databaseService?.isEnabled()) return new Set();
+    const result = await this.databaseService.query<{ other_id: string }>(
+      `
+        SELECT blocked_id AS other_id FROM user_blocks WHERE blocker_id = $1
+        UNION
+        SELECT blocker_id AS other_id FROM user_blocks WHERE blocked_id = $1
+      `,
+      [userId],
+    );
+    return new Set(result.rows.map((r) => r.other_id));
+  }
+
+
   async getFollowing(userId: string): Promise<string[]> {
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{ following_id: string }>(

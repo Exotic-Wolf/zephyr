@@ -35,8 +35,63 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   bool _following = false;
+  bool _isBlocked = false;
+  bool _blockLoading = false;
 
   LiveFeedCard get _card => widget.feedCard;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBlockStatus();
+  }
+
+  Future<void> _loadBlockStatus() async {
+    final api = widget.apiClient;
+    final token = widget.accessToken;
+    final me = widget.myUserId;
+    if (api == null || token == null || me == null) return;
+    if (me == _card.hostUserId) return; // own profile
+    try {
+      final blocked = await api.isUserBlocked(token, _card.hostUserId);
+      if (mounted) setState(() => _isBlocked = blocked);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleBlock() async {
+    final api = widget.apiClient;
+    final token = widget.accessToken;
+    if (api == null || token == null) return;
+    setState(() => _blockLoading = true);
+    try {
+      if (_isBlocked) {
+        await api.unblockUser(token, _card.hostUserId);
+        if (mounted) setState(() => _isBlocked = false);
+      } else {
+        // Confirm before blocking
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: Text('Block ${_card.hostDisplayName}?'),
+            content: const Text("They won't be able to match with you in random calls. You can unblock them later."),
+            actions: <Widget>[
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Block', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true) {
+          await api.blockUser(token, _card.hostUserId);
+          if (mounted) setState(() => _isBlocked = true);
+        }
+      }
+    } catch (_) {} finally {
+      if (mounted) setState(() => _blockLoading = false);
+    }
+  }
 
   void _showCallSheet(BuildContext context) {
     showModalBottomSheet<void>(
@@ -260,6 +315,33 @@ class _ProfilePageState extends State<ProfilePage> {
             expandedHeight: 260,
             pinned: true,
             backgroundColor: const Color(0xFF1FA4EA),
+            actions: widget.isPreview || widget.myUserId == _card.hostUserId
+                ? null
+                : <Widget>[
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert, color: Colors.white),
+                      onSelected: (String value) {
+                        if (value == 'block') _toggleBlock();
+                      },
+                      itemBuilder: (_) => <PopupMenuEntry<String>>[
+                        PopupMenuItem<String>(
+                          value: 'block',
+                          child: _blockLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Text(
+                                  _isBlocked ? 'Unblock' : 'Block',
+                                  style: TextStyle(
+                                    color: _isBlocked ? null : Colors.red,
+                                  ),
+                                ),
+                        ),
+                      ],
+                    ),
+                  ],
             flexibleSpace: FlexibleSpaceBar(
               background: Stack(
                 fit: StackFit.expand,

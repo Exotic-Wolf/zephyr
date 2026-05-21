@@ -114,4 +114,34 @@ export class UsersController {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     await this.storeService.unfollowUser(me.id, userId);
   }
+
+  @Post(':userId/block')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async blockUser(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+  ): Promise<void> {
+    const me = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.blockUser(me.id, userId);
+  }
+
+  @Delete(':userId/block')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async unblockUser(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+  ): Promise<void> {
+    const me = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.unblockUser(me.id, userId);
+  }
+
+  @Get(':userId/block')
+  async getBlockStatus(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+  ): Promise<{ blocked: boolean }> {
+    const me = await this.storeService.getUserFromAuthHeader(authorization);
+    const blocked = await this.storeService.isBlocked(me.id, userId);
+    return { blocked };
+  }
 }

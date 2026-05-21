@@ -313,6 +313,15 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       )
     `);
 
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS user_blocks (
+        blocker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        blocked_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (blocker_id, blocked_id)
+      )
+    `);
+
     // Periodic cleanup every 10s:
     //  - no heartbeat for 40s → dead (heartbeat sent every 15s, so 2.5x grace)
     //  - any room older than 30 min → dead (host gone / crashed / forgot to end)

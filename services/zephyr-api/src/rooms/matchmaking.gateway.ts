@@ -26,16 +26,23 @@ import { RtcService } from '../core/rtc.service';
  *   call:matched  { sessionId, appId, channelName, uid, token, partnerId }
  *   call:partner_left  {}  – partner pressed Next or disconnected
  */
+
+interface QueueEntry {
+  userId: string;
+  /** IDs this user has blocked OR that have blocked them — excluded from matching */
+  blockedIds: Set<string>;
+}
+
 @WebSocketGateway({ cors: { origin: '*' }, namespace: '/call' })
 export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
   @WebSocketServer()
   server!: Server;
 
-  /** userId → socket.id for users currently connected to /call namespace */
+  /** userId → socket.id */
   private readonly socketByUser = new Map<string, string>();
 
-  /** Ordered queue of userIds waiting to be matched */
-  private readonly queue: string[] = [];
+  /** Ordered queue of entries waiting to be matched */
+  private readonly queue: QueueEntry[] = [];
 
   /** userId → sessionId for active matched calls */
   private readonly activeSession = new Map<string, string>();
@@ -64,21 +71,24 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
     const { userId } = data;
     if (!userId) return;
 
-    // Register socket
     this.socketByUser.set(userId, client.id);
 
     // Don't add duplicates
-    if (this.queue.includes(userId)) return;
+    if (this.queue.some((e) => e.userId === userId)) return;
 
-    // Try to match immediately with someone already waiting
-    const partnerIdx = this.queue.findIndex((id) => id !== userId);
-    if (partnerIdx !== -1) {
-      const partnerId = this.queue[partnerIdx];
-      this.queue.splice(partnerIdx, 1);
-      void this.matchPair(userId, partnerId);
-    } else {
-      this.queue.push(userId);
-    }
+    void this.storeService.getBlockedIds(userId).then((blockedIds) => {
+      const entry: QueueEntry = { userId, blockedIds };
+      const partnerIdx = this.queue.findIndex(
+        (e) => e.userId !== userId && !e.blockedIds.has(userId) && !blockedIds.has(e.userId),
+      );
+      if (partnerIdx !== -1) {
+        const partner = this.queue[partnerIdx];
+        this.queue.splice(partnerIdx, 1);
+        void this.matchPair(entry, partner);
+      } else {
+        this.queue.push(entry);
+      }
+    });
   }
 
   @SubscribeMessage('call:leave_queue')
@@ -93,25 +103,26 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
   ): void {
     const { userId, sessionId } = data;
 
-    // End the session on server side (fire and forget — billing already stops client-side)
     void this.storeService.endCallSession(userId, sessionId, 'caller_ended').catch(() => null);
-
-    // Notify partner
     this.notifyPartnerLeft(userId, sessionId);
 
-    // Re-join queue
     this.socketByUser.set(userId, client.id);
     this.removeFromQueue(userId);
     this.activeSession.delete(userId);
 
-    const partnerIdx = this.queue.findIndex((id) => id !== userId);
-    if (partnerIdx !== -1) {
-      const partnerId = this.queue[partnerIdx];
-      this.queue.splice(partnerIdx, 1);
-      void this.matchPair(userId, partnerId);
-    } else {
-      this.queue.push(userId);
-    }
+    void this.storeService.getBlockedIds(userId).then((blockedIds) => {
+      const entry: QueueEntry = { userId, blockedIds };
+      const partnerIdx = this.queue.findIndex(
+        (e) => e.userId !== userId && !e.blockedIds.has(userId) && !blockedIds.has(e.userId),
+      );
+      if (partnerIdx !== -1) {
+        const partner = this.queue[partnerIdx];
+        this.queue.splice(partnerIdx, 1);
+        void this.matchPair(entry, partner);
+      } else {
+        this.queue.push(entry);
+      }
+    });
   }
 
   @SubscribeMessage('call:end')
@@ -125,31 +136,21 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
-  private async matchPair(userA: string, userB: string): Promise<void> {
+  private async matchPair(entryA: QueueEntry, entryB: QueueEntry): Promise<void> {
+    const { userId: userA } = entryA;
+    const { userId: userB } = entryB;
     try {
-      // Create a call session in the DB (random mode, no fixed receiver upfront)
       const session = await this.storeService.startCallSession(userA, {
         mode: 'random',
         receiverUserId: userB,
       });
 
-      // Generate Agora tokens for both sides
-      const tokenA = this.rtcService.createJoinToken({
-        sessionId: session.id,
-        userId: userA,
-        role: 'caller',
-      });
-      const tokenB = this.rtcService.createJoinToken({
-        sessionId: session.id,
-        userId: userB,
-        role: 'receiver',
-      });
+      const tokenA = this.rtcService.createJoinToken({ sessionId: session.id, userId: userA, role: 'caller' });
+      const tokenB = this.rtcService.createJoinToken({ sessionId: session.id, userId: userB, role: 'receiver' });
 
-      // Track active sessions
       this.activeSession.set(userA, session.id);
       this.activeSession.set(userB, session.id);
 
-      // Emit call:matched to each user
       const socketA = this.socketByUser.get(userA);
       const socketB = this.socketByUser.get(userB);
 
@@ -177,12 +178,11 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
     } catch (err) {
       console.error('[MatchmakingGateway] matchPair failed:', err);
       // Put both back in queue on error
-      this.queue.push(userA, userB);
+      this.queue.push(entryA, entryB);
     }
   }
 
   private notifyPartnerLeft(userId: string, sessionId: string): void {
-    // Find the partner in the active session map
     for (const [uid, sid] of this.activeSession.entries()) {
       if (sid === sessionId && uid !== userId) {
         const partnerSocket = this.socketByUser.get(uid);
@@ -196,7 +196,7 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   private removeFromQueue(userId: string): void {
-    const idx = this.queue.indexOf(userId);
+    const idx = this.queue.findIndex((e) => e.userId === userId);
     if (idx !== -1) this.queue.splice(idx, 1);
   }
 }

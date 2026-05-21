@@ -337,6 +337,31 @@ class ZephyrApiClient {
     );
   }
 
+  Future<void> blockUser(String accessToken, String userId) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/users/$userId/block',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<void> unblockUser(String accessToken, String userId) async {
+    await _request(
+      method: 'DELETE',
+      path: '/v1/users/$userId/block',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<bool> isUserBlocked(String accessToken, String userId) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'GET',
+      path: '/v1/users/$userId/block',
+      accessToken: accessToken,
+    );
+    return (data['blocked'] as bool?) ?? false;
+  }
+
   Future<WalletSummary> getWalletSummary(String accessToken) async {
     final Map<String, dynamic> data = await _request(
       method: 'GET',
