@@ -31,6 +31,13 @@ android {
         versionName = flutter.versionName
     }
 
+    packaging {
+        jniLibs {
+            // Emulator on Apple Silicon is arm64 — strip all other arches to cut APK from ~300MB to ~75MB
+            excludes += listOf("lib/x86_64/**", "lib/armeabi-v7a/**", "lib/x86/**", "lib/armeabi/**")
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

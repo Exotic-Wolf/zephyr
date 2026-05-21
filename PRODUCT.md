@@ -85,7 +85,7 @@ pnpm --filter zephyr-api start:dev
 
 ## DB Schema (Postgres)
 
-Tables: `users`, `wallets`, `spark_wallets`, `wallet_transactions`, `user_following`, `rooms`, `messages`, `call_sessions`, `gifts`
+Tables: `users`, `wallets`, `spark_wallets`, `wallet_transactions`, `user_following`, `user_blocks`, `rooms`, `messages`, `call_sessions`, `gifts`
 
 Key columns:
 - `users.public_id TEXT UNIQUE` — 8-digit derived hash
@@ -106,6 +106,9 @@ GET  /v1/users/by-public-id/:publicId
 GET  /v1/users/:userId
 POST /v1/users/:userId/follow
 DELETE /v1/users/:userId/follow
+POST /v1/users/:userId/block
+DELETE /v1/users/:userId/block
+GET  /v1/users/:userId/block
 GET  /v1/rooms
 POST /v1/rooms
 POST /v1/rooms/:roomId/join
@@ -125,6 +128,7 @@ PATCH /v1/messages/:messageId/read
 WebSocket namespaces:
 - `/chat` — real-time messaging (`chat:message`, `chat:read`, `chat:join`)
 - `/feed` — live room events (`feed:room-created`, `feed:room-ended`, `feed:room-updated`)
+- `/call` — random call matchmaking (`call:join_queue`, `call:leave_queue`, `call:next`, `call:end`, `call:matched`, `call:partner_left`)
 
 ---
 
@@ -170,19 +174,22 @@ WebSocket namespaces:
 |------|--------|---|
 | Auth (Google / Apple / Guest) | ✅ Done | 100% |
 | Home feed (cards, status, real-time) | ✅ Done | 90% |
-| Go Live / Host screen | ✅ Done | 80% |
-| Viewer screen | ✅ Basic done | 60% |
+| Go Live / Host screen (Agora) | ✅ Done | 85% |
+| Viewer screen (Agora) | ✅ Done | 80% |
 | Direct messages (real-time, WebSocket) | ✅ Done | 90% |
 | Explore / Search | ✅ Done | 85% |
 | My Profile | ✅ Done | 75% |
 | Persistent login | ✅ Done | 100% |
 | Economy backend (coins, sparks, calls, gifts) | ✅ Built | 80% |
-| Real video/audio (Agora) | ❌ Not started | 0% |
-| Push notifications (FCM) | ❌ Not started | 0% |
+| Random video calls (Agora) | ✅ Done | 90% |
+| Block system | ✅ Done | 100% |
+| Push notifications (FCM) | ✅ Done (Android + iOS) | 90% |
 | Follow/unfollow UI | ❌ Partial | 20% |
 | Wallet / coins UI | ❌ Partial | 30% |
-| Gifts during live | ❌ Partial | 10% |
-| App icon + splash | ❌ Missing | 0% |
+| Gifts during live | ❌ Not started | 0% |
+| Report system | ❌ Not started | 0% |
+| Direct call ringing screen | ❌ Not started | 0% |
+| App icon + splash | ✅ Done | 100% |
 | Onboarding flow | ❌ Missing | 0% |
 
 ---
@@ -191,11 +198,11 @@ WebSocket namespaces:
 
 | Blocker | Solution |
 |---|---|
-| No real video/audio | Agora SDK integration |
-| No push notifications | Firebase Cloud Messaging (FCM) |
+| ~~Agora env vars not on Render~~ | ✅ Done — `AGORA_APP_ID` + `AGORA_APP_CERTIFICATE` confirmed in Render dashboard |
 | Mock cards in feed | Remove `[Mock]` cards before production |
-| No Apple Developer account | Enroll at developer.apple.com ($99/year) |
 | Render API sleeps | Upgrade to Standard plan ($25/mo) |
+| No report system | `POST /v1/calls/:sessionId/report` endpoint + in-call button |
+| No direct call ringing | Caller "calling…" + receiver accept/decline screen |
 
 ---
 
@@ -443,19 +450,28 @@ Centered screen with:
 
 > Store compliance: 17+ age rating. ToS prohibits explicit content. Report button = safety net. Reactive bans only at v1.
 
-**Backend**
-- [ ] Matchmaking queue — `call:join_queue` / `call:leave_queue` Socket.IO events; server pairs two waiting users and emits `call:matched` with Agora token to both
-- [ ] Call session table — `call_sessions` (id, user_a_id, user_b_id, agora_channel, started_at, ended_at, ended_by)
+**Backend** ✅
+- [x] Matchmaking queue — `call:join_queue` / `call:leave_queue` / `call:next` / `call:end` Socket.IO events on `/call` namespace; block-aware pairing
+- [x] Call session table — `call_sessions` (id, user_a_id, user_b_id, agora_channel, started_at, ended_at, ended_by)
+- [x] Agora token generation — `rtc.service.ts` generates per-user tokens via `agora-token` npm package
+- [x] Coin billing — `tickCallSession` every 15s; 600 coins/min
+- [x] Block system — `user_blocks` table; blocked users cannot be matched
 - [ ] Report endpoint — `POST /v1/calls/:sessionId/report`; stores report, ends Agora channel, increments report count on reported user
 - [ ] Auto-ban threshold — 5+ reports in 7 days → `is_banned = true`; banned users rejected from queue
-- [ ] Coin deduction — deduct 600 coins/min from caller; economy service handles transaction
 
-**Flutter**
-- [ ] "Find a Call" entry point — button on Home tab; checks coin balance before joining queue
-- [ ] Waiting screen — animated UI while in queue; cancel button emits `call:leave_queue`
-- [ ] In-call screen — full-screen video (Agora), flip camera, mute, end call, report button, gift coins button
+**Flutter** ✅
+- [x] "Random match" button on Home tab → navigates to `RandomCallScreen`
+- [x] Waiting/searching screen — animated pulsing ring, Cancel button emits `call:leave_queue`
+- [x] In-call screen — full-screen remote video (Agora), local PiP top-right, End / Next / Mute / Flip controls
+- [x] Skip / Next — 600ms blur transition, re-joins queue, no coins during transition
+- [x] `call:partner_left` → auto re-searches
 - [ ] Post-call screen — "Call ended", option to send a DM
-- [ ] Skip / Next — ends current call, screen blurs, re-joins queue immediately, no coin charge during transition
+- [ ] Report button in-call
+
+**Block system** ✅
+- [x] `POST/DELETE/GET /v1/users/:userId/block` endpoints
+- [x] Profile page `⋮` menu → Block / Unblock with confirmation dialog
+- [x] Matchmaking rejects pairs where either user has blocked the other
 
 **Store compliance (one-time setup, no code)**
 - [ ] Set 17+ rating — App Store Connect → Age Rating
@@ -485,11 +501,14 @@ Centered screen with:
 ### 🟡 3. Product Completeness
 
 - [ ] Wallet / coins UI — balance display, transaction history (backend done, no UI)
+- [ ] Gift tray during live / calls — animated gifts (Lottie/SVGA), hosted on CDN, downloaded on demand
 - [ ] Gift sending from DM — send coins as gift from thread (backend done)
 - [ ] Typing indicator — "..." bubble when other user is typing
 - [ ] Message ordering under rapid fire — no sequence numbers; 3 fast messages can appear out of order (~3% gap)
 - [ ] MessageCache eviction — thread messages unbounded in memory; causes pressure on long sessions (~2% gap)
-- [ ] Block / report user — safety feature; backend not built
+- [ ] Report user in-call — report button + `POST /v1/calls/:sessionId/report` endpoint
+- [ ] Direct call ringing — caller sees "calling…", receiver gets accept/decline screen
+- [ ] Post-call screen — "Call ended", option to send DM
 - [ ] Custom Sentry breadcrumbs — log socket events, message send, login
 
 ---
@@ -524,6 +543,13 @@ Centered screen with:
 
 ### ✅ Done
 
+- [x] Agora integration — replaces LiveKit entirely for all video (random calls + live streaming)
+- [x] Random call matchmaking — Socket.IO `/call` namespace, Agora token per-user, block-aware queue
+- [x] Block system — `user_blocks` DB table, REST endpoints, profile UI, matchmaking guard
+- [x] Host live screen — Agora broadcaster role, flip camera, mute, heartbeat
+- [x] Viewer live screen — Agora audience role, remote video, reactions
+- [x] Android APK size — `packaging.jniLibs.excludes` strips x86/x86_64/armeabi for debug builds (175MB debug → ~50MB prod per-device)
+- [x] Gift assets strategy — all gift animations hosted on CDN (Lottie JSON/SVGA), downloaded on demand; 0 gift assets ship in APK
 - [x] Message pagination — cursor-based; backend returns `hasMore`; scroll-to-top triggers fetch
 - [x] Pagination slice bug fixed — `getThread` slice(1) fix; was cutting off newest message >50 msgs
 - [x] Send failure UI — red bubble + retry
