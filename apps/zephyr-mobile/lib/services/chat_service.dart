@@ -130,8 +130,12 @@ class ChatService {
   /// Mark all messages from [peerId] as read.
   Future<void> markConversationRead(String peerId) async {
     final conv = await ChatClient.getInstance.chatManager.getConversation(peerId);
-    await conv?.markAllMessagesAsRead();
-    await ChatClient.getInstance.chatManager.sendConversationReadAck(peerId);
+    if (conv == null) return;
+    final unread = await conv.unreadCount();
+    await conv.markAllMessagesAsRead();
+    if (unread > 0) {
+      await ChatClient.getInstance.chatManager.sendConversationReadAck(peerId);
+    }
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
