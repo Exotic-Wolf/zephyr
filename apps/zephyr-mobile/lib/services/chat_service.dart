@@ -24,6 +24,11 @@ class ChatService {
       StreamController<List<ChatMessage>>.broadcast();
   Stream<List<ChatMessage>> get onMessagesReceived => _messageCtrl.stream;
 
+  final StreamController<List<ChatMessage>> _readCtrl =
+      StreamController<List<ChatMessage>>.broadcast();
+  /// Fires when sent messages get read by the recipient.
+  Stream<List<ChatMessage>> get onMessagesRead => _readCtrl.stream;
+
   final StreamController<void> _conversationCtrl =
       StreamController<void>.broadcast();
   /// Fires whenever conversations list may have changed (new msg, read, etc.)
@@ -65,13 +70,8 @@ class ChatService {
           _messageCtrl.add(messages);
           _conversationCtrl.add(null);
         },
-      ),
-    );
-
-    ChatClient.getInstance.chatManager.addEventHandler(
-      'ChatServiceRead',
-      ChatEventHandler(
         onMessagesRead: (List<ChatMessage> messages) {
+          _readCtrl.add(messages);
           _conversationCtrl.add(null);
         },
       ),
@@ -80,7 +80,6 @@ class ChatService {
 
   Future<void> logout() async {
     ChatClient.getInstance.chatManager.removeEventHandler('ChatService');
-    ChatClient.getInstance.chatManager.removeEventHandler('ChatServiceRead');
     await ChatClient.getInstance.logout();
     _currentUserId = null;
   }

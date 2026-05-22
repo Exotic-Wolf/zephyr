@@ -40,6 +40,7 @@ class _ThreadPageState extends State<ThreadPage> {
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   StreamSubscription<List<ChatMessage>>? _msgSub;
+  StreamSubscription<List<ChatMessage>>? _readSub;
 
   String get _peerChatId => ChatService.toChatUserId(widget.otherUserId);
   String get _myChatId => ChatService.toChatUserId(widget.myUserId);
@@ -49,6 +50,7 @@ class _ThreadPageState extends State<ThreadPage> {
     super.initState();
     _load();
     _msgSub = ChatService.instance.onMessagesReceived.listen(_onMessages);
+    _readSub = ChatService.instance.onMessagesRead.listen(_onReadReceipts);
     _scrollCtrl.addListener(() {
       if (_scrollCtrl.position.pixels >=
           _scrollCtrl.position.maxScrollExtent - 200) {
@@ -60,6 +62,7 @@ class _ThreadPageState extends State<ThreadPage> {
   @override
   void dispose() {
     _msgSub?.cancel();
+    _readSub?.cancel();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -76,6 +79,14 @@ class _ThreadPageState extends State<ThreadPage> {
     _scrollToBottom();
     // Mark as read
     ChatService.instance.markConversationRead(_peerChatId);
+  }
+
+  void _onReadReceipts(List<ChatMessage> readMsgs) {
+    if (!mounted) return;
+    final Set<String> readIds = readMsgs.map((m) => m.msgId).toSet();
+    if (!_messages.any((m) => readIds.contains(m.msgId))) return;
+    // Force rebuild — the ChatMessage objects are mutated in-place by the SDK
+    setState(() {});
   }
 
   Future<void> _load() async {
