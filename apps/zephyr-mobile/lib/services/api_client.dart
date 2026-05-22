@@ -147,20 +147,6 @@ class ZephyrApiClient {
     return UserProfile.fromJson(data as Map<String, dynamic>);
   }
 
-  /// Batch fetch user profiles by UUIDs (max 50).
-  Future<List<UserProfile>> getUsersByIds(List<String> ids) async {
-    if (ids.isEmpty) return <UserProfile>[];
-    final dynamic data = await _request(
-      method: 'POST',
-      path: '/v1/users/batch',
-      body: <String, dynamic>{'ids': ids},
-    );
-    if (data is! List<dynamic>) return <UserProfile>[];
-    return data
-        .map((dynamic e) => UserProfile.fromJson(e as Map<String, dynamic>))
-        .toList();
-  }
-
   Future<List<UserProfile>> searchUsers(String q) async {
     final dynamic data = await _request(
       method: 'GET',
@@ -170,6 +156,43 @@ class ZephyrApiClient {
     return data
         .map((dynamic e) => UserProfile.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<List<ZephyrConversation>> getConversations(String accessToken) async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/messages/conversations',
+      accessToken: accessToken,
+    );
+    if (data is! List<dynamic>) throw Exception('Invalid conversations response');
+    return data
+        .map((dynamic e) => ZephyrConversation.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<({List<ZephyrMessage> messages, bool hasMore})> getThread(
+      String accessToken, String userId, {DateTime? before, DateTime? after}) async {
+    final StringBuffer query = StringBuffer();
+    if (before != null) {
+      query.write('?before=${Uri.encodeComponent(before.toUtc().toIso8601String())}');
+    } else if (after != null) {
+      query.write('?after=${Uri.encodeComponent(after.toUtc().toIso8601String())}');
+    }
+    final String path = '/v1/messages/conversations/$userId${query.toString()}';
+    final dynamic data = await _request(
+      method: 'GET',
+      path: path,
+      accessToken: accessToken,
+    );
+    if (data is! Map<String, dynamic>) throw Exception('Invalid thread response');
+    final List<dynamic> msgs = data['messages'] as List<dynamic>;
+    final bool hasMore = data['hasMore'] as bool;
+    return (
+      messages: msgs
+          .map((dynamic e) => ZephyrMessage.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      hasMore: hasMore,
+    );
   }
 
   Future<void> registerDeviceToken(String accessToken, String token) async {
@@ -190,18 +213,25 @@ class ZephyrApiClient {
     );
   }
 
-  /// Fetches Agora Chat credentials (appKey, chatUserId, token) for SDK login.
-  Future<({String appKey, String chatUserId, String token})> getChatToken(
-      String accessToken) async {
-    final Map<String, dynamic> data = await _request(
-      method: 'GET',
-      path: '/v1/messages/chat-token',
+  Future<ZephyrMessage> sendMessage(
+      String accessToken, String receiverId, String body, {String? idempotencyKey}) async {
+    final dynamic data = await _request(
+      method: 'POST',
+      path: '/v1/messages',
       accessToken: accessToken,
+      body: <String, dynamic>{'receiverId': receiverId, 'body': body},
+      extraHeaders: idempotencyKey != null
+          ? <String, String>{'X-Idempotency-Key': idempotencyKey}
+          : null,
     );
-    return (
-      appKey: data['appKey'] as String,
-      chatUserId: data['chatUserId'] as String,
-      token: data['token'] as String,
+    return ZephyrMessage.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<void> markMessageRead(String accessToken, String messageId) async {
+    await _request(
+      method: 'PATCH',
+      path: '/v1/messages/$messageId/read',
+      accessToken: accessToken,
     );
   }
 
