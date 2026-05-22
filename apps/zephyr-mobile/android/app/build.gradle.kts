@@ -33,8 +33,26 @@ android {
 
     packaging {
         jniLibs {
-            // Emulator on Apple Silicon is arm64 — strip all other arches to cut APK from ~300MB to ~75MB
+            // Strip non-arm64 arches
             excludes += listOf("lib/x86_64/**", "lib/armeabi-v7a/**", "lib/x86/**", "lib/armeabi/**")
+            // Strip unused Agora RTC extensions (saves ~45MB) — we only need core RTC for video calls
+            excludes += listOf(
+                "lib/*/libagora_clear_vision_extension.so",
+                "lib/*/libagora_lip_sync_extension.so",
+                "lib/*/libagora_spatial_audio_extension.so",
+                "lib/*/libagora_ai_noise_suppression_extension.so",
+                "lib/*/libagora_ai_noise_suppression_ll_extension.so",
+                "lib/*/libagora_segmentation_extension.so",
+                "lib/*/libagora_face_capture_extension.so",
+                "lib/*/libagora_ai_echo_cancellation_extension.so",
+                "lib/*/libagora_ai_echo_cancellation_ll_extension.so",
+                "lib/*/libagora_audio_beauty_extension.so",
+                "lib/*/libagora_content_inspect_extension.so",
+                "lib/*/libagora_video_av1_encoder_extension.so",
+                "lib/*/libagora_video_quality_analyzer_extension.so",
+                "lib/*/libagora_face_detection_extension.so",
+                "lib/*/libagora_ffmpeg.so",
+            )
         }
     }
 
@@ -43,6 +61,7 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }
