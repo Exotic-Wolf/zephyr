@@ -21,8 +21,9 @@ class InboxPage extends StatefulWidget {
   final ZephyrApiClient apiClient;
   final String accessToken;
   final String myUserId;
-  /// Called with the other user's ID when a thread opens, null when it closes.
-  final void Function(String? userId)? onThreadChanged;
+  /// Called with the other user's ID and unread count when a thread opens,
+  /// or (null, 0) when it closes.
+  final void Function(String? userId, int unreadCount)? onThreadChanged;
 
   @override
   State<InboxPage> createState() => _InboxPageState();
@@ -194,7 +195,7 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
                             ],
                           ),
                           onTap: () async {
-                            widget.onThreadChanged?.call(c.userId);
+                            widget.onThreadChanged?.call(c.userId, c.unreadCount);
                             await Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) => ThreadPage(
@@ -207,7 +208,7 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
                                 ),
                               ),
                             );
-                            widget.onThreadChanged?.call(null);
+                            widget.onThreadChanged?.call(null, 0);
                             _refresh(); // refresh unread counts on return
                           },
                         );

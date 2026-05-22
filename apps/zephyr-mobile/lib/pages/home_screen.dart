@@ -111,13 +111,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
     // Periodic badge resync: covers socket-drop gap when app stays open without a resume event
     _badgeSyncTimer = Timer.periodic(const Duration(seconds: 60), (_) {
-      if (!mounted || _selectedTabIndex == 3) return;
-      widget.apiClient.getConversations(widget.accessToken).then((convos) {
-        if (!mounted || _selectedTabIndex == 3) return;
-        setState(() {
-          _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
-        });
-      }).ignore();
+      if (!mounted) return;
+      _resyncBadge();
     });
     // Keep Render awake — free tier sleeps after 15 min; ping every 4 min prevents it
     _keepAliveTimer = Timer.periodic(const Duration(minutes: 4), (_) {
@@ -133,21 +128,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _onTabNotify() {
     final int tab = widget.tabNotifier?.value ?? 0;
-    if (mounted) setState(() { _selectedTabIndex = tab; if (tab == 3) _inboxUnread = 0; });
+    if (mounted) {
+      setState(() => _selectedTabIndex = tab);
+      if (tab == 3) _resyncBadge();
+    }
+  }
+
+  void _resyncBadge() {
+    widget.apiClient.getConversations(widget.accessToken).then((convos) {
+      if (!mounted) return;
+      setState(() {
+        _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
+      });
+    }).ignore();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // App came to foreground — resync badge from server (source of truth)
-      widget.apiClient.getConversations(widget.accessToken).then((convos) {
-        if (!mounted) return;
-        if (_selectedTabIndex != 3) {
-          setState(() {
-            _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
-          });
-        }
-      }).ignore();
+      _resyncBadge();
     }
   }
 
@@ -170,14 +169,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (_chatSocketConnectedOnce) {
           // Reconnect: resync badge from API to recover missed messages
           ChatReconnectBus.instance.fire();
-          widget.apiClient.getConversations(widget.accessToken).then((convos) {
-            if (!mounted) return;
-            if (_selectedTabIndex != 3) {
-              setState(() {
-                _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
-              });
-            }
-          }).ignore();
+          _resyncBadge();
         } else {
           _chatSocketConnectedOnce = true;
         }
@@ -1620,8 +1612,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 apiClient: widget.apiClient,
                 accessToken: widget.accessToken,
                 myUserId: _me?.id ?? '',
-                onThreadChanged: (String? userId) {
-                  setState(() => _activeThreadUserId = userId);
+                onThreadChanged: (String? userId, int unreadCount) {
+                  setState(() {
+                    _activeThreadUserId = userId;
+                    if (userId != null) {
+                      // Opening thread: instantly decrement badge by conversation's unread
+                      _inboxUnread = (_inboxUnread - unreadCount).clamp(0, 999);
+                    }
+                  });
+                  if (userId == null) _resyncBadge(); // thread closed → confirm with API
                 },
               ),
             4 => _buildMeTab(),
@@ -1757,10 +1756,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           );
         }),
         onDestinationSelected: (int index) {
-          setState(() {
-            _selectedTabIndex = index;
-            if (index == 3) _inboxUnread = 0; // clear badge when opening Inbox
-          });
+          setState(() => _selectedTabIndex = index);
+          if (index == 3) _resyncBadge();
         },
         destinations: <NavigationDestination>[
           NavigationDestination(
