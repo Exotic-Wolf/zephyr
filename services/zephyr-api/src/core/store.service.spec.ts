@@ -31,7 +31,7 @@ describe('StoreService', () => {
   it('creates and joins room', async () => {
     const session = await storeService.issueGuestSession('wolf');
     const room = await storeService.createRoom(session.user.id, 'Late Night Talk');
-    const joinedRoom = await storeService.joinRoom(room.id);
+    const joinedRoom = await storeService.joinRoom(room.id, session.user.id);
 
     expect(joinedRoom.audienceCount).toBe(2);
     const rooms = await storeService.listRooms();
@@ -43,7 +43,7 @@ describe('StoreService', () => {
     const firstRoom = await storeService.createRoom(session.user.id, 'First Live');
     const secondRoom = await storeService.createRoom(session.user.id, 'Second Live');
 
-    await expect(storeService.joinRoom(firstRoom.id)).rejects.toThrow(NotFoundException);
+    await expect(storeService.joinRoom(firstRoom.id, session.user.id)).rejects.toThrow(NotFoundException);
 
     const rooms = await storeService.listRooms();
     expect(rooms).toHaveLength(1);
@@ -61,7 +61,7 @@ describe('StoreService', () => {
 
     expect(feed).toHaveLength(0);
     expect(rooms).toHaveLength(0);
-    await expect(storeService.joinRoom(room.id)).rejects.toThrow(NotFoundException);
+    await expect(storeService.joinRoom(room.id, session.user.id)).rejects.toThrow(NotFoundException);
   });
 
   it('rejects missing auth header', async () => {
