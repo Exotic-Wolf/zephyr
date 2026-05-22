@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../services/api_client.dart';
+import '../services/local_db.dart';
 import 'thread_page.dart';
 import '../l10n/app_localizations.dart';
 
@@ -39,14 +40,19 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final cached = MessageCache.instance.conversations;
-    if (cached != null) {
-      _conversations = cached;
-      _loading = false;
-    }
-    _refresh();
+    _loadLocal();
     _busSub = MessageBus.instance.stream.listen((_) => _debouncedRefresh());
     _reconnectSub = ChatReconnectBus.instance.stream.listen((_) => _refresh());
+  }
+
+  /// Load from local SQLite instantly (no network).
+  Future<void> _loadLocal() async {
+    final List<ZephyrConversation> local = await LocalDb.instance.getConversations();
+    if (local.isNotEmpty && mounted) {
+      setState(() { _conversations = local; _loading = false; });
+    }
+    // Then sync from server in background
+    _refresh();
   }
 
   void _debouncedRefresh() {
@@ -74,7 +80,8 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
     try {
       final List<ZephyrConversation> convos =
           await widget.apiClient.getConversations(widget.accessToken);
-      MessageCache.instance.conversations = convos;
+      // Persist to local SQLite for next instant load
+      await LocalDb.instance.replaceConversations(convos);
       if (mounted) setState(() { _conversations = convos; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = _conversations.isEmpty ? e.toString() : null; _loading = false; });

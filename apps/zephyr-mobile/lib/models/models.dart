@@ -194,6 +194,7 @@ class ZephyrMessage {
     required this.receiverId,
     required this.body,
     required this.createdAt,
+    this.deliveredAt,
     this.readAt,
   });
 
@@ -202,6 +203,7 @@ class ZephyrMessage {
   final String receiverId;
   final String body;
   final DateTime createdAt;
+  final DateTime? deliveredAt;
   final DateTime? readAt;
 
   factory ZephyrMessage.fromJson(Map<String, dynamic> json) {
@@ -211,6 +213,7 @@ class ZephyrMessage {
       receiverId: json['receiverId'] as String,
       body: json['body'] as String,
       createdAt: DateTime.parse(json['createdAt'] as String),
+      deliveredAt: json['deliveredAt'] != null ? DateTime.parse(json['deliveredAt'] as String) : null,
       readAt: json['readAt'] != null ? DateTime.parse(json['readAt'] as String) : null,
     );
   }

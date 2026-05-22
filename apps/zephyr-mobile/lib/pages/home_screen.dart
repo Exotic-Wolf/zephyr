@@ -9,6 +9,7 @@ import 'package:socket_io_client/socket_io_client.dart' as sio;
 import '../flags.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
+import '../services/local_db.dart';
 import '../widgets/coin_icon.dart';
 import 'explore_page.dart';
 import 'go_live_countdown_page.dart';
@@ -191,12 +192,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           final Map<String, dynamic> msgJson =
               (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
           msg = ZephyrMessage.fromJson(msgJson);
+          // Persist to local SQLite
+          LocalDb.instance.upsertMessage(msg);
           MessageBus.instance.emit(msg);
         } catch (_) {}
-        // Only bump badge for INCOMING messages (not our own sends)
+        // Only process INCOMING messages (not our own sends echoed back)
         if (msg == null || msg.senderId == _me?.id) return;
+        // ACK delivery to server → sender gets ✓✓
+        widget.apiClient.markMessageDelivered(widget.accessToken, msg.id).ignore();
         if (_selectedTabIndex == 3 && _activeThreadUserId == msg.senderId) return;
         setState(() => _inboxUnread++);
+      })
+      ..on('chat:delivered', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final Map<String, dynamic> msgJson =
+              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final ZephyrMessage updated = ZephyrMessage.fromJson(msgJson);
+          LocalDb.instance.upsertMessage(updated);
+          ReadReceiptBus.instance.emit(updated);
+        } catch (_) {}
       })
       ..on('chat:read', (dynamic data) {
         if (!mounted) return;
@@ -206,6 +223,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           final Map<String, dynamic> msgJson =
               (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
           final ZephyrMessage updated = ZephyrMessage.fromJson(msgJson);
+          LocalDb.instance.upsertMessage(updated);
           ReadReceiptBus.instance.emit(updated);
         } catch (_) {}
       })

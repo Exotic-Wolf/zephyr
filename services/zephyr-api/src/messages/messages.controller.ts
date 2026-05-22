@@ -96,6 +96,18 @@ export class MessagesController {
     return this.storeService.getThread(me.id, userId, limit, beforeDate, afterDate);
   }
 
+  @Patch(':messageId/delivered')
+  @HttpCode(HttpStatus.OK)
+  async markDelivered(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('messageId', new ParseUUIDPipe()) messageId: string,
+  ): Promise<Message> {
+    const me = await this.storeService.getUserFromAuthHeader(authorization);
+    const message = await this.storeService.markMessageDelivered(messageId, me.id);
+    this.messagesGateway.emitDeliveryReceipt(message);
+    return message;
+  }
+
   @Patch(':messageId/read')
   @HttpCode(HttpStatus.OK)
   async markRead(

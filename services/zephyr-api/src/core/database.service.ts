@@ -205,9 +205,15 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         receiver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         body TEXT NOT NULL,
+        delivered_at TIMESTAMPTZ,
         read_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+    `);
+
+    // Migration: add delivered_at to existing databases
+    await this.pool.query(`
+      ALTER TABLE messages ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
     `);
 
     await this.pool.query(`

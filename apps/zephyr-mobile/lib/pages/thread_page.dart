@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../services/api_client.dart';
+import '../services/local_db.dart';
 import '../l10n/app_localizations.dart';
 
 // ── Message cache (in-memory, survives navigation within session) ─────────────
@@ -103,12 +104,7 @@ class _ThreadPageState extends State<ThreadPage> {
   @override
   void initState() {
     super.initState();
-    final cached = MessageCache.instance.threads[widget.otherUserId];
-    if (cached != null) {
-      _messages = cached;
-      _loading = false;
-    }
-    _load();
+    _loadLocal();
     _busSub = MessageBus.instance.stream.listen(_onBusMessage);
     _readSub = ReadReceiptBus.instance.stream.listen(_onReadReceipt);
     _reconnectSub = ChatReconnectBus.instance.stream.listen((_) {
@@ -121,6 +117,17 @@ class _ThreadPageState extends State<ThreadPage> {
         _loadMore();
       }
     });
+  }
+
+  /// Load from local SQLite instantly, then sync from API in background.
+  Future<void> _loadLocal() async {
+    final List<ZephyrMessage> local =
+        await LocalDb.instance.getLatestThread(widget.myUserId, widget.otherUserId);
+    if (local.isNotEmpty && mounted) {
+      setState(() { _messages = local; _loading = false; });
+      _scrollToBottom(jump: true);
+    }
+    _load();
   }
 
   void _onFcmMessage(RemoteMessage message) {
@@ -155,7 +162,8 @@ class _ThreadPageState extends State<ThreadPage> {
     if (!relevant) return;
     if (_messages.any((ZephyrMessage m) => m.id == msg.id)) return;
     final updated = <ZephyrMessage>[..._messages, msg];
-    MessageCache.instance.threads[widget.otherUserId] = updated;
+    // Persist to SQLite
+    LocalDb.instance.upsertMessage(msg);
     setState(() => _messages = updated);
     _scrollToBottom();
     if (msg.receiverId == widget.myUserId && msg.readAt == null) {
@@ -174,7 +182,8 @@ class _ThreadPageState extends State<ThreadPage> {
     final List<ZephyrMessage> next = _messages
         .map((ZephyrMessage m) => m.id == updated.id ? updated : m)
         .toList();
-    MessageCache.instance.threads[widget.otherUserId] = next;
+    // Persist receipt to SQLite
+    LocalDb.instance.upsertMessage(updated);
     setState(() => _messages = next);
   }
 
@@ -206,7 +215,8 @@ class _ThreadPageState extends State<ThreadPage> {
           .getThread(widget.accessToken, widget.otherUserId);
       if (!mounted) return;
       final merged = _merge(result.messages);
-      MessageCache.instance.threads[widget.otherUserId] = merged;
+      // Persist to local SQLite
+      await LocalDb.instance.upsertMessages(merged);
       setState(() {
         _messages = merged;
         _hasMore = result.hasMore;
@@ -567,11 +577,15 @@ class _ThreadPageState extends State<ThreadPage> {
                                         SizedBox(
                                           width: 16,
                                           child: Icon(
-                                            msg.readAt != null ? Icons.done_all : Icons.done,
+                                            msg.readAt != null
+                                                ? Icons.done_all        // blue ✓✓ = read
+                                                : msg.deliveredAt != null
+                                                    ? Icons.done_all    // white ✓✓ = delivered
+                                                    : Icons.done,       // white ✓ = sent
                                             size: 13,
                                             color: msg.readAt != null
                                                 ? Colors.blue.shade300
-                                                : Colors.black54,
+                                                : Colors.white70,
                                           ),
                                         ),
                                       ],

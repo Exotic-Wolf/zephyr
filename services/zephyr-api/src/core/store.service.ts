@@ -62,6 +62,7 @@ export interface Message {
   senderId: string;
   receiverId: string;
   body: string;
+  deliveredAt: string | null;
   readAt: string | null;
   createdAt: string;
 }
@@ -1377,9 +1378,9 @@ export class StoreService {
     if (idempotencyKey && this.databaseService?.isEnabled()) {
       const existing = await this.databaseService.query<{
         id: string; sender_id: string; receiver_id: string;
-        body: string; read_at: string | null; created_at: string;
+        body: string; delivered_at: string | null; read_at: string | null; created_at: string;
       }>(
-        `SELECT id, sender_id, receiver_id, body, read_at, created_at
+        `SELECT id, sender_id, receiver_id, body, delivered_at, read_at, created_at
          FROM messages
          WHERE idempotency_key = $1 AND created_at > NOW() - INTERVAL '60 seconds'`,
         [idempotencyKey],
@@ -1387,7 +1388,7 @@ export class StoreService {
       if (existing.rows.length > 0) {
         const r = existing.rows[0];
         return {
-          message: { id: r.id, senderId: r.sender_id, receiverId: r.receiver_id, body: r.body, readAt: r.read_at, createdAt: r.created_at },
+          message: { id: r.id, senderId: r.sender_id, receiverId: r.receiver_id, body: r.body, deliveredAt: r.delivered_at, readAt: r.read_at, createdAt: r.created_at },
           isNew: false,
         };
       }
@@ -1398,6 +1399,7 @@ export class StoreService {
       senderId,
       receiverId,
       body: body.trim(),
+      deliveredAt: null,
       readAt: null,
       createdAt: new Date().toISOString(),
     };
@@ -1529,13 +1531,14 @@ export class StoreService {
         sender_id: string;
         receiver_id: string;
         body: string;
+        delivered_at: string | null;
         read_at: string | null;
         created_at: string;
       }>(
         after
           ? // Cursor sync: fetch everything after a timestamp, no DESC/LIMIT wrapping needed
             `
-            SELECT id, sender_id, receiver_id, body, read_at, created_at
+            SELECT id, sender_id, receiver_id, body, delivered_at, read_at, created_at
             FROM messages
             WHERE ((sender_id = $1 AND receiver_id = $2)
                OR (sender_id = $2 AND receiver_id = $1))
@@ -1543,9 +1546,9 @@ export class StoreService {
             ORDER BY created_at ASC
           `
           : `
-          SELECT id, sender_id, receiver_id, body, read_at, created_at
+          SELECT id, sender_id, receiver_id, body, delivered_at, read_at, created_at
           FROM (
-            SELECT id, sender_id, receiver_id, body, read_at, created_at
+            SELECT id, sender_id, receiver_id, body, delivered_at, read_at, created_at
             FROM messages
             WHERE ((sender_id = $1 AND receiver_id = $2)
                OR (sender_id = $2 AND receiver_id = $1))
@@ -1570,6 +1573,7 @@ export class StoreService {
           senderId: row.sender_id,
           receiverId: row.receiver_id,
           body: row.body,
+          deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : null,
           readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
           createdAt: new Date(row.created_at).toISOString(),
         })),
@@ -1593,21 +1597,22 @@ export class StoreService {
     };
   }
 
-  async markMessageRead(messageId: string, userId: string): Promise<Message> {
+  async markMessageDelivered(messageId: string, userId: string): Promise<Message> {
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{
         id: string;
         sender_id: string;
         receiver_id: string;
         body: string;
+        delivered_at: string | null;
         read_at: string | null;
         created_at: string;
       }>(
         `
           UPDATE messages
-          SET read_at = NOW()
-          WHERE id = $1 AND receiver_id = $2 AND read_at IS NULL
-          RETURNING id, sender_id, receiver_id, body, read_at, created_at
+          SET delivered_at = NOW()
+          WHERE id = $1 AND receiver_id = $2 AND delivered_at IS NULL
+          RETURNING id, sender_id, receiver_id, body, delivered_at, read_at, created_at
         `,
         [messageId, userId],
       );
@@ -1622,6 +1627,7 @@ export class StoreService {
         senderId: row.sender_id,
         receiverId: row.receiver_id,
         body: row.body,
+        deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : null,
         readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
       };
@@ -1631,7 +1637,52 @@ export class StoreService {
     if (!msg || msg.receiverId !== userId) {
       throw new NotFoundException('Message not found');
     }
-    const updated = { ...msg, readAt: new Date().toISOString() };
+    const updated = { ...msg, deliveredAt: new Date().toISOString() };
+    this.inMemoryMessages.set(messageId, updated);
+    return updated;
+  }
+
+  async markMessageRead(messageId: string, userId: string): Promise<Message> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<{
+        id: string;
+        sender_id: string;
+        receiver_id: string;
+        body: string;
+        delivered_at: string | null;
+        read_at: string | null;
+        created_at: string;
+      }>(
+        `
+          UPDATE messages
+          SET read_at = NOW(), delivered_at = COALESCE(delivered_at, NOW())
+          WHERE id = $1 AND receiver_id = $2 AND read_at IS NULL
+          RETURNING id, sender_id, receiver_id, body, delivered_at, read_at, created_at
+        `,
+        [messageId, userId],
+      );
+
+      if (result.rowCount === 0) {
+        throw new NotFoundException('Message not found');
+      }
+
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        senderId: row.sender_id,
+        receiverId: row.receiver_id,
+        body: row.body,
+        deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : null,
+        readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
+        createdAt: new Date(row.created_at).toISOString(),
+      };
+    }
+
+    const msg = this.inMemoryMessages.get(messageId);
+    if (!msg || msg.receiverId !== userId) {
+      throw new NotFoundException('Message not found');
+    }
+    const updated = { ...msg, deliveredAt: msg.deliveredAt ?? new Date().toISOString(), readAt: new Date().toISOString() };
     this.inMemoryMessages.set(messageId, updated);
     return updated;
   }

@@ -235,6 +235,14 @@ class ZephyrApiClient {
     );
   }
 
+  Future<void> markMessageDelivered(String accessToken, String messageId) async {
+    await _request(
+      method: 'PATCH',
+      path: '/v1/messages/$messageId/delivered',
+      accessToken: accessToken,
+    );
+  }
+
   Future<List<Room>> listRooms() async {
     final dynamic data = await _request(method: 'GET', path: '/v1/rooms');
 

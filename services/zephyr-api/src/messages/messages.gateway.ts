@@ -52,4 +52,9 @@ export class MessagesGateway implements OnGatewayInit, OnGatewayConnection {
     // Notify the original sender that their message has been read
     this.server.to(message.senderId).emit('chat:read', { message });
   }
+
+  emitDeliveryReceipt(message: Message): void {
+    // Notify the original sender that their message was delivered to recipient's device
+    this.server.to(message.senderId).emit('chat:delivered', { message });
+  }
 }
