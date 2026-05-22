@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:agora_chat_sdk/agora_chat_sdk.dart';
+import 'package:flutter/foundation.dart';
 
 import 'api_client.dart';
 
@@ -18,16 +19,25 @@ class ChatService {
   bool _initialized = false;
   String? _currentUserId;
 
+  // Track which peers have read our messages (persists within session)
+  final Set<String> _peerHasReadSet = {};
+  bool peerHasRead(String peerId) => _peerHasReadSet.contains(peerId);
+
   // ── Streams for UI ─────────────────────────────────────────────────────────
 
   final StreamController<List<ChatMessage>> _messageCtrl =
       StreamController<List<ChatMessage>>.broadcast();
   Stream<List<ChatMessage>> get onMessagesReceived => _messageCtrl.stream;
 
-  final StreamController<List<ChatMessage>> _readCtrl =
+  final StreamController<String> _convReadCtrl =
+      StreamController<String>.broadcast();
+  /// Fires with the peer's chat user ID when they read our messages.
+  Stream<String> get onConversationRead => _convReadCtrl.stream;
+
+  final StreamController<List<ChatMessage>> _readMsgCtrl =
       StreamController<List<ChatMessage>>.broadcast();
-  /// Fires when sent messages get read by the recipient.
-  Stream<List<ChatMessage>> get onMessagesRead => _readCtrl.stream;
+  /// Fires when per-message read acks arrive (hasReadAck updated).
+  Stream<List<ChatMessage>> get onMessagesReadAck => _readMsgCtrl.stream;
 
   final StreamController<void> _conversationCtrl =
       StreamController<void>.broadcast();
@@ -38,8 +48,14 @@ class ChatService {
 
   Future<void> init(String appKey) async {
     if (_initialized) return;
-    final options = ChatOptions(appKey: appKey, autoLogin: false);
+    final options = ChatOptions(
+      appKey: appKey,
+      autoLogin: false,
+      requireAck: true,
+    );
     await ChatClient.getInstance.init(options);
+    // Notify SDK that UI is ready — required for callbacks to fire
+    await ChatClient.getInstance.startCallback();
     _initialized = true;
   }
 
@@ -57,25 +73,48 @@ class ChatService {
 
     _currentUserId = creds.chatUserId;
 
-    await ChatClient.getInstance.loginWithToken(
-      creds.chatUserId,
-      creds.token,
-    );
-
-    // Register event handlers after login
+    // Always register event handlers BEFORE login — hot restart may skip login
+    // if already logged in, but we still need fresh Dart-side handlers.
+    ChatClient.getInstance.chatManager.removeEventHandler('ChatService');
     ChatClient.getInstance.chatManager.addEventHandler(
       'ChatService',
       ChatEventHandler(
         onMessagesReceived: (List<ChatMessage> messages) {
+          debugPrint('CHAT | onMessagesReceived count=${messages.length}');
           _messageCtrl.add(messages);
           _conversationCtrl.add(null);
         },
+        onConversationRead: (String from, String to) {
+          debugPrint('CHAT | onConversationRead from=$from to=$to');
+          _peerHasReadSet.add(from);
+          _convReadCtrl.add(from);
+          _conversationCtrl.add(null);
+        },
         onMessagesRead: (List<ChatMessage> messages) {
-          _readCtrl.add(messages);
+          debugPrint('CHAT | onMessagesRead count=${messages.length}');
+          for (final m in messages) {
+            if (m.to != null) _peerHasReadSet.add(m.from!);
+          }
+          _readMsgCtrl.add(messages);
           _conversationCtrl.add(null);
         },
       ),
     );
+
+    try {
+      await ChatClient.getInstance.loginWithToken(
+        creds.chatUserId,
+        creds.token,
+      );
+      debugPrint('CHAT | login OK as ${creds.chatUserId}');
+    } on ChatError catch (e) {
+      if (e.code == 200) {
+        // Already logged in (e.g. after hot restart) — fine
+        debugPrint('CHAT | already logged in as ${creds.chatUserId}');
+      } else {
+        rethrow;
+      }
+    }
   }
 
   Future<void> logout() async {
@@ -127,14 +166,42 @@ class ChatService {
     return cursor.data;
   }
 
-  /// Mark all messages from [peerId] as read.
+  /// Check if the peer has read our messages (from local DB).
+  Future<bool> hasPeerReadConversation(String peerId) async {
+    final conv = await ChatClient.getInstance.chatManager.getConversation(peerId);
+    if (conv == null) return false;
+    // Load recent local messages to check hasReadAck
+    final localMsgs = await conv.loadMessages(loadCount: 5);
+    for (final m in localMsgs) {
+      if (m.direction == MessageDirection.SEND && m.hasReadAck) return true;
+    }
+    return false;
+  }
+
+  /// Mark all messages from [peerId] as read (local + remote ack).
   Future<void> markConversationRead(String peerId) async {
     final conv = await ChatClient.getInstance.chatManager.getConversation(peerId);
     if (conv == null) return;
     final unread = await conv.unreadCount();
     await conv.markAllMessagesAsRead();
     if (unread > 0) {
-      await ChatClient.getInstance.chatManager.sendConversationReadAck(peerId);
+      try {
+        await ChatClient.getInstance.chatManager.sendConversationReadAck(peerId);
+      } catch (_) {}
+    }
+  }
+
+  /// Send per-message read acks so sender's hasReadAck gets set persistently.
+  Future<void> sendReadAcks(List<ChatMessage> messages) async {
+    for (final msg in messages) {
+      if (msg.direction == MessageDirection.RECEIVE) {
+        try {
+          await ChatClient.getInstance.chatManager.sendMessageReadAck(msg);
+          debugPrint('CHAT | sent readAck for msgId=${msg.msgId}');
+        } catch (e) {
+          debugPrint('CHAT | readAck FAILED for msgId=${msg.msgId}: $e');
+        }
+      }
     }
   }
 

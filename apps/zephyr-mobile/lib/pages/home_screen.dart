@@ -55,7 +55,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   UserProfile? _me;
   List<LiveFeedCard> _feedCards = <LiveFeedCard>[];
   Set<String> _followingIds = <String>{};
-  String? _selectedDirectReceiverUserId;
   int _selectedTabIndex = 0;
   int _homeTopTabIndex = 1;
   int _coinBalance = 1200;
@@ -68,20 +67,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     CoinPack(id: 'pack_9999', label: '550K',   coins: 550000, priceUsd: 99.99),
   ];
   final int _callMinutes = 2;
-  String _callMode = 'direct';
+  final String _callMode = 'direct';
   int _selectedDirectRate = 2100;
   CallQuote? _callQuote;
-  CallSession? _activeCallSession;
   Timer? _callTickTimer;
   Timer? _feedPollTimer;
   sio.Socket? _feedSocket;
   int _inboxUnread = 0;
   StreamSubscription<void>? _chatChangeSub;
   Timer? _keepAliveTimer;
-  bool _callActionLoading = false;
-  bool _tickInFlight = false;
-  bool _rtcLoading = false;
-  static const int _callTickIntervalSeconds = 10;
   bool _quoteLoading = false;
   int _activeFeedIndex = 0;
   Country? _filterCountry;
@@ -392,169 +386,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  String? _resolveDirectReceiverUserId() {
-    if (_selectedDirectReceiverUserId != null) {
-      return _selectedDirectReceiverUserId;
-    }
-    if (_feedCards.isNotEmpty) {
-      final int safeIndex = _activeFeedIndex.clamp(0, _feedCards.length - 1);
-      return _feedCards[safeIndex].hostUserId;
-    }
-    return null;
-  }
-
-  Future<void> _startCallSession() async {
-    if (_callQuote == null) {
-      return;
-    }
-
-    final String? receiverUserId = _callMode == 'direct'
-        ? _resolveDirectReceiverUserId()
-        : null;
-    if (_callMode == 'direct' && receiverUserId == null) {
-      setState(() {
-            'No receiver available for direct call. Try Random mode.';
-      });
-      return;
-    }
-
-    setState(() {
-      _callActionLoading = true;
-    });
-
-    try {
-      final CallSession session = await widget.apiClient.startCallSession(
-        accessToken: widget.accessToken,
-        mode: _callMode,
-        receiverUserId: receiverUserId,
-        directRateCoinsPerMinute: _callMode == 'direct'
-            ? _selectedDirectRate
-            : null,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _activeCallSession = session;
-      });
-
-      unawaited(_prepareRtcJoin(session.id));
-
-      _callTickTimer?.cancel();
-      _callTickTimer = Timer.periodic(
-        const Duration(seconds: _callTickIntervalSeconds),
-        (_) {
-          _runCallTick();
-        },
-      );
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Call session started. Billing is live.')),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _callActionLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _runCallTick() async {
-    final CallSession? session = _activeCallSession;
-    if (session == null || _tickInFlight) {
-      return;
-    }
-
-    _tickInFlight = true;
-    try {
-      final CallSessionTickResult result = await widget.apiClient.tickCallSession(
-        accessToken: widget.accessToken,
-        sessionId: session.id,
-        elapsedSeconds: _callTickIntervalSeconds,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _activeCallSession = result.session;
-        _coinBalance = result.callerCoinBalanceAfter;
-        if (result.session.status == 'ended') {
-        }
-      });
-
-      if (result.stoppedForInsufficientBalance || result.session.status == 'ended') {
-        _callTickTimer?.cancel();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              result.stoppedForInsufficientBalance
-                  ? 'Call ended: insufficient balance.'
-                  : 'Call ended.',
-            ),
-          ),
-        );
-      }
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-      });
-      _callTickTimer?.cancel();
-    } finally {
-      _tickInFlight = false;
-    }
-  }
-
-
-  Future<void> _prepareRtcJoin(String sessionId) async {
-    if (_rtcLoading) {
-      return;
-    }
-
-    setState(() {
-      _rtcLoading = true;
-    });
-
-    try {
-      await widget.apiClient.requestCallRtcToken(
-        accessToken: widget.accessToken,
-        sessionId: sessionId,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _rtcLoading = false;
-        });
-      }
-    }
-  }
-
   Future<void> _enterRoom(LiveFeedCard feedCard) async {
     final String? roomId = feedCard.roomId;
     if (roomId == null) return;
@@ -586,7 +417,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _openCallTabForHost(String hostUserId) {
     setState(() {
-      _selectedDirectReceiverUserId = hostUserId;
       _selectedTabIndex = 2;
     });
     if (_callQuote == null && !_quoteLoading) {
@@ -594,17 +424,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-
-  String _titleForTab(AppLocalizations l10n) {
-    return switch (_selectedTabIndex) {
-      0 => l10n.home,
-      1 => l10n.live,
-      2 => l10n.explore,
-      3 => l10n.inbox,
-      4 => l10n.me,
-      _ => 'Zephyr',
-    };
-  }
 
   Future<void> _startRandomMatchFromHome() async {
     final String? userId = _me?.id;
@@ -1181,10 +1000,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  String _formatCoins(int value) {
-    return value.toString();
-  }
-
   String _formatRevenue(double value) {
     return value.toStringAsFixed(2);
   }
@@ -1498,6 +1313,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ],
                       ),
                     );
+                    if (!context.mounted) return;
                     if (confirm == true) {
                       Navigator.of(context).popUntil((route) => route.isFirst);
                       widget.onLogout();

@@ -177,6 +177,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 ? null
                                 : _continueWithApple,
                             loading: _appleLoading,
+                            backgroundColor: Colors.black,
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: <Widget>[
@@ -196,7 +197,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 ),
                               ],
                             ),
-                            backgroundColor: Colors.black,
                           ),
                           const SizedBox(height: 12),
                         ],
@@ -207,6 +207,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               ? null
                               : _continueWithGoogle,
                           loading: _googleLoading,
+                          backgroundColor: const Color(0xFF2A2A2A),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: <Widget>[
@@ -226,7 +227,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               ),
                             ],
                           ),
-                          backgroundColor: const Color(0xFF2A2A2A),
                         ),
 
                         // Error

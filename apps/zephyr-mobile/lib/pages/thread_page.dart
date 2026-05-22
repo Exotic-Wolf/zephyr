@@ -40,7 +40,8 @@ class _ThreadPageState extends State<ThreadPage> {
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   StreamSubscription<List<ChatMessage>>? _msgSub;
-  StreamSubscription<List<ChatMessage>>? _readSub;
+  StreamSubscription<String>? _readSub;
+  StreamSubscription<List<ChatMessage>>? _readMsgSub;
 
   String get _peerChatId => ChatService.toChatUserId(widget.otherUserId);
   String get _myChatId => ChatService.toChatUserId(widget.myUserId);
@@ -50,7 +51,8 @@ class _ThreadPageState extends State<ThreadPage> {
     super.initState();
     _load();
     _msgSub = ChatService.instance.onMessagesReceived.listen(_onMessages);
-    _readSub = ChatService.instance.onMessagesRead.listen(_onReadReceipts);
+    _readSub = ChatService.instance.onConversationRead.listen(_onConvRead);
+    _readMsgSub = ChatService.instance.onMessagesReadAck.listen(_onMsgsRead);
     _scrollCtrl.addListener(() {
       if (_scrollCtrl.position.pixels >=
           _scrollCtrl.position.maxScrollExtent - 200) {
@@ -63,6 +65,7 @@ class _ThreadPageState extends State<ThreadPage> {
   void dispose() {
     _msgSub?.cancel();
     _readSub?.cancel();
+    _readMsgSub?.cancel();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -77,16 +80,37 @@ class _ThreadPageState extends State<ThreadPage> {
       _messages = <ChatMessage>[...incoming, ..._messages];
     });
     _scrollToBottom();
-    // Mark as read
+    // Mark as read + send per-message acks
     ChatService.instance.markConversationRead(_peerChatId);
+    ChatService.instance.sendReadAcks(incoming.toList());
   }
 
-  void _onReadReceipts(List<ChatMessage> readMsgs) {
+  void _onConvRead(String from) {
     if (!mounted) return;
-    final Set<String> readIds = readMsgs.map((m) => m.msgId).toSet();
-    if (!_messages.any((m) => readIds.contains(m.msgId))) return;
-    // Force rebuild — the ChatMessage objects are mutated in-place by the SDK
-    setState(() {});
+    if (from == _peerChatId) {
+      // Peer read the conversation — mark all current sent messages as read
+      bool changed = false;
+      for (var i = 0; i < _messages.length; i++) {
+        if (_messages[i].from == _myChatId && !_messages[i].hasReadAck) {
+          _messages[i].hasReadAck = true;
+          changed = true;
+        }
+      }
+      if (changed) setState(() {});
+    }
+  }
+
+  void _onMsgsRead(List<ChatMessage> readMsgs) {
+    if (!mounted) return;
+    final readIds = readMsgs.map((m) => m.msgId).toSet();
+    bool changed = false;
+    for (var i = 0; i < _messages.length; i++) {
+      if (readIds.contains(_messages[i].msgId)) {
+        _messages[i].hasReadAck = true;
+        changed = true;
+      }
+    }
+    if (changed) setState(() {});
   }
 
   Future<void> _load() async {
@@ -97,17 +121,27 @@ class _ThreadPageState extends State<ThreadPage> {
         pageSize: 30,
       );
       if (!mounted) return;
-      // fetchHistory returns oldest-first; we display reversed (newest at bottom)
-      final sorted = msgs.reversed.toList();
+      // With reverse:true ListView, index 0 = bottom (newest).
+      // fetchHistory returns newest-first, so use as-is.
+      // Check if peer has read from local DB and mark sent messages
+      final peerRead = ChatService.instance.peerHasRead(_peerChatId) ||
+          await ChatService.instance.hasPeerReadConversation(_peerChatId);
+      if (!mounted) return;
+      if (peerRead) {
+        for (final m in msgs) {
+          if (m.from == _myChatId) m.hasReadAck = true;
+        }
+      }
       setState(() {
-        _messages = sorted;
+        _messages = msgs;
         _hasMore = msgs.length >= 30;
-        if (msgs.isNotEmpty) _startMsgId = msgs.first.msgId;
+        if (msgs.isNotEmpty) _startMsgId = msgs.last.msgId;
         _loading = false;
       });
       _scrollToBottom(jump: true);
-      // Mark conversation as read
+      // Mark conversation as read + send per-message acks
       ChatService.instance.markConversationRead(_peerChatId);
+      ChatService.instance.sendReadAcks(msgs);
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -123,11 +157,10 @@ class _ThreadPageState extends State<ThreadPage> {
         pageSize: 30,
       );
       if (!mounted) return;
-      final sorted = msgs.reversed.toList();
       setState(() {
-        _messages = <ChatMessage>[..._messages, ...sorted];
+        _messages = <ChatMessage>[..._messages, ...msgs];
         _hasMore = msgs.length >= 30;
-        if (msgs.isNotEmpty) _startMsgId = msgs.first.msgId;
+        if (msgs.isNotEmpty) _startMsgId = msgs.last.msgId;
         _loadingMore = false;
       });
     } catch (_) {

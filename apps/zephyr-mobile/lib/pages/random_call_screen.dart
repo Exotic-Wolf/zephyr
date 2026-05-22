@@ -48,7 +48,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
   RtcEngine? _engine;
   int? _remoteUid;
   bool _micMuted = false;
-  bool _cameraOff = false;
+  final bool _cameraOff = false;
 
   // Search dot animation
   late final AnimationController _dotCtrl;
@@ -680,17 +680,19 @@ class _ReportDialogState extends State<_ReportDialog> {
     return AlertDialog(
       backgroundColor: const Color(0xFF1C1C2E),
       title: const Text('Report user', style: TextStyle(color: Colors.white)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: _reasons.map((r) => RadioListTile<String>(
-          value: r,
-          groupValue: _selected,
-          onChanged: (v) => setState(() => _selected = v!),
-          title: Text(r, style: const TextStyle(color: Colors.white70, fontSize: 14)),
-          activeColor: const Color(0xFF1FA4EA),
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-        )).toList(),
+      content: RadioGroup<String>(
+        groupValue: _selected,
+        onChanged: (v) => setState(() => _selected = v!),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _reasons.map((r) => RadioListTile<String>(
+            value: r,
+            title: Text(r, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            activeColor: const Color(0xFF1FA4EA),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          )).toList(),
+        ),
       ),
       actions: <Widget>[
         TextButton(

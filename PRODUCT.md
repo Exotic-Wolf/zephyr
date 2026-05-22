@@ -20,7 +20,8 @@
 | Mobile | Flutter (Dart) | `apps/zephyr-mobile` |
 | Backend API | NestJS (TypeScript) | `services/zephyr-api` |
 | Database | PostgreSQL (Render) | Singapore region |
-| Real-time | Socket.IO (`/chat`, `/feed` namespaces) | Backend |
+| Real-time | Socket.IO (`/feed`, `/call` namespaces) | Backend |
+| Messaging | Agora Chat SDK (replaced Socket.IO) | SDK in mobile + REST token gen |
 | Video | Agora (calls + live streaming) | SDK in mobile |
 | Deploy | Render (auto-deploy from `main`) | `https://zephyr-api-wr1s.onrender.com` |
 
@@ -55,14 +56,15 @@ pnpm --filter zephyr-api start:dev
 | `app_constants.dart` | `apiBaseUrl`, `googleServerClientId`, env constants |
 | `models/models.dart` | All data models: `UserProfile`, `Room`, `ZephyrMessage`, `WalletSummary`, `CoinPack`, `CallSession`, etc. |
 | `services/api_client.dart` | All HTTP calls — GET/POST/PATCH/DELETE |
+| `services/chat_service.dart` | Agora Chat SDK wrapper — login, send, fetch history, read receipts, per-message acks |
 | `pages/home_screen.dart` | Feed, socket connection, inbox badge, 5s poll fallback |
 | `pages/host_live_screen.dart` | Host live stream, heartbeat timer (15s) |
 | `pages/go_live_countdown_page.dart` | 3-2-1 countdown, creates room |
 | `pages/viewer_live_screen.dart` | Viewer live stream, reactions, comments |
 | `pages/onboarding_page.dart` | Google Sign-In, Apple Sign-In, guest login |
 | `pages/explore_page.dart` | Search users by name or 8-digit public ID |
-| `pages/inbox_page.dart` | Conversation list |
-| `pages/thread_page.dart` | DM chat bubbles, real-time via MessageBus, read receipts |
+| `pages/inbox_page.dart` | Conversation list (fetched from Agora Chat SDK) |
+| `pages/thread_page.dart` | DM chat bubbles, real-time via Agora Chat, per-message read receipts (✓✓) |
 | `pages/my_profile_page.dart` | View/edit profile |
 | `widgets/` | Shared widgets: gifts, spark icon, coin icon, language picker |
 
@@ -77,7 +79,8 @@ pnpm --filter zephyr-api start:dev
 | `core/store.service.ts` | All DB logic — messages, rooms, economy, wallets |
 | `core/database.service.ts` | Schema init, migrations, periodic cleanup |
 | `core/rtc.service.ts` | Agora token generation |
-| `messages/messages.gateway.ts` | Socket.IO `/chat` namespace — emits to both sender and receiver |
+| `core/agora-chat.service.ts` | Agora Chat token gen + user registration via REST API |
+| `messages/messages.controller.ts` | `GET /v1/messages/chat-token` — returns appKey, chatUserId, token |
 | `rooms/rooms.gateway.ts` | Socket.IO `/feed` namespace — room created/ended/updated |
 | `economy/economy.controller.ts` | All economy endpoints |
 
@@ -126,9 +129,13 @@ PATCH /v1/messages/:messageId/read
 ```
 
 WebSocket namespaces:
-- `/chat` — real-time messaging (`chat:message`, `chat:read`, `chat:join`)
 - `/feed` — live room events (`feed:room-created`, `feed:room-ended`, `feed:room-updated`)
 - `/call` — random call matchmaking (`call:join_queue`, `call:leave_queue`, `call:next`, `call:end`, `call:matched`, `call:partner_left`)
+
+Agora Chat (replaces old `/chat` socket):
+- Backend: `GET /v1/messages/chat-token` → `{appKey, chatUserId, token}`
+- SDK handles: message delivery, offline queue, read receipts, history sync
+- No custom socket needed for messaging anymore
 
 ---
 
@@ -136,7 +143,8 @@ WebSocket namespaces:
 
 | Package | Purpose |
 |---|---|
-| `socket_io_client: 3.1.4` | Real-time Socket.IO |
+| `agora_chat_sdk: ^1.3.3` | Agora Chat — messaging, read receipts, history |
+| `agora_rtc_engine: ^6.5.2` | Agora RTC — video calls + live streaming |
 | `flutter_secure_storage: 10.1.0` | Token in iOS Keychain / Android Keystore |
 | `google_sign_in` | Google OAuth |
 | `sign_in_with_apple` | Apple Sign-In |
@@ -147,11 +155,12 @@ WebSocket namespaces:
 
 ## Architecture Decisions (Locked)
 
-- **Agora** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
-- **Socket.IO** — foreground real-time for messaging and matchmaking
+- **Agora Chat** — replaced custom Socket.IO messaging. SDK handles delivery, read receipts, offline queue, history sync. Backend only generates tokens.
+- **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
+- **Socket.IO** — foreground real-time for feed events and call matchmaking only (no longer messaging)
 - **FCM/APNs** — background/killed state push notifications (not yet built)
 - **Redis Socket.IO adapter** — wired, falls back to in-memory. Enable by setting `REDIS_URL` on Render. Required at 5K+ users.
-- **Server always truth** — `getConversations` is authoritative unread count. Socket does optimistic increments only.
+- **Server always truth** — Agora Chat SDK is source of truth for messages/conversations. Backend only issues tokens.
 
 ---
 
@@ -176,7 +185,7 @@ WebSocket namespaces:
 | Home feed (cards, status, real-time) | ✅ Done | 90% |
 | Go Live / Host screen (Agora) | ✅ Done | 85% |
 | Viewer screen (Agora) | ✅ Done | 80% |
-| Direct messages (real-time, WebSocket) | ✅ Done | 90% |
+| Direct messages (Agora Chat SDK) | ✅ Done | 95% |
 | Explore / Search | ✅ Done | 85% |
 | My Profile | ✅ Done | 75% |
 | Persistent login | ✅ Done | 100% |
