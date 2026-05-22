@@ -4,18 +4,19 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:agora_chat_sdk/agora_chat_sdk.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import '../flags.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
+import '../services/chat_service.dart';
 import '../widgets/coin_icon.dart';
 import 'explore_page.dart';
 import 'go_live_countdown_page.dart';
 import 'inbox_page.dart';
 import 'my_profile_page.dart';
 import 'profile_page.dart';
-import 'thread_page.dart';
 import 'viewer_live_screen.dart';
 import '../app_constants.dart';
 import 'call_price_page.dart';
@@ -74,11 +75,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _callTickTimer;
   Timer? _feedPollTimer;
   sio.Socket? _feedSocket;
-  sio.Socket? _chatSocket;
-  bool _chatSocketConnectedOnce = false;
   int _inboxUnread = 0;
-  String? _activeThreadUserId;
-  Timer? _badgeSyncTimer;
+  StreamSubscription<void>? _chatChangeSub;
   Timer? _keepAliveTimer;
   bool _callActionLoading = false;
   bool _tickInFlight = false;
@@ -109,22 +107,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _connectFeedSocket();
     // Safety net: poll every 5s in case socket drops or hasn't connected yet
     _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
-    // Periodic badge resync: covers socket-drop gap when app stays open without a resume event
-    _badgeSyncTimer = Timer.periodic(const Duration(seconds: 60), (_) {
-      if (!mounted || _selectedTabIndex == 3) return;
-      widget.apiClient.getConversations(widget.accessToken).then((convos) {
-        if (!mounted || _selectedTabIndex == 3) return;
-        setState(() {
-          _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
-        });
-      }).ignore();
-    });
     // Keep Render awake — free tier sleeps after 15 min; ping every 4 min prevents it
     _keepAliveTimer = Timer.periodic(const Duration(minutes: 4), (_) {
       widget.apiClient.ping().ignore();
     });
-    // FCM foreground: only used to refresh InboxPage when it's open.
-    // Badge is owned by the socket (chat:message) — do NOT increment here to avoid double-count.
+    // Badge: subscribe to Agora Chat conversation changes
+    _chatChangeSub = ChatService.instance.onConversationsChanged.listen((_) {
+      _refreshBadge();
+    });
     _fcmSub = FirebaseMessaging.onMessage.listen((_) {
       if (!mounted) return;
       if (_selectedTabIndex == 3) setState(() => _inboxRefreshSignal++);
@@ -139,78 +129,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // App came to foreground — resync badge from server (source of truth)
-      widget.apiClient.getConversations(widget.accessToken).then((convos) {
-        if (!mounted) return;
-        if (_selectedTabIndex != 3) {
-          setState(() {
-            _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
-          });
-        }
-      }).ignore();
+      _refreshBadge();
     }
   }
 
-  void _connectChatSocket() {
-    final String? userId = _me?.id;
-    if (userId == null) return;
-    _chatSocket = sio.io(
-      '$apiBaseUrl/chat',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .setQuery(<String, String>{'userId': userId})
-          .enableReconnection()
-          .setReconnectionAttempts(999999)
-          .setReconnectionDelay(2000)
-          .disableAutoConnect()
-          .build(),
-    )
-      ..on('connect', (_) {
-        _chatSocket?.emit('chat:join', userId);
-        if (_chatSocketConnectedOnce) {
-          // Reconnect: resync badge from API to recover missed messages
-          ChatReconnectBus.instance.fire();
-          widget.apiClient.getConversations(widget.accessToken).then((convos) {
-            if (!mounted) return;
-            if (_selectedTabIndex != 3) {
-              setState(() {
-                _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
-              });
-            }
-          }).ignore();
-        } else {
-          _chatSocketConnectedOnce = true;
-        }
-      })
-      ..on('chat:message', (dynamic data) {
-        if (!mounted) return;
-        // Parse and forward to any open ThreadPage via MessageBus
-        ZephyrMessage? msg;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final Map<String, dynamic> msgJson =
-              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
-          msg = ZephyrMessage.fromJson(msgJson);
-          MessageBus.instance.emit(msg);
-        } catch (_) {}
-        // Only bump badge for INCOMING messages (not our own sends)
-        if (msg == null || msg.senderId == _me?.id) return;
-        if (_selectedTabIndex == 3 && _activeThreadUserId == msg.senderId) return;
-        setState(() => _inboxUnread++);
-      })
-      ..on('chat:read', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final Map<String, dynamic> msgJson =
-              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final ZephyrMessage updated = ZephyrMessage.fromJson(msgJson);
-          ReadReceiptBus.instance.emit(updated);
-        } catch (_) {}
-      })
-      ..connect();
+  Future<void> _refreshBadge() async {
+    if (!mounted || _selectedTabIndex == 3) return;
+    try {
+      final int count =
+          await ChatClient.getInstance.chatManager.getUnreadMessageCount();
+      if (mounted && _selectedTabIndex != 3) {
+        setState(() => _inboxUnread = count);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loginChat() async {
+    try {
+      await ChatService.instance.login(
+        apiClient: widget.apiClient,
+        accessToken: widget.accessToken,
+      );
+      _refreshBadge();
+    } catch (_) {}
   }
 
   void _connectFeedSocket() {
@@ -297,14 +238,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _fcmSub?.cancel();
+    _chatChangeSub?.cancel();
     widget.tabNotifier?.removeListener(_onTabNotify);
     WidgetsBinding.instance.removeObserver(this);
     _callTickTimer?.cancel();
     _feedPollTimer?.cancel();
-    _badgeSyncTimer?.cancel();
     _keepAliveTimer?.cancel();
     _feedSocket?.dispose();
-    _chatSocket?.dispose();
     _roomTitleController.dispose();
     _feedController.dispose();
     _searchCtrl.dispose();
@@ -324,7 +264,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         widget.apiClient.getWalletSummary(widget.accessToken),
         widget.apiClient.listCoinPacks(),
         widget.apiClient.getFollowingIds(widget.accessToken),
-        widget.apiClient.getConversations(widget.accessToken),
       ]);
 
       final UserProfile me = data[0] as UserProfile;
@@ -332,7 +271,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final WalletSummary wallet = data[2] as WalletSummary;
       final Set<String> followingIds = data[4] as Set<String>;
       final List<CoinPack> packs = data[3] as List<CoinPack>;
-      final List<ZephyrConversation> conversations = data[5] as List<ZephyrConversation>;
 
       if (!mounted) {
         return;
@@ -358,14 +296,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _activeFeedIndex = feedCards.isEmpty
             ? 0
             : _activeFeedIndex.clamp(0, feedCards.length - 1);
-        _me = me;
-        // Set initial unread badge from persisted conversation counts
-        if (_selectedTabIndex != 3) {
-          _inboxUnread = conversations.fold(0, (int sum, ZephyrConversation c) => sum + c.unreadCount);
-        }
       });
-      // Connect chat socket now that we have userId
-      if (_chatSocket == null) _connectChatSocket();
+      // Login to Agora Chat (non-blocking)
+      _loginChat();
     } catch (error) {
       setState(() {
         _error = error.toString();
@@ -1684,9 +1617,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 apiClient: widget.apiClient,
                 accessToken: widget.accessToken,
                 myUserId: _me?.id ?? '',
-                onThreadChanged: (String? userId) {
-                  setState(() => _activeThreadUserId = userId);
-                },
               ),
             4 => _buildMeTab(),
             _ => const SizedBox.shrink(),

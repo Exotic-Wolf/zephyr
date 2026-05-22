@@ -1052,6 +1052,36 @@ export class StoreService {
     return user;
   }
 
+  async getUsersByIds(userIds: string[]): Promise<UserProfile[]> {
+    if (!userIds.length) return [];
+    if (this.databaseService?.isEnabled()) {
+      const placeholders = userIds.map((_, i) => `$${i + 1}`).join(',');
+      const result = await this.databaseService.query<{
+        id: string;
+        display_name: string;
+        avatar_url: string | null;
+        bio: string | null;
+        gender: string | null;
+        birthday: string | null;
+        country_code: string | null;
+        language: string | null;
+        public_id: string | null;
+        is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
+        created_at: string;
+      }>(
+        `SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+                country_code, language, is_admin, call_rate_coins_per_minute, created_at
+         FROM users WHERE id IN (${placeholders})`,
+        userIds,
+      );
+      return result.rows.map((row) => this.toUserProfile(row));
+    }
+    return userIds
+      .map((id) => this.users.get(id))
+      .filter((u): u is UserProfile => u !== undefined);
+  }
+
   async getUserByPublicId(publicId: string): Promise<UserProfile> {
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{

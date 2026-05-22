@@ -88,6 +88,14 @@ export class UsersController {
     return this.storeService.getUserByPublicId(publicId);
   }
 
+  @Post('batch')
+  async getUsersByIds(
+    @Body() body: { ids: string[] },
+  ): Promise<UserProfile[]> {
+    const ids = (body?.ids ?? []).slice(0, 50); // cap at 50
+    return this.storeService.getUsersByIds(ids);
+  }
+
   @Get(':userId')
   async getUserById(
     @Param('userId', new ParseUUIDPipe()) userId: string,

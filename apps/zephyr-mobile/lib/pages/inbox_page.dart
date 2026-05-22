@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:agora_chat_sdk/agora_chat_sdk.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../services/api_client.dart';
+import '../services/chat_service.dart';
 import 'thread_page.dart';
 import '../l10n/app_localizations.dart';
 
@@ -20,7 +22,6 @@ class InboxPage extends StatefulWidget {
   final ZephyrApiClient apiClient;
   final String accessToken;
   final String myUserId;
-  /// Called with the other user's ID when a thread opens, null when it closes.
   final void Function(String? userId)? onThreadChanged;
 
   @override
@@ -28,56 +29,79 @@ class InboxPage extends StatefulWidget {
 }
 
 class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
-  List<ZephyrConversation> _conversations = <ZephyrConversation>[];
+  List<_InboxItem> _items = <_InboxItem>[];
   bool _loading = true;
-  String? _error;
-  StreamSubscription<ZephyrMessage>? _busSub;
-  StreamSubscription<void>? _reconnectSub;
-  Timer? _debounce;
+  StreamSubscription<void>? _chatSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final cached = MessageCache.instance.conversations;
-    if (cached != null) {
-      _conversations = cached;
-      _loading = false;
-    }
-    _refresh();
-    _busSub = MessageBus.instance.stream.listen((_) => _debouncedRefresh());
-    _reconnectSub = ChatReconnectBus.instance.stream.listen((_) => _refresh());
-  }
-
-  void _debouncedRefresh() {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      if (mounted) _refresh();
+    _load();
+    _chatSub = ChatService.instance.onConversationsChanged.listen((_) {
+      if (mounted) _load();
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && mounted) _refresh();
+    if (state == AppLifecycleState.resumed && mounted) _load();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _busSub?.cancel();
-    _reconnectSub?.cancel();
-    _debounce?.cancel();
+    _chatSub?.cancel();
     super.dispose();
   }
 
-  Future<void> _refresh() async {
+  Future<void> _load() async {
     try {
-      final List<ZephyrConversation> convos =
-          await widget.apiClient.getConversations(widget.accessToken);
-      MessageCache.instance.conversations = convos;
-      if (mounted) setState(() { _conversations = convos; _loading = false; });
-    } catch (e) {
-      if (mounted) setState(() { _error = _conversations.isEmpty ? e.toString() : null; _loading = false; });
+      final List<ChatConversation> convos =
+          await ChatService.instance.getConversations();
+      if (!mounted) return;
+
+      // Resolve profiles for all peer user IDs
+      final List<String> zephyrIds = convos
+          .map((c) => ChatService.toZephyrUserId(c.id))
+          .toList();
+      final List<UserProfile> profiles =
+          await widget.apiClient.getUsersByIds(zephyrIds);
+      final Map<String, UserProfile> profileMap = {
+        for (final p in profiles) p.id: p,
+      };
+
+      // Build inbox items
+      final List<_InboxItem> items = <_InboxItem>[];
+      for (final conv in convos) {
+        final String zephyrId = ChatService.toZephyrUserId(conv.id);
+        final UserProfile? profile = profileMap[zephyrId];
+        final int unread = await conv.unreadCount();
+        final ChatMessage? last = await conv.latestMessage();
+        if (last == null) continue;
+
+        String lastText = '';
+        if (last.body is ChatTextMessageBody) {
+          lastText = (last.body as ChatTextMessageBody).content;
+        }
+
+        items.add(_InboxItem(
+          zephyrUserId: zephyrId,
+          chatUserId: conv.id,
+          displayName: profile?.displayName ?? zephyrId.substring(0, 8),
+          avatarUrl: profile?.avatarUrl,
+          lastMessage: lastText,
+          lastMessageAt: DateTime.fromMillisecondsSinceEpoch(last.serverTime),
+          unreadCount: unread,
+        ));
+      }
+
+      // Sort by most recent first
+      items.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+
+      if (mounted) setState(() { _items = items; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -95,120 +119,142 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
     return Scaffold(
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
-              : _conversations.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+          : _items.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(Icons.chat_bubble_outline_rounded,
+                          size: 56,
+                          color: isDark
+                              ? Colors.grey.shade700
+                              : Colors.grey.shade300),
+                      const SizedBox(height: 12),
+                      Text(AppLocalizations.of(context)!.noMessagesYet,
+                          style: TextStyle(
+                              fontSize: 16, color: Colors.grey.shade500)),
+                    ],
+                  ),
+                )
+              : ListView.separated(
+                  itemCount: _items.length,
+                  separatorBuilder: (_, __) =>
+                      const Divider(height: 1, indent: 72),
+                  itemBuilder: (BuildContext ctx, int i) {
+                    final _InboxItem c = _items[i];
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      leading: CircleAvatar(
+                        radius: 26,
+                        backgroundColor:
+                            const Color(0xFFFF8F00).withValues(alpha: 0.15),
+                        backgroundImage: c.avatarUrl != null
+                            ? CachedNetworkImageProvider(c.avatarUrl!)
+                            : null,
+                        child: c.avatarUrl == null
+                            ? Text(
+                                c.displayName.isNotEmpty
+                                    ? c.displayName[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                    color: Color(0xFFFF8F00),
+                                    fontWeight: FontWeight.w700),
+                              )
+                            : null,
+                      ),
+                      title: Row(
                         children: <Widget>[
-                          Icon(Icons.chat_bubble_outline_rounded,
-                              size: 56, color: isDark ? Colors.grey.shade700 : Colors.grey.shade300),
-                          const SizedBox(height: 12),
-                          Text(AppLocalizations.of(context)!.noMessagesYet,
+                          Expanded(
+                            child: Text(c.displayName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                          Text(_timeAgo(c.lastMessageAt),
                               style: TextStyle(
-                                  fontSize: 16, color: isDark ? Colors.grey.shade500 : Colors.grey.shade500)),
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? Colors.grey.shade500
+                                      : Colors.grey.shade400)),
                         ],
                       ),
-                    )
-                  : ListView.separated(
-                      itemCount: _conversations.length,
-                      separatorBuilder: (_, __) =>
-                          const Divider(height: 1, indent: 72),
-                      itemBuilder: (BuildContext ctx, int i) {
-                        final ZephyrConversation c = _conversations[i];
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          leading: CircleAvatar(
-                            radius: 26,
-                            backgroundColor:
-                                const Color(0xFFFF8F00).withValues(alpha: 0.15),
-                            backgroundImage: c.avatarUrl != null
-                                ? CachedNetworkImageProvider(c.avatarUrl!)
-                                : null,
-                            child: c.avatarUrl == null
-                                ? Text(
-                                    c.displayName.isNotEmpty
-                                        ? c.displayName[0].toUpperCase()
-                                        : '?',
-                                    style: const TextStyle(
-                                        color: Color(0xFFFF8F00),
-                                        fontWeight: FontWeight.w700),
-                                  )
-                                : null,
+                      subtitle: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              c.lastMessage,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  color: c.unreadCount > 0
+                                      ? (isDark
+                                          ? Colors.white
+                                          : Colors.black87)
+                                      : Colors.grey.shade500,
+                                  fontWeight: c.unreadCount > 0
+                                      ? FontWeight.w500
+                                      : FontWeight.normal),
+                            ),
                           ),
-                          title: Row(
-                            children: <Widget>[
-                              Expanded(
-                                child: Text(c.displayName,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w600)),
+                          if (c.unreadCount > 0)
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF8F00),
+                                borderRadius: BorderRadius.circular(10),
                               ),
-                              Text(_timeAgo(c.lastMessageAt),
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: isDark ? Colors.grey.shade500 : Colors.grey.shade400)),
-                            ],
+                              child: Text(
+                                '${c.unreadCount}',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                        ],
+                      ),
+                      onTap: () async {
+                        widget.onThreadChanged?.call(c.zephyrUserId);
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ThreadPage(
+                              apiClient: widget.apiClient,
+                              accessToken: widget.accessToken,
+                              myUserId: widget.myUserId,
+                              otherUserId: c.zephyrUserId,
+                              otherDisplayName: c.displayName,
+                              otherAvatarUrl: c.avatarUrl,
+                            ),
                           ),
-                          subtitle: Row(
-                            children: <Widget>[
-                              Expanded(
-                                child: Text(
-                                  c.lastMessage,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      color: c.unreadCount > 0
-                                          ? (isDark ? Colors.white : Colors.black87)
-                                          : Colors.grey.shade500,
-                                      fontWeight: c.unreadCount > 0
-                                          ? FontWeight.w500
-                                          : FontWeight.normal),
-                                ),
-                              ),
-                              if (c.unreadCount > 0)
-                                Container(
-                                  margin: const EdgeInsets.only(left: 6),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 7, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFF8F00),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    '${c.unreadCount}',
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          onTap: () async {
-                            widget.onThreadChanged?.call(c.userId);
-                            await Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ThreadPage(
-                                  apiClient: widget.apiClient,
-                                  accessToken: widget.accessToken,
-                                  myUserId: widget.myUserId,
-                                  otherUserId: c.userId,
-                                  otherDisplayName: c.displayName,
-                                  otherAvatarUrl: c.avatarUrl,
-                                ),
-                              ),
-                            );
-                            widget.onThreadChanged?.call(null);
-                            _refresh(); // refresh unread counts on return
-                          },
                         );
+                        widget.onThreadChanged?.call(null);
+                        _load();
                       },
-                    ),
+                    );
+                  },
+                ),
     );
   }
 }
 
-// ── ThreadPage ────────────────────────────────────────────────────────────────
+class _InboxItem {
+  _InboxItem({
+    required this.zephyrUserId,
+    required this.chatUserId,
+    required this.displayName,
+    required this.lastMessage,
+    required this.lastMessageAt,
+    required this.unreadCount,
+    this.avatarUrl,
+  });
 
+  final String zephyrUserId;
+  final String chatUserId;
+  final String displayName;
+  final String? avatarUrl;
+  final String lastMessage;
+  final DateTime lastMessageAt;
+  final int unreadCount;
+}
