@@ -4,9 +4,7 @@ import 'dart:math';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:socket_io_client/socket_io_client.dart' as sio;
 
-import '../app_constants.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../l10n/app_localizations.dart';
@@ -34,7 +32,30 @@ class MessageBus {
   void emit(ZephyrMessage msg) => _ctrl.add(msg);
 }
 
-// ── InboxPage ─────────────────────────────────────────────────────────────────
+/// Read-receipt bus — home_screen publishes; open threads subscribe.
+class ReadReceiptBus {
+  ReadReceiptBus._();
+  static final ReadReceiptBus instance = ReadReceiptBus._();
+
+  final StreamController<ZephyrMessage> _ctrl =
+      StreamController<ZephyrMessage>.broadcast();
+
+  Stream<ZephyrMessage> get stream => _ctrl.stream;
+  void emit(ZephyrMessage msg) => _ctrl.add(msg);
+}
+
+/// Fires when the shared chat socket reconnects so open pages can resync.
+class ChatReconnectBus {
+  ChatReconnectBus._();
+  static final ChatReconnectBus instance = ChatReconnectBus._();
+
+  final StreamController<void> _ctrl = StreamController<void>.broadcast();
+
+  Stream<void> get stream => _ctrl.stream;
+  void fire() => _ctrl.add(null);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 
 class ThreadPage extends StatefulWidget {
@@ -73,9 +94,10 @@ class _ThreadPageState extends State<ThreadPage> {
   bool _loadingMore = false;
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
-  sio.Socket? _socket;
   StreamSubscription<RemoteMessage>? _fcmSub;
   StreamSubscription<ZephyrMessage>? _busSub;
+  StreamSubscription<ZephyrMessage>? _readSub;
+  StreamSubscription<void>? _reconnectSub;
   bool _syncInFlight = false;
 
   @override
@@ -87,8 +109,11 @@ class _ThreadPageState extends State<ThreadPage> {
       _loading = false;
     }
     _load();
-    _connectSocket();
     _busSub = MessageBus.instance.stream.listen(_onBusMessage);
+    _readSub = ReadReceiptBus.instance.stream.listen(_onReadReceipt);
+    _reconnectSub = ChatReconnectBus.instance.stream.listen((_) {
+      if (mounted) _syncMissed();
+    });
     _fcmSub = FirebaseMessaging.onMessage.listen(_onFcmMessage);
     _scrollCtrl.addListener(() {
       if (_scrollCtrl.position.pixels >=
@@ -138,77 +163,27 @@ class _ThreadPageState extends State<ThreadPage> {
     }
   }
 
-  void _connectSocket() {
-    _socket = sio.io(
-      '$apiBaseUrl/chat',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .setQuery(<String, String>{'userId': widget.myUserId})
-          .enableReconnection()
-          .setReconnectionAttempts(999999)
-          .setReconnectionDelay(2000)
-          .disableAutoConnect()
-          .build(),
-    )
-      ..on('connect', (_) {
-        _socket?.emit('chat:join', widget.myUserId);
-        // On initial connect load full thread; on reconnect only sync missed messages
-        if (mounted) {
-          if (_messages.isEmpty) {
-            _load();
-          } else {
-            _syncMissed();
-          }
-        }
-      })
-      ..on('chat:read', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final Map<String, dynamic> msgJson =
-              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final ZephyrMessage updated = ZephyrMessage.fromJson(msgJson);
-          final List<ZephyrMessage> next = _messages
-              .map((ZephyrMessage m) => m.id == updated.id ? updated : m)
-              .toList();
-          MessageCache.instance.threads[widget.otherUserId] = next;
-          setState(() => _messages = next);
-        } catch (_) {}
-      })
-      ..on('chat:message', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final Map<String, dynamic> msgJson =
-              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final ZephyrMessage msg = ZephyrMessage.fromJson(msgJson);
-          // Only handle messages relevant to this thread
-          final bool relevant =
-              (msg.senderId == widget.otherUserId && msg.receiverId == widget.myUserId) ||
-              (msg.senderId == widget.myUserId && msg.receiverId == widget.otherUserId);
-          if (!relevant) return;
-          // Avoid duplicates (sender already appended optimistically)
-          if (_messages.any((ZephyrMessage m) => m.id == msg.id)) return;
-          final updated = <ZephyrMessage>[..._messages, msg];
-          MessageCache.instance.threads[widget.otherUserId] = updated;
-          setState(() => _messages = updated);
-          _scrollToBottom();
-          // Mark as read if incoming
-          if (msg.receiverId == widget.myUserId && msg.readAt == null) {
-            widget.apiClient.markMessageRead(widget.accessToken, msg.id).ignore();
-          }
-        } catch (_) {}
-      })
-      ..connect();
+  /// Called by [ReadReceiptBus] when a read receipt arrives via socket.
+  void _onReadReceipt(ZephyrMessage updated) {
+    if (!mounted) return;
+    // Only care about messages in this thread
+    final bool relevant =
+        (updated.senderId == widget.myUserId && updated.receiverId == widget.otherUserId) ||
+        (updated.senderId == widget.otherUserId && updated.receiverId == widget.myUserId);
+    if (!relevant) return;
+    final List<ZephyrMessage> next = _messages
+        .map((ZephyrMessage m) => m.id == updated.id ? updated : m)
+        .toList();
+    MessageCache.instance.threads[widget.otherUserId] = next;
+    setState(() => _messages = next);
   }
 
   @override
   void dispose() {
     _busSub?.cancel();
+    _readSub?.cancel();
+    _reconnectSub?.cancel();
     _fcmSub?.cancel();
-    _socket?.dispose();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -336,6 +311,9 @@ class _ThreadPageState extends State<ThreadPage> {
           widget.accessToken, widget.otherUserId, text,
           idempotencyKey: idempotencyKey);
       if (!mounted) return;
+      // Dedup: the socket may have already delivered this message via MessageBus
+      // while we were awaiting the HTTP response.
+      if (_messages.any((ZephyrMessage m) => m.id == msg.id)) return;
       final updated = <ZephyrMessage>[..._messages, msg];
       MessageCache.instance.threads[widget.otherUserId] = updated;
       setState(() => _messages = updated);

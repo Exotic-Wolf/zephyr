@@ -169,6 +169,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _chatSocket?.emit('chat:join', userId);
         if (_chatSocketConnectedOnce) {
           // Reconnect: resync badge from API to recover missed messages
+          ChatReconnectBus.instance.fire();
           widget.apiClient.getConversations(widget.accessToken).then((convos) {
             if (!mounted) return;
             if (_selectedTabIndex != 3) {
@@ -193,13 +194,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           msg = ZephyrMessage.fromJson(msgJson);
           MessageBus.instance.emit(msg);
         } catch (_) {}
-        // Bump badge unless the user is actively reading that conversation
-        if (_selectedTabIndex == 3 && _activeThreadUserId != null) {
-          if (msg != null && msg.senderId == _activeThreadUserId) return;
-          setState(() => _inboxUnread++);
-        } else if (_selectedTabIndex != 3) {
-          setState(() => _inboxUnread++);
-        }
+        // Only bump badge for INCOMING messages (not our own sends)
+        if (msg == null || msg.senderId == _me?.id) return;
+        if (_selectedTabIndex == 3 && _activeThreadUserId == msg.senderId) return;
+        setState(() => _inboxUnread++);
+      })
+      ..on('chat:read', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final Map<String, dynamic> msgJson =
+              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
+          final ZephyrMessage updated = ZephyrMessage.fromJson(msgJson);
+          ReadReceiptBus.instance.emit(updated);
+        } catch (_) {}
       })
       ..connect();
   }

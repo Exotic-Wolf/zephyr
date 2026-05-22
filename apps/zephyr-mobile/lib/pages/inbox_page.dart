@@ -1,8 +1,8 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:socket_io_client/socket_io_client.dart' as sio;
 
-import '../app_constants.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import 'thread_page.dart';
@@ -31,7 +31,9 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
   List<ZephyrConversation> _conversations = <ZephyrConversation>[];
   bool _loading = true;
   String? _error;
-  sio.Socket? _socket;
+  StreamSubscription<ZephyrMessage>? _busSub;
+  StreamSubscription<void>? _reconnectSub;
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -43,30 +45,15 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
       _loading = false;
     }
     _refresh();
-    _connectSocket();
+    _busSub = MessageBus.instance.stream.listen((_) => _debouncedRefresh());
+    _reconnectSub = ChatReconnectBus.instance.stream.listen((_) => _refresh());
   }
 
-  void _connectSocket() {
-    _socket = sio.io(
-      '$apiBaseUrl/chat',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .setQuery(<String, String>{'userId': widget.myUserId})
-          .enableReconnection()
-          .setReconnectionAttempts(999999)
-          .setReconnectionDelay(2000)
-          .disableAutoConnect()
-          .build(),
-    )
-      ..on('connect', (dynamic _) {
-        // Re-fetch on connect to catch messages sent during the connection gap
-        if (mounted) _refresh();
-      })
-      ..on('chat:message', (dynamic _) {
-        // Any new message — refresh conversation list
-        if (mounted) _refresh();
-      })
-      ..connect();
+  void _debouncedRefresh() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) _refresh();
+    });
   }
 
   @override
@@ -77,7 +64,9 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _socket?.dispose();
+    _busSub?.cancel();
+    _reconnectSub?.cancel();
+    _debounce?.cancel();
     super.dispose();
   }
 
