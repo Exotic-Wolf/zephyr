@@ -86,6 +86,9 @@ class _FailedMessage {
   final String text;
 }
 
+/// Prefix for optimistic (pending) message IDs before server confirms.
+const String _pendingPrefix = '_pending:';
+
 class _ThreadPageState extends State<ThreadPage> {
   List<ZephyrMessage> _messages = <ZephyrMessage>[];
   final List<_FailedMessage> _failedMessages = <_FailedMessage>[];
@@ -160,7 +163,20 @@ class _ThreadPageState extends State<ThreadPage> {
         (msg.senderId == widget.otherUserId && msg.receiverId == widget.myUserId) ||
         (msg.senderId == widget.myUserId && msg.receiverId == widget.otherUserId);
     if (!relevant) return;
+    // Dedup: already in list with this real ID
     if (_messages.any((ZephyrMessage m) => m.id == msg.id)) return;
+    // Check if this is the echo of our optimistic send — replace pending with real
+    final int pendingIdx = msg.senderId == widget.myUserId
+        ? _messages.indexWhere((ZephyrMessage m) =>
+            m.id.startsWith(_pendingPrefix) && m.body == msg.body)
+        : -1;
+    if (pendingIdx >= 0) {
+      final updated = List<ZephyrMessage>.from(_messages);
+      updated[pendingIdx] = msg;
+      LocalDb.instance.upsertMessage(msg);
+      setState(() => _messages = updated);
+      return;
+    }
     final updated = <ZephyrMessage>[..._messages, msg];
     // Persist to SQLite
     LocalDb.instance.upsertMessage(msg);
@@ -316,22 +332,42 @@ class _ThreadPageState extends State<ThreadPage> {
     _inputCtrl.clear();
     final String idempotencyKey =
         '${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(999999)}';
+
+    // Optimistic: insert a pending message into the UI immediately
+    final String pendingId = '$_pendingPrefix$idempotencyKey';
+    final ZephyrMessage pending = ZephyrMessage(
+      id: pendingId,
+      senderId: widget.myUserId,
+      receiverId: widget.otherUserId,
+      body: text,
+      createdAt: DateTime.now().toUtc(),
+    );
+    setState(() => _messages = <ZephyrMessage>[..._messages, pending]);
+    _scrollToBottom();
+
     try {
       final ZephyrMessage msg = await widget.apiClient.sendMessage(
           widget.accessToken, widget.otherUserId, text,
           idempotencyKey: idempotencyKey);
       if (!mounted) return;
-      // Dedup: the socket may have already delivered this message via MessageBus
-      // while we were awaiting the HTTP response.
-      if (_messages.any((ZephyrMessage m) => m.id == msg.id)) return;
-      final updated = <ZephyrMessage>[..._messages, msg];
-      MessageCache.instance.threads[widget.otherUserId] = updated;
-      setState(() => _messages = updated);
-      _scrollToBottom();
+      // Replace pending with server-confirmed message
+      setState(() {
+        _messages = _messages
+            .map((ZephyrMessage m) => m.id == pendingId ? msg : m)
+            .toList();
+        // Dedup: socket echo may have arrived while awaiting — remove if duplicate
+        final Set<String> seen = <String>{};
+        _messages = _messages.where((ZephyrMessage m) => seen.add(m.id)).toList();
+      });
+      // Persist confirmed message to SQLite
+      LocalDb.instance.upsertMessage(msg);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _failedMessages.add(_FailedMessage(text)));
-      _scrollToBottom();
+      // Remove pending, add to failed for retry
+      setState(() {
+        _messages = _messages.where((ZephyrMessage m) => m.id != pendingId).toList();
+        _failedMessages.add(_FailedMessage(text));
+      });
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -577,11 +613,13 @@ class _ThreadPageState extends State<ThreadPage> {
                                         SizedBox(
                                           width: 16,
                                           child: Icon(
-                                            msg.readAt != null
-                                                ? Icons.done_all        // blue ✓✓ = read
-                                                : msg.deliveredAt != null
-                                                    ? Icons.done_all    // white ✓✓ = delivered
-                                                    : Icons.done,       // white ✓ = sent
+                                            msg.id.startsWith(_pendingPrefix)
+                                                ? Icons.access_time    // 🕐 = pending
+                                                : msg.readAt != null
+                                                    ? Icons.done_all   // blue ✓✓ = read
+                                                    : msg.deliveredAt != null
+                                                        ? Icons.done_all // white ✓✓ = delivered
+                                                        : Icons.done,    // white ✓ = sent
                                             size: 13,
                                             color: msg.readAt != null
                                                 ? Colors.blue.shade300
