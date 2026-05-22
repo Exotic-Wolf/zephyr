@@ -476,6 +476,23 @@ class ZephyrApiClient {
     return CallSession.fromJson(data);
   }
 
+  Future<void> reportCall({
+    required String accessToken,
+    required String sessionId,
+    required String reportedUserId,
+    String? reason,
+  }) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/economy/calls/$sessionId/report',
+      accessToken: accessToken,
+      body: <String, dynamic>{
+        'reportedUserId': reportedUserId,
+        if (reason != null) 'reason': reason,
+      },
+    );
+  }
+
   Future<RtcJoinInfo> getRoomRtcToken(String accessToken, String roomId) async {
     final Map<String, dynamic> data = await _request(
       method: 'POST',

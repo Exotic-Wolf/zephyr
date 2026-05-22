@@ -322,6 +322,24 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       )
     `);
 
+    await this.pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS is_banned BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS report_count INT NOT NULL DEFAULT 0;
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS call_reports (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID NOT NULL REFERENCES call_sessions(id) ON DELETE CASCADE,
+        reporter_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        reported_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (session_id, reporter_id)
+      )
+    `);
+
     // Periodic cleanup every 10s:
     //  - no heartbeat for 40s → dead (heartbeat sent every 15s, so 2.5x grace)
     //  - any room older than 30 min → dead (host gone / crashed / forgot to end)

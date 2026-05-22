@@ -1193,6 +1193,45 @@ export class StoreService {
     return result.rows[0]?.exists ?? false;
   }
 
+  async reportCall(
+    reporterId: string,
+    sessionId: string,
+    reportedId: string,
+    reason?: string,
+  ): Promise<void> {
+    if (!this.databaseService?.isEnabled()) return;
+
+    // Insert report (ignore duplicate — one report per session per reporter)
+    await this.databaseService.query(
+      `
+        INSERT INTO call_reports (session_id, reporter_id, reported_id, reason)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (session_id, reporter_id) DO NOTHING
+      `,
+      [sessionId, reporterId, reportedId, reason ?? null],
+    );
+
+    // Count reports against this user in the last 7 days
+    const result = await this.databaseService.query<{ cnt: string }>(
+      `
+        SELECT COUNT(*) AS cnt FROM call_reports
+        WHERE reported_id = $1
+          AND created_at > NOW() - INTERVAL '7 days'
+      `,
+      [reportedId],
+    );
+
+    const count = parseInt(result.rows[0]?.cnt ?? '0', 10);
+
+    // Auto-ban at 5+ reports in 7 days
+    if (count >= 5) {
+      await this.databaseService.query(
+        `UPDATE users SET is_banned = TRUE WHERE id = $1`,
+        [reportedId],
+      );
+    }
+  }
+
   /** Returns all user IDs that are blocked by OR have blocked the given user (bidirectional). */
   async getBlockedIds(userId: string): Promise<Set<string>> {
     if (!this.databaseService?.isEnabled()) return new Set();

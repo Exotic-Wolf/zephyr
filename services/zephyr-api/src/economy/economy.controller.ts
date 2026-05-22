@@ -186,4 +186,19 @@ export class EconomyController {
       role: participant.role,
     });
   }
+
+  @Post('calls/:sessionId/report')
+  async reportCall(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('sessionId') sessionId: string,
+    @Body() body: { reportedUserId: string; reason?: string },
+  ): Promise<void> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.reportCall(
+      user.id,
+      sessionId,
+      body.reportedUserId,
+      body.reason,
+    );
+  }
 }

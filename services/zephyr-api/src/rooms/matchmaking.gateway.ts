@@ -76,7 +76,11 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
     // Don't add duplicates
     if (this.queue.some((e) => e.userId === userId)) return;
 
-    void this.storeService.getBlockedIds(userId).then((blockedIds) => {
+    void this.storeService.getBlockedIds(userId).then(async (blockedIds) => {
+      // Reject banned users
+      const user = await this.storeService.getUserById(userId).catch(() => null) as any;
+      if (user?.is_banned) return;
+
       const entry: QueueEntry = { userId, blockedIds };
       const partnerIdx = this.queue.findIndex(
         (e) => e.userId !== userId && !e.blockedIds.has(userId) && !blockedIds.has(e.userId),

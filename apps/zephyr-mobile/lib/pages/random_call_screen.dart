@@ -10,7 +10,7 @@ import '../services/api_client.dart';
 // How often the client reports elapsed seconds for billing
 const int _tickIntervalSeconds = 15;
 
-enum _Phase { searching, connected, transitioning }
+enum _Phase { searching, connected, transitioning, ended }
 
 class RandomCallScreen extends StatefulWidget {
   const RandomCallScreen({
@@ -37,8 +37,8 @@ class _RandomCallScreenState extends State<RandomCallScreen>
 
   // Current call state
   String? _sessionId;
-  // ignore: unused_field
   String? _partnerId;
+  String? _partnerName;
   String _channelName = '';
   int _elapsedSeconds = 0;
   Timer? _tickTimer;
@@ -112,6 +112,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
     setState(() {
       _sessionId = sessionId;
       _partnerId = partnerId;
+      _partnerName = payload['partnerName'] as String? ?? 'User';
       _channelName = channelName;
       _phase = _Phase.connected;
       _elapsedSeconds = 0;
@@ -196,6 +197,28 @@ class _RandomCallScreenState extends State<RandomCallScreen>
     ).ignore();
   }
 
+  Future<void> _showReportDialog() async {
+    final sid = _sessionId;
+    final pid = _partnerId;
+    if (sid == null || pid == null) return;
+
+    final String? reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _ReportDialog(),
+    );
+    if (reason == null) return; // cancelled
+
+    widget.apiClient.reportCall(
+      accessToken: widget.accessToken,
+      sessionId: sid,
+      reportedUserId: pid,
+      reason: reason,
+    ).ignore();
+
+    // End the call after reporting
+    _end();
+  }
+
   // ── Controls ─────────────────────────────────────────────────────────────────
 
   void _next() {
@@ -242,7 +265,12 @@ class _RandomCallScreenState extends State<RandomCallScreen>
       'sessionId': sid ?? '',
     });
     _cleanupCall();
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) {
+      setState(() {
+        _phase = _Phase.ended;
+        _sessionId = null;
+      });
+    }
   }
 
   void _cancelSearch() {
@@ -288,6 +316,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
         _Phase.searching => _buildSearching(),
         _Phase.connected => _buildInCall(),
         _Phase.transitioning => _buildTransitioning(),
+        _Phase.ended => _buildEnded(),
       },
     );
   }
@@ -433,7 +462,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.flag_outlined, color: Colors.white54, size: 22),
-                  onPressed: () {/* TODO: report */},
+                  onPressed: _showReportDialog,
                   tooltip: 'Report',
                 ),
               ],
@@ -497,14 +526,88 @@ class _RandomCallScreenState extends State<RandomCallScreen>
   // ── Transitioning screen ──────────────────────────────────────────────────────
 
   Widget _buildTransitioning() {
-    return Center(
+    return const Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const CircularProgressIndicator(color: Color(0xFF1FA4EA), strokeWidth: 2),
-          const SizedBox(height: 20),
-          const Text('Finding next person…',
+          CircularProgressIndicator(color: Color(0xFF1FA4EA), strokeWidth: 2),
+          SizedBox(height: 20),
+          Text('Finding next person…',
               style: TextStyle(color: Colors.white70, fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  // ── Post-call screen ──────────────────────────────────────────────────────────
+
+  Widget _buildEnded() {
+    return SafeArea(
+      child: Column(
+        children: <Widget>[
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white70),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+          const Spacer(),
+          const Icon(Icons.call_end_rounded, color: Colors.white38, size: 64),
+          const SizedBox(height: 20),
+          const Text(
+            'Call ended',
+            style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w600),
+          ),
+          if (_partnerName != null) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              'You chatted with $_partnerName',
+              style: const TextStyle(color: Colors.white54, fontSize: 14),
+            ),
+          ],
+          const SizedBox(height: 40),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Column(
+              children: <Widget>[
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1FA4EA),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.skip_next_rounded),
+                    label: const Text('Find another', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    onPressed: () {
+                      setState(() => _phase = _Phase.searching);
+                      _joinQueue();
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                    label: const Text('Send a message'),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
         ],
       ),
     );
@@ -548,6 +651,61 @@ class _CtrlBtn extends StatelessWidget {
           Text(label, style: TextStyle(color: c, fontSize: 11)),
         ],
       ),
+    );
+  }
+}
+
+// ── Report dialog ─────────────────────────────────────────────────────────────
+
+class _ReportDialog extends StatefulWidget {
+  @override
+  State<_ReportDialog> createState() => _ReportDialogState();
+}
+
+class _ReportDialogState extends State<_ReportDialog> {
+  String _selected = 'Inappropriate behaviour';
+
+  static const List<String> _reasons = <String>[
+    'Inappropriate behaviour',
+    'Nudity or sexual content',
+    'Harassment or bullying',
+    'Hate speech',
+    'Spam or scam',
+    'Underage user',
+    'Other',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1C1C2E),
+      title: const Text('Report user', style: TextStyle(color: Colors.white)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: _reasons.map((r) => RadioListTile<String>(
+          value: r,
+          groupValue: _selected,
+          onChanged: (v) => setState(() => _selected = v!),
+          title: Text(r, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+          activeColor: const Color(0xFF1FA4EA),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+        )).toList(),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => Navigator.of(context).pop(_selected),
+          child: const Text('Report & end call'),
+        ),
+      ],
     );
   }
 }
