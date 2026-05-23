@@ -45,6 +45,13 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   final Map<String, String> _translations = {}; // messageId -> translated text
   final Set<String> _translating = {}; // messageIds currently being translated
 
+  // Anti-spam
+  final List<DateTime> _sendTimestamps = [];
+  String? _lastSentText;
+  static const int _maxMessagesPerWindow = 5;
+  static const Duration _rateWindow = Duration(seconds: 10);
+  static const Duration _duplicateCooldown = Duration(seconds: 30);
+
   String _generateKey() =>
       '${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(999999)}';
 
@@ -136,6 +143,29 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       );
       return;
     }
+
+    // Rate limit: max N messages per window
+    final now = DateTime.now();
+    _sendTimestamps.removeWhere((t) => now.difference(t) > _rateWindow);
+    if (_sendTimestamps.length >= _maxMessagesPerWindow) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Slow down! Try again in a few seconds')),
+      );
+      return;
+    }
+
+    // Duplicate message cooldown
+    if (_lastSentText == text &&
+        _sendTimestamps.isNotEmpty &&
+        now.difference(_sendTimestamps.last) < _duplicateCooldown) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Same message — wait before resending')),
+      );
+      return;
+    }
+
+    _sendTimestamps.add(now);
+    _lastSentText = text;
     setState(() => _sending = true);
     _inputCtrl.clear();
     final String key = _generateKey();
