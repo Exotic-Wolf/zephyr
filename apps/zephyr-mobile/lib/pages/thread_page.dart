@@ -350,17 +350,20 @@ class _ThreadPageState extends State<ThreadPage> {
           widget.accessToken, widget.otherUserId, text,
           idempotencyKey: idempotencyKey);
       if (!mounted) return;
+      // Persist confirmed message to SQLite (COALESCE keeps any delivery/read state)
+      await LocalDb.instance.upsertMessage(msg);
+      // Read back merged version (delivery receipt may have arrived during pending phase)
+      final ZephyrMessage merged =
+          await LocalDb.instance.getMessageById(msg.id) ?? msg;
       // Replace pending with server-confirmed message
       setState(() {
         _messages = _messages
-            .map((ZephyrMessage m) => m.id == pendingId ? msg : m)
+            .map((ZephyrMessage m) => m.id == pendingId ? merged : m)
             .toList();
         // Dedup: socket echo may have arrived while awaiting — remove if duplicate
         final Set<String> seen = <String>{};
         _messages = _messages.where((ZephyrMessage m) => seen.add(m.id)).toList();
       });
-      // Persist confirmed message to SQLite
-      LocalDb.instance.upsertMessage(msg);
     } catch (_) {
       if (!mounted) return;
       // Remove pending, add to failed for retry

@@ -57,19 +57,25 @@ class LocalDb {
   /// Upsert a single message (from API or socket).
   Future<void> upsertMessage(ZephyrMessage msg) async {
     final Database d = await db;
-    await d.insert(
-      'messages',
-      {
-        'id': msg.id,
-        'sender_id': msg.senderId,
-        'receiver_id': msg.receiverId,
-        'body': msg.body,
-        'delivered_at': msg.deliveredAt?.toIso8601String(),
-        'read_at': msg.readAt?.toIso8601String(),
-        'created_at': msg.createdAt.toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await d.rawInsert('''
+      INSERT INTO messages (id, sender_id, receiver_id, body, delivered_at, read_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        sender_id = excluded.sender_id,
+        receiver_id = excluded.receiver_id,
+        body = excluded.body,
+        delivered_at = COALESCE(excluded.delivered_at, messages.delivered_at),
+        read_at = COALESCE(excluded.read_at, messages.read_at),
+        created_at = excluded.created_at
+    ''', [
+      msg.id,
+      msg.senderId,
+      msg.receiverId,
+      msg.body,
+      msg.deliveredAt?.toIso8601String(),
+      msg.readAt?.toIso8601String(),
+      msg.createdAt.toIso8601String(),
+    ]);
   }
 
   /// Bulk upsert messages (after API fetch).
@@ -78,21 +84,46 @@ class LocalDb {
     final Database d = await db;
     final Batch batch = d.batch();
     for (final ZephyrMessage msg in messages) {
-      batch.insert(
-        'messages',
-        {
-          'id': msg.id,
-          'sender_id': msg.senderId,
-          'receiver_id': msg.receiverId,
-          'body': msg.body,
-          'delivered_at': msg.deliveredAt?.toIso8601String(),
-          'read_at': msg.readAt?.toIso8601String(),
-          'created_at': msg.createdAt.toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      batch.rawInsert('''
+        INSERT INTO messages (id, sender_id, receiver_id, body, delivered_at, read_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          sender_id = excluded.sender_id,
+          receiver_id = excluded.receiver_id,
+          body = excluded.body,
+          delivered_at = COALESCE(excluded.delivered_at, messages.delivered_at),
+          read_at = COALESCE(excluded.read_at, messages.read_at),
+          created_at = excluded.created_at
+      ''', [
+        msg.id,
+        msg.senderId,
+        msg.receiverId,
+        msg.body,
+        msg.deliveredAt?.toIso8601String(),
+        msg.readAt?.toIso8601String(),
+        msg.createdAt.toIso8601String(),
+      ]);
     }
     await batch.commit(noResult: true);
+  }
+
+  /// Get a single message by ID (returns null if not found).
+  Future<ZephyrMessage?> getMessageById(String id) async {
+    final Database d = await db;
+    final List<Map<String, Object?>> rows =
+        await d.query('messages', where: 'id = ?', whereArgs: [id]);
+    if (rows.isEmpty) return null;
+    return _rowToMessage(rows.first);
+  }
+
+  /// Get IDs of incoming messages that haven't been ACKed as delivered yet.
+  Future<List<String>> getUndeliveredIncomingIds(String myUserId) async {
+    final Database d = await db;
+    final List<Map<String, Object?>> rows = await d.rawQuery('''
+      SELECT id FROM messages
+      WHERE receiver_id = ? AND delivered_at IS NULL
+    ''', [myUserId]);
+    return rows.map((r) => r['id'] as String).toList();
   }
 
   /// Get thread messages between current user and partner, newest last.

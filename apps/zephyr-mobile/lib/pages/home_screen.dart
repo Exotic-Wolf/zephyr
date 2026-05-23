@@ -118,10 +118,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _keepAliveTimer = Timer.periodic(const Duration(minutes: 4), (_) {
       widget.apiClient.ping().ignore();
     });
-    // FCM foreground: only used to refresh InboxPage when it's open.
-    // Badge is owned by the socket (chat:message) — do NOT increment here to avoid double-count.
-    _fcmSub = FirebaseMessaging.onMessage.listen((_) {
+    // FCM foreground: ACK delivery + refresh InboxPage when it's open.
+    _fcmSub = FirebaseMessaging.onMessage.listen((RemoteMessage rm) {
       if (!mounted) return;
+      // ACK delivery for the message that triggered this push
+      final String? msgId = rm.data['messageId'];
+      if (msgId != null && msgId.isNotEmpty) {
+        widget.apiClient.markMessageDelivered(widget.accessToken, msgId).ignore();
+      }
       if (_selectedTabIndex == 3) setState(() => _inboxRefreshSignal++);
     });
   }
@@ -143,10 +147,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }).ignore();
   }
 
+  /// ACK delivery for any messages received via FCM while socket was down.
+  void _ackUndeliveredMessages() {
+    final String? userId = _me?.id;
+    if (userId == null) return;
+    LocalDb.instance.getUndeliveredIncomingIds(userId).then((ids) {
+      for (final String id in ids) {
+        widget.apiClient.markMessageDelivered(widget.accessToken, id).ignore();
+      }
+    }).ignore();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _resyncBadge();
+      _ackUndeliveredMessages();
     }
   }
 
@@ -166,6 +182,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     )
       ..on('connect', (_) {
         _chatSocket?.emit('chat:join', userId);
+        _ackUndeliveredMessages();
         if (_chatSocketConnectedOnce) {
           // Reconnect: resync badge from API to recover missed messages
           ChatReconnectBus.instance.fire();

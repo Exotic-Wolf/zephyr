@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -28,6 +29,22 @@ const String googleServerClientId = String.fromEnvironment(
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // ACK delivery immediately so sender gets ✓✓ even while app is backgrounded
+  final String? messageId = message.data['messageId'];
+  if (messageId == null || messageId.isEmpty) return;
+  const storage = FlutterSecureStorage();
+  final String? token = await storage.read(key: 'access_token');
+  if (token == null || token.isEmpty) return;
+  try {
+    final HttpClient client = HttpClient();
+    final Uri uri = Uri.parse('$apiBaseUrl/v1/messages/$messageId/delivered');
+    final HttpClientRequest req = await client.patchUrl(uri);
+    req.headers.set('authorization', 'Bearer $token');
+    req.headers.set('content-length', '0');
+    final HttpClientResponse res = await req.close();
+    await res.drain<void>();
+    client.close(force: true);
+  } catch (_) {}
 }
 
 void main() async {
