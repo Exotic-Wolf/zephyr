@@ -2917,4 +2917,15 @@ export class StoreService {
     }
   }
 
+  // ── Presence ────────────────────────────────────────────────────────────────
+
+  async setUserStatus(userId: string, status: string): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `UPDATE users SET status = $1 WHERE id = $2`,
+        [status, userId],
+      );
+    }
+  }
+
 }

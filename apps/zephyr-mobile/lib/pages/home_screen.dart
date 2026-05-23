@@ -10,6 +10,7 @@ import '../flags.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/local_db.dart';
+import '../services/presence_bus.dart';
 import '../widgets/coin_icon.dart';
 import 'explore_page.dart';
 import 'go_live_countdown_page.dart';
@@ -296,6 +297,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               (data as Map<dynamic, dynamic>).cast<String, dynamic>();
           final String hostUserId = payload['hostUserId'] as String;
           final String status = payload['status'] as String;
+          PresenceBus.instance.update(hostUserId, status);
           setState(() {
             _feedCards = _feedCards.map((LiveFeedCard c) =>
               c.hostUserId == hostUserId ? c.copyWith(hostStatus: status) : c,
@@ -376,6 +378,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             _         => 3,
           };
           return rank(a.hostStatus).compareTo(rank(b.hostStatus));
+        });
+        // Seed presence cache from feed cards
+        PresenceBus.instance.seed(<String, String>{
+          for (final LiveFeedCard c in _feedCards) c.hostUserId: c.hostStatus,
         });
         _coinBalance = wallet.coinBalance;
         _userLevel = wallet.level;

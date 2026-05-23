@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/local_db.dart';
+import '../widgets/status_dot.dart';
 import 'thread_page.dart';
 import '../l10n/app_localizations.dart';
 
@@ -128,23 +129,36 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
                         return ListTile(
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 8),
-                          leading: CircleAvatar(
-                            radius: 26,
-                            backgroundColor:
-                                const Color(0xFFFF8F00).withValues(alpha: 0.15),
-                            backgroundImage: c.avatarUrl != null
-                                ? CachedNetworkImageProvider(c.avatarUrl!)
-                                : null,
-                            child: c.avatarUrl == null
-                                ? Text(
-                                    c.displayName.isNotEmpty
-                                        ? c.displayName[0].toUpperCase()
-                                        : '?',
-                                    style: const TextStyle(
-                                        color: Color(0xFFFF8F00),
-                                        fontWeight: FontWeight.w700),
-                                  )
-                                : null,
+                          leading: SizedBox(
+                            width: 52,
+                            height: 52,
+                            child: Stack(
+                              children: <Widget>[
+                                CircleAvatar(
+                                  radius: 26,
+                                  backgroundColor:
+                                      const Color(0xFFFF8F00).withValues(alpha: 0.15),
+                                  backgroundImage: c.avatarUrl != null
+                                      ? CachedNetworkImageProvider(c.avatarUrl!)
+                                      : null,
+                                  child: c.avatarUrl == null
+                                      ? Text(
+                                          c.displayName.isNotEmpty
+                                              ? c.displayName[0].toUpperCase()
+                                              : '?',
+                                          style: const TextStyle(
+                                              color: Color(0xFFFF8F00),
+                                              fontWeight: FontWeight.w700),
+                                        )
+                                      : null,
+                                ),
+                                Positioned(
+                                  bottom: 0,
+                                  right: 0,
+                                  child: StatusDot(userId: c.userId),
+                                ),
+                              ],
+                            ),
                           ),
                           title: Row(
                             children: <Widget>[
