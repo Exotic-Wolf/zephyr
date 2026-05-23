@@ -307,6 +307,15 @@ class _HomeScreenState extends State<HomeScreen> {
           .sendPushNotification(widget.accessToken, recipientId, title, body)
           .ignore();
     };
+
+    // Global delivery receipts — mark messages delivered as soon as app receives them
+    FirebaseChatService.instance.watchConversations().listen((convos) {
+      for (final c in convos) {
+        if (c.unreadCount > 0) {
+          FirebaseChatService.instance.markDelivered(c.otherUserId);
+        }
+      }
+    });
   }
 
   Future<void> _refreshApiStatus() async {
