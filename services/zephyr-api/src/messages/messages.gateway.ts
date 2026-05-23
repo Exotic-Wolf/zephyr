@@ -148,12 +148,10 @@ export class MessagesGateway
 
   private setOnline(userId: string): void {
     void this.storeService.setUserStatus(userId, 'online');
-    this.roomsGateway.emitUserStatus(userId, 'online');
   }
 
   private setOffline(userId: string): void {
     void this.storeService.setUserStatus(userId, 'offline');
-    this.roomsGateway.emitUserStatus(userId, 'offline');
   }
 
   private startGraceTimer(userId: string): void {

@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+import 'presence_bus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -28,14 +30,25 @@ class FirebaseChatService {
       onSendPush;
 
   // ── Presence cache ──────────────────────────────────────────────────────────
-  final Map<String, bool> _presenceCache = {};
+  /// Whether THIS user is currently live-streaming.
+  bool _isLive = false;
+
+  /// Cached state per user: 'online', 'offline', or 'live'.
+  final Map<String, String> _presenceCache = {};
   final Map<String, StreamSubscription<DatabaseEvent>> _presenceSubs = {};
 
   /// Notifies listeners whenever any user's presence changes.
   final ValueNotifier<int> presenceVersion = ValueNotifier<int>(0);
 
   /// Whether a user is known to be online (from cache). Returns null if unknown.
-  bool? isOnlineCached(String userId) => _presenceCache[userId];
+  bool? isOnlineCached(String userId) {
+    final s = _presenceCache[userId];
+    if (s == null) return null;
+    return s == 'online' || s == 'live';
+  }
+
+  /// Returns the raw presence state: 'online', 'offline', or 'live'. Null if unknown.
+  String? presenceStateCached(String userId) => _presenceCache[userId];
 
   /// Pre-warm presence for a list of user IDs. Subscribes once per user.
   void warmPresence(List<String> userIds) {
@@ -45,10 +58,12 @@ class FirebaseChatService {
         final data = event.snapshot.value;
         final String state =
             (data is Map ? data['state'] as String? : null) ?? 'offline';
-        final bool online = state == 'online';
-        if (_presenceCache[uid] != online) {
-          _presenceCache[uid] = online;
+
+        if (_presenceCache[uid] != state) {
+          _presenceCache[uid] = state;
           presenceVersion.value++;
+          // Keep PresenceBus in sync so StatusDot (inbox) reflects the same state.
+          PresenceBus.instance.update(uid, state);
         }
       });
     }
@@ -72,7 +87,7 @@ class FirebaseChatService {
 
     // Always write presence directly (handles cold start + reconnection)
     _rtdb.ref('presence/$zephyrUserId').set({
-      'state': 'online',
+      'state': _isLive ? 'live' : 'online',
       'lastSeen': ServerValue.timestamp,
     });
   }
@@ -93,9 +108,9 @@ class FirebaseChatService {
         'lastSeen': ServerValue.timestamp,
       });
 
-      // Write online now
+      // Write current state now
       presenceRef.set({
-        'state': 'online',
+        'state': _isLive ? 'live' : 'online',
         'lastSeen': ServerValue.timestamp,
       });
     });
@@ -107,6 +122,44 @@ class FirebaseChatService {
       final data = event.snapshot.value;
       if (data == null) return {'state': 'offline', 'lastSeen': 0};
       return Map<String, dynamic>.from(data as Map);
+    });
+  }
+
+  /// Mark current user as "live" in Firebase RTDB presence.
+  void setLiveStatus() {
+    if (_myUserId == null) return;
+    _isLive = true;
+    _rtdb.ref('presence/$_myUserId').set({
+      'state': 'live',
+      'lastSeen': ServerValue.timestamp,
+    });
+  }
+
+  /// Restore current user to "online" (call when ending a live stream).
+  void clearLiveStatus() {
+    if (_myUserId == null) return;
+    _isLive = false;
+    _rtdb.ref('presence/$_myUserId').set({
+      'state': 'online',
+      'lastSeen': ServerValue.timestamp,
+    });
+  }
+
+  /// Mark current user as "busy" in Firebase RTDB presence.
+  void setBusyStatus() {
+    if (_myUserId == null) return;
+    _rtdb.ref('presence/$_myUserId').set({
+      'state': 'busy',
+      'lastSeen': ServerValue.timestamp,
+    });
+  }
+
+  /// Clear busy and restore to "online".
+  void clearBusyStatus() {
+    if (_myUserId == null) return;
+    _rtdb.ref('presence/$_myUserId').set({
+      'state': _isLive ? 'live' : 'online',
+      'lastSeen': ServerValue.timestamp,
     });
   }
 

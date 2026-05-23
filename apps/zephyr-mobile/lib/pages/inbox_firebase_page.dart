@@ -312,17 +312,33 @@ class _PresenceDot extends StatelessWidget {
     return ValueListenableBuilder<int>(
       valueListenable: FirebaseChatService.instance.presenceVersion,
       builder: (context, _, __) {
-        final bool isOnline =
-            FirebaseChatService.instance.isOnlineCached(userId) ?? false;
+        final String state =
+            FirebaseChatService.instance.presenceStateCached(userId) ?? 'offline';
+        final Color color;
+        final double opacity;
+        switch (state) {
+          case 'live':
+            color = const Color(0xFFFF3B30);
+            opacity = 1.0;
+          case 'busy':
+            color = const Color(0xFFFF9500);
+            opacity = 1.0;
+          case 'online':
+            color = const Color(0xFF34C759);
+            opacity = 1.0;
+          default:
+            color = const Color(0xFF8E8E93);
+            opacity = 0.0;
+        }
         return AnimatedOpacity(
-          opacity: isOnline ? 1.0 : 0.0,
+          opacity: opacity,
           duration: const Duration(milliseconds: 300),
           child: Container(
             width: 12,
             height: 12,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.green,
+              color: color,
               border: Border.all(
                 color: Theme.of(context).scaffoldBackgroundColor,
                 width: 2,

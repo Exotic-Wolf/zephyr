@@ -7,6 +7,7 @@ import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import '../models/models.dart';
 import '../services/api_client.dart';
+import '../services/firebase_chat_service.dart';
 import '../widgets/shared_live_widgets.dart';
 import '../app_constants.dart';
 import '../l10n/app_localizations.dart';
@@ -117,6 +118,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           _engineReady = true;
           _cameraLoading = false;
         });
+        FirebaseChatService.instance.setLiveStatus();
         _ticker = Timer.periodic(
             const Duration(seconds: 1), (_) {
           if (mounted) setState(() => _elapsedSeconds++);
@@ -164,6 +166,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _pulseCtrl.dispose();
     _engine?.leaveChannel();
     _engine?.release();
+    FirebaseChatService.instance.clearLiveStatus();
     widget.apiClient.endRoom(widget.accessToken, widget.room.id)
         .then((_) => debugPrint('[endRoom dispose] success'))
         .catchError((Object e) { debugPrint('[endRoom dispose] error: $e'); });

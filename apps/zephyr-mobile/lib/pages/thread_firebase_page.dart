@@ -414,14 +414,24 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                   ValueListenableBuilder<int>(
                     valueListenable: FirebaseChatService.instance.presenceVersion,
                     builder: (context, _, __) {
-                      final bool isOnline =
-                          FirebaseChatService.instance.isOnlineCached(widget.otherUserId) ?? false;
+                      final String state =
+                          FirebaseChatService.instance.presenceStateCached(widget.otherUserId) ?? 'offline';
+                      final String label;
+                      final Color color;
+                      switch (state) {
+                        case 'live':
+                          label = 'live';
+                          color = const Color(0xFFFF3B30);
+                        case 'online':
+                          label = 'online';
+                          color = Colors.green;
+                        default:
+                          label = 'offline';
+                          color = Colors.grey.shade500;
+                      }
                       return Text(
-                        isOnline ? 'online' : 'offline',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isOnline ? Colors.green : Colors.grey.shade500,
-                        ),
+                        label,
+                        style: TextStyle(fontSize: 12, color: color),
                       );
                     },
                   ),

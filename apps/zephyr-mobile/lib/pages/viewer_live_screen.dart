@@ -53,6 +53,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   // Agora
   RtcEngine? _engine;
   int? _hostUid;
+  String? _channelName;
   bool _engineReady = false;
   bool _welcomeAdded = false;
 
@@ -116,7 +117,10 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
       );
 
       _engine = engine;
-      if (mounted) setState(() => _engineReady = true);
+      if (mounted) setState(() {
+        _channelName = info.channelName;
+        _engineReady = true;
+      });
     } catch (e) {
       debugPrint('[Agora viewer] init error: $e');
     }
@@ -204,7 +208,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
                   rtcEngine: _engine!,
                   canvas: VideoCanvas(uid: _hostUid!),
                   connection: RtcConnection(
-                    channelId: widget.feedCard.roomId ?? '',
+                    channelId: _channelName ?? '',
                   ),
                 ),
               ),

@@ -51,7 +51,6 @@ android {
                 "lib/*/libagora_video_av1_encoder_extension.so",
                 "lib/*/libagora_video_quality_analyzer_extension.so",
                 "lib/*/libagora_face_detection_extension.so",
-                "lib/*/libagora_ffmpeg.so",
             )
         }
     }

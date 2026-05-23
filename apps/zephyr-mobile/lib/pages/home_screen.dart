@@ -10,7 +10,6 @@ import '../flags.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/firebase_chat_service.dart';
-import '../services/presence_bus.dart';
 import '../widgets/coin_icon.dart';
 import 'explore_page.dart';
 import 'go_live_countdown_page.dart';
@@ -173,21 +172,6 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         } catch (_) {}
       })
-      ..on('feed:user-status', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final String hostUserId = payload['hostUserId'] as String;
-          final String status = payload['status'] as String;
-          PresenceBus.instance.update(hostUserId, status);
-          setState(() {
-            _feedCards = _feedCards.map((LiveFeedCard c) =>
-              c.hostUserId == hostUserId ? c.copyWith(hostStatus: status) : c,
-            ).toList();
-          });
-        } catch (_) {}
-      })
       ..on('feed:room-updated', (dynamic data) {
         if (!mounted) return;
         try {
@@ -258,10 +242,10 @@ class _HomeScreenState extends State<HomeScreen> {
           };
           return rank(a.hostStatus).compareTo(rank(b.hostStatus));
         });
-        // Seed presence cache from feed cards
-        PresenceBus.instance.seed(<String, String>{
-          for (final LiveFeedCard c in _feedCards) c.hostUserId: c.hostStatus,
-        });
+        // Warm Firebase RTDB presence for feed card hosts
+        FirebaseChatService.instance.warmPresence(
+          _feedCards.map((c) => c.hostUserId).toList(),
+        );
         _coinBalance = wallet.coinBalance;
         _userLevel = wallet.level;
         _myRevenue = wallet.revenueUsd;
@@ -609,10 +593,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final String localeLine = showPreview
         ? '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode} ${feedCard.hostLanguage}'
         : '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode}';
-    final String status = feedCard.hostStatus; // 'live' | 'online' | 'busy' | 'offline'
+
+    return ValueListenableBuilder<int>(
+      valueListenable: FirebaseChatService.instance.presenceVersion,
+      builder: (context, _, __) {
+    final String status =
+        FirebaseChatService.instance.presenceStateCached(feedCard.hostUserId) ?? feedCard.hostStatus;
     final bool isLive = status == 'live';
 
-    // status badge colours
     final Color statusDot = switch (status) {
       'live'    => const Color(0xFFFF3B30),
       'busy'    => const Color(0xFFFF9500),
@@ -769,6 +757,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+    );
+      },
     );
   }
 
