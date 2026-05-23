@@ -188,20 +188,6 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Color get _statusColor => switch (_card.hostStatus) {
-        'live' => const Color(0xFFFF3B30),
-        'busy' => const Color(0xFFFF9500),
-        'offline' => const Color(0xFF8E8E93),
-        _ => const Color(0xFF34C759),
-      };
-
-  String get _statusLabel => switch (_card.hostStatus) {
-        'live' => 'Live',
-        'busy' => 'Busy',
-        'offline' => 'Offline',
-        _ => 'Online',
-      };
-
   @override
   Widget build(BuildContext context) {
     final double bottomPad = MediaQuery.of(context).padding.bottom;

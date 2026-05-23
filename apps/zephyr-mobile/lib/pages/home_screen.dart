@@ -54,7 +54,6 @@ class _HomeScreenState extends State<HomeScreen> {
   UserProfile? _me;
   List<LiveFeedCard> _feedCards = <LiveFeedCard>[];
   Set<String> _followingIds = <String>{};
-  String? _selectedDirectReceiverUserId;
   int _selectedTabIndex = 0;
   int _homeTopTabIndex = 1;
   int _coinBalance = 1200;
@@ -70,15 +69,11 @@ class _HomeScreenState extends State<HomeScreen> {
   String _callMode = 'direct';
   int _selectedDirectRate = 2100;
   CallQuote? _callQuote;
-  CallSession? _activeCallSession;
   Timer? _callTickTimer;
   Timer? _feedPollTimer;
   sio.Socket? _feedSocket;
   Timer? _keepAliveTimer;
   Timer? _heartbeatTimer;
-  bool _tickInFlight = false;
-  bool _rtcLoading = false;
-  static const int _callTickIntervalSeconds = 10;
   bool _quoteLoading = false;
   int _activeFeedIndex = 0;
   Country? _filterCountry;
@@ -382,103 +377,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  String? _resolveDirectReceiverUserId() {
-    if (_selectedDirectReceiverUserId != null) {
-      return _selectedDirectReceiverUserId;
-    }
-    if (_feedCards.isNotEmpty) {
-      final int safeIndex = _activeFeedIndex.clamp(0, _feedCards.length - 1);
-      return _feedCards[safeIndex].hostUserId;
-    }
-    return null;
-  }
-
-  Future<void> _runCallTick() async {
-    final CallSession? session = _activeCallSession;
-    if (session == null || _tickInFlight) {
-      return;
-    }
-
-    _tickInFlight = true;
-    try {
-      final CallSessionTickResult result = await widget.apiClient.tickCallSession(
-        accessToken: widget.accessToken,
-        sessionId: session.id,
-        elapsedSeconds: _callTickIntervalSeconds,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _activeCallSession = result.session;
-        _coinBalance = result.callerCoinBalanceAfter;
-        if (result.session.status == 'ended') {
-        }
-      });
-
-      if (result.stoppedForInsufficientBalance || result.session.status == 'ended') {
-        _callTickTimer?.cancel();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              result.stoppedForInsufficientBalance
-                  ? 'Call ended: insufficient balance.'
-                  : 'Call ended.',
-            ),
-          ),
-        );
-      }
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-      });
-      _callTickTimer?.cancel();
-    } finally {
-      _tickInFlight = false;
-    }
-  }
-
-
-  Future<void> _prepareRtcJoin(String sessionId) async {
-    if (_rtcLoading) {
-      return;
-    }
-
-    setState(() {
-      _rtcLoading = true;
-    });
-
-    try {
-      await widget.apiClient.requestCallRtcToken(
-        accessToken: widget.accessToken,
-        sessionId: sessionId,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _rtcLoading = false;
-        });
-      }
-    }
-  }
-
   Future<void> _enterRoom(LiveFeedCard feedCard) async {
     final String? roomId = feedCard.roomId;
     if (roomId == null) return;
@@ -510,7 +408,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openCallTabForHost(String hostUserId) {
     setState(() {
-      _selectedDirectReceiverUserId = hostUserId;
       _selectedTabIndex = 2;
     });
     if (_callQuote == null && !_quoteLoading) {
