@@ -21,7 +21,8 @@
 | Backend API | NestJS (TypeScript) | `services/zephyr-api` |
 | Database | PostgreSQL (Render) | Singapore region |
 | Real-time | Socket.IO (`/feed`, `/call` namespaces) | Backend |
-| Messaging | Firebase (Firestore + RTDB + Storage + FCM) | `firebase_chat_service.dart` |
+| Messaging | Firebase Firestore + Storage + FCM | `firebase_chat_service.dart` |
+| Status & Presence | Firebase RTDB (asia-southeast1) | Online/offline, call state, live state — **source of truth for availability** |
 | Video | Agora (calls + live streaming) | SDK in mobile |
 | Deploy | Render (auto-deploy from `main`) | `https://zephyr-api-wr1s.onrender.com` |
 
@@ -162,11 +163,12 @@ Firebase Chat:
 ## Architecture Decisions (Locked)
 
 - **Firebase Chat** — Firestore for messages/conversations, RTDB for real-time presence (onDisconnect), Storage for image uploads. Backend generates custom Firebase tokens.
+- **Firebase RTDB is the single source of truth for real-time status** — Presence (online/offline), call status (in-call, busy, available), and live status all live in RTDB under `status/{userId}`. RTDB's `onDisconnect` guarantees cleanup even on app kill/crash. All clients listen to RTDB for user availability before initiating calls or showing status badges. This is the backbone of the call system — without RTDB, we cannot reliably know if a user is available, busy, or offline.
 - **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
 - **Socket.IO** — foreground real-time for feed events and call matchmaking only (not messaging)
 - **FCM/APNs** — push notifications for chat messages (backend relays via `POST /v1/messages/push`)
 - **Redis Socket.IO adapter** — wired, falls back to in-memory. Enable by setting `REDIS_URL` on Render. Required at 5K+ users.
-- **Firebase is truth** — Firestore is source of truth for messages/conversations. Backend only issues tokens + relays push.
+- **Firebase is truth** — Firestore is source of truth for messages/conversations. RTDB is source of truth for real-time status (presence + call state). Backend only issues tokens + relays push.
 
 ---
 
