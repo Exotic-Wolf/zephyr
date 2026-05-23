@@ -65,4 +65,9 @@ export class FcmService implements OnModuleInit {
       this.logger.error('FCM sendReadReceiptPush error', err);
     }
   }
+
+  async createCustomToken(userId: string): Promise<string | null> {
+    if (!this.initialized) return null;
+    return admin.auth().createCustomToken(userId);
+  }
 }

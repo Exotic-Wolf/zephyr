@@ -48,6 +48,22 @@ export class MessagesController {
     await this.storeService.deleteDeviceToken(me.id, body.token);
   }
 
+  @Post('push')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async sendPushNotification(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { recipientId: string; title: string; body: string },
+  ): Promise<void> {
+    const me = await this.storeService.getUserFromAuthHeader(authorization);
+    const tokens = await this.storeService.getDeviceTokens(body.recipientId);
+    if (tokens.length > 0) {
+      await this.fcmService.sendPush(tokens, body.title, body.body, {
+        senderId: me.id,
+        type: 'chat_message',
+      });
+    }
+  }
+
   @Post()
   async sendMessage(
     @Headers('authorization') authorization: string | undefined,
