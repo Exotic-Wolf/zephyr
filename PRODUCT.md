@@ -21,7 +21,7 @@
 | Backend API | NestJS (TypeScript) | `services/zephyr-api` |
 | Database | PostgreSQL (Render) | Singapore region |
 | Real-time | Socket.IO (`/feed`, `/call` namespaces) | Backend |
-| Messaging | Agora Chat SDK (replaced Socket.IO) | SDK in mobile + REST token gen |
+| Messaging | Firebase (Firestore + RTDB + Storage + FCM) | `firebase_chat_service.dart` |
 | Video | Agora (calls + live streaming) | SDK in mobile |
 | Deploy | Render (auto-deploy from `main`) | `https://zephyr-api-wr1s.onrender.com` |
 
@@ -56,15 +56,15 @@ pnpm --filter zephyr-api start:dev
 | `app_constants.dart` | `apiBaseUrl`, `googleServerClientId`, env constants |
 | `models/models.dart` | All data models: `UserProfile`, `Room`, `ZephyrMessage`, `WalletSummary`, `CoinPack`, `CallSession`, etc. |
 | `services/api_client.dart` | All HTTP calls — GET/POST/PATCH/DELETE |
-| `services/chat_service.dart` | Agora Chat SDK wrapper — login, send, fetch history, read receipts, per-message acks |
+| `services/firebase_chat_service.dart` | Firebase chat — Firestore messages, RTDB presence, Storage images, block/report |
 | `pages/home_screen.dart` | Feed, socket connection, inbox badge, 5s poll fallback |
 | `pages/host_live_screen.dart` | Host live stream, heartbeat timer (15s) |
 | `pages/go_live_countdown_page.dart` | 3-2-1 countdown, creates room |
 | `pages/viewer_live_screen.dart` | Viewer live stream, reactions, comments |
 | `pages/onboarding_page.dart` | Google Sign-In, Apple Sign-In, guest login |
 | `pages/explore_page.dart` | Search users by name or 8-digit public ID |
-| `pages/inbox_page.dart` | Conversation list (fetched from Agora Chat SDK) |
-| `pages/thread_page.dart` | DM chat bubbles, real-time via Agora Chat, per-message read receipts (✓✓) |
+| `pages/inbox_firebase_page.dart` | Conversation list (real-time Firestore), presence dots, unread badges |
+| `pages/thread_firebase_page.dart` | DM chat — real-time messages, read/delivered receipts (✓✓), images, translate, delete, anti-spam |
 | `pages/my_profile_page.dart` | View/edit profile |
 | `widgets/` | Shared widgets: gifts, spark icon, coin icon, language picker |
 
@@ -79,8 +79,8 @@ pnpm --filter zephyr-api start:dev
 | `core/store.service.ts` | All DB logic — messages, rooms, economy, wallets |
 | `core/database.service.ts` | Schema init, migrations, periodic cleanup |
 | `core/rtc.service.ts` | Agora token generation |
-| `core/agora-chat.service.ts` | Agora Chat token gen + user registration via REST API |
-| `messages/messages.controller.ts` | `GET /v1/messages/chat-token` — returns appKey, chatUserId, token |
+| `auth/auth.controller.ts` | `GET /v1/auth/firebase-token` — custom Firebase token for client auth |
+| `messages/messages.controller.ts` | `POST /v1/messages/push` — FCM push notification relay |
 | `rooms/rooms.gateway.ts` | Socket.IO `/feed` namespace — room created/ended/updated |
 | `economy/economy.controller.ts` | All economy endpoints |
 
@@ -132,10 +132,13 @@ WebSocket namespaces:
 - `/feed` — live room events (`feed:room-created`, `feed:room-ended`, `feed:room-updated`)
 - `/call` — random call matchmaking (`call:join_queue`, `call:leave_queue`, `call:next`, `call:end`, `call:matched`, `call:partner_left`)
 
-Agora Chat (replaces old `/chat` socket):
-- Backend: `GET /v1/messages/chat-token` → `{appKey, chatUserId, token}`
-- SDK handles: message delivery, offline queue, read receipts, history sync
-- No custom socket needed for messaging anymore
+Firebase Chat:
+- Backend: `GET /v1/auth/firebase-token` → custom token for Firebase Auth
+- Firestore: messages + conversations (real-time listeners)
+- RTDB: presence (online/offline with onDisconnect)
+- Storage: image uploads (5MB limit, format validation)
+- FCM: push via `POST /v1/messages/push`
+- Features: read/delivered receipts, block/report, delete for me/everyone, translate, anti-spam, pagination
 
 ---
 
@@ -143,7 +146,10 @@ Agora Chat (replaces old `/chat` socket):
 
 | Package | Purpose |
 |---|---|
-| `agora_chat_sdk: ^1.3.3` | Agora Chat — messaging, read receipts, history |
+| `cloud_firestore` | Firebase Firestore — messages, conversations |
+| `firebase_database` | Firebase RTDB — real-time presence |
+| `firebase_storage` | Firebase Storage — image uploads |
+| `firebase_auth` | Firebase Auth — custom token sign-in |
 | `agora_rtc_engine: ^6.5.2` | Agora RTC — video calls + live streaming |
 | `flutter_secure_storage: 10.1.0` | Token in iOS Keychain / Android Keystore |
 | `google_sign_in` | Google OAuth |
@@ -155,12 +161,12 @@ Agora Chat (replaces old `/chat` socket):
 
 ## Architecture Decisions (Locked)
 
-- **Agora Chat** — replaced custom Socket.IO messaging. SDK handles delivery, read receipts, offline queue, history sync. Backend only generates tokens.
+- **Firebase Chat** — Firestore for messages/conversations, RTDB for real-time presence (onDisconnect), Storage for image uploads. Backend generates custom Firebase tokens.
 - **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
-- **Socket.IO** — foreground real-time for feed events and call matchmaking only (no longer messaging)
-- **FCM/APNs** — background/killed state push notifications (not yet built)
+- **Socket.IO** — foreground real-time for feed events and call matchmaking only (not messaging)
+- **FCM/APNs** — push notifications for chat messages (backend relays via `POST /v1/messages/push`)
 - **Redis Socket.IO adapter** — wired, falls back to in-memory. Enable by setting `REDIS_URL` on Render. Required at 5K+ users.
-- **Server always truth** — Agora Chat SDK is source of truth for messages/conversations. Backend only issues tokens.
+- **Firebase is truth** — Firestore is source of truth for messages/conversations. Backend only issues tokens + relays push.
 
 ---
 
@@ -185,7 +191,7 @@ Agora Chat (replaces old `/chat` socket):
 | Home feed (cards, status, real-time) | ✅ Done | 90% |
 | Go Live / Host screen (Agora) | ✅ Done | 85% |
 | Viewer screen (Agora) | ✅ Done | 80% |
-| Direct messages (Agora Chat SDK) | ✅ Done | 95% |
+| Direct messages (Firebase Chat) | ✅ Done | 95% |
 | Explore / Search | ✅ Done | 85% |
 | My Profile | ✅ Done | 75% |
 | Persistent login | ✅ Done | 100% |
@@ -193,10 +199,11 @@ Agora Chat (replaces old `/chat` socket):
 | Random video calls (Agora) | ✅ Done | 90% |
 | Block system | ✅ Done | 100% |
 | Push notifications (FCM) | ✅ Done (Android + iOS) | 90% |
+| Report system (chat) | ✅ Done | 100% |
 | Follow/unfollow UI | ❌ Partial | 20% |
 | Wallet / coins UI | ❌ Partial | 30% |
 | Gifts during live | ❌ Not started | 0% |
-| Report system | ❌ Not started | 0% |
+| Report system (calls) | ❌ Not started | 0% |
 | Direct call ringing screen | ❌ Not started | 0% |
 | App icon + splash | ✅ Done | 100% |
 | Onboarding flow | ❌ Missing | 0% |

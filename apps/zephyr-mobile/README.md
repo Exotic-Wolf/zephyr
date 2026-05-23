@@ -8,7 +8,7 @@ Flutter mobile app for Zephyr — a live streaming platform inspired by Olamet/C
 - **Discover tab** — live feed cards, PageView, enter room
 - **Popular tab** — 2-col grid, tap to open profile
 - **Follow tab** — filtered by following IDs, empty state
-- **Profile page** — hero, avatar, status badge, live preview, follow/message/call footer pill
+- **Profile page** — hero, avatar, real-time presence badge (Firebase RTDB), follow/message/call footer
 - **Call bottom sheet** — status-aware (live/busy/offline), shows rate in coins/min
 - **Me tab** — level, balance, revenue, My Call Price, settings
 - **My Call Price page** — 7-tier pricing table, level-gated, auto-save on tap
@@ -19,6 +19,19 @@ Flutter mobile app for Zephyr — a live streaming platform inspired by Olamet/C
 - **Economy** — Coins (user) → Sparks (host), 60/40 split
   - 4 coin packs: 16,500 / 55,000 / 165,000 / 550,000 coins
   - 7 call rate tiers: 2,100 → 27,000 coins/min (≤Lv3 → Lv9+)
+- **Messaging (Firebase)** — 82/100 audit score
+  - Real-time Firestore messages + conversations
+  - Image messages (gallery, 5MB limit, format validation)
+  - Read/delivered receipts (✓✓ blue/grey) — delivered fires globally on any screen
+  - Real-time presence via Firebase RTDB (onDisconnect)
+  - Block user + Report user (with reason)
+  - Delete for me / Delete for everyone
+  - Pagination (50 msgs on scroll-up)
+  - Per-message translation (Google Translate, auto-detect)
+  - Anti-spam rate limiting (5 msgs/10s + duplicate cooldown)
+  - Idempotent send (key dedup)
+  - FCM push notifications
+  - Date headers, timestamps, unread badges
 - **Spark icon** — custom flame painter, reused app-wide
 - **Coin icon** — gold gradient Z badge, reused app-wide
 
@@ -67,14 +80,11 @@ flutter test
 
 ## Pending (pre-production)
 
-- LiveKit RTC integration
-- Real-time messaging (WebSocket DMs + live chat)
-  - DMs: persist to DB, unread counts, inbox
-  - Live chat: in-memory broadcast, no persistence
 - Remove mock feed cards (SarahBusy, TaniaOnline, MikeOffline)
 - Remove mock `_followingIds`
-- Save My Profile edits to API
 - Profile picture upload (camera/gallery)
-- Android emulator auth fix
-- Viewer count on cards
+- Typing indicator (chat)
+- Voice messages (chat)
 - Gift stickers in profile Gifts section
+- Direct call ringing screen (caller/receiver)
+- Wallet / coins purchase UI

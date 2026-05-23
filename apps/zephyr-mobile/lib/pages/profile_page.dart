@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../services/api_client.dart';
+import '../services/firebase_chat_service.dart';
 import '../widgets/hero_bullet.dart';
 import 'thread_firebase_page.dart';
 import '../flags.dart';
@@ -48,6 +49,8 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     _loadBlockStatus();
+    // Warm Firebase RTDB presence for this user
+    FirebaseChatService.instance.warmPresence([_card.hostUserId]);
   }
 
   Future<void> _loadBlockStatus() async {
@@ -395,40 +398,49 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                     ),
-                  // status badge bottom-right of cover
+                  // status badge bottom-right of cover (real-time Firebase presence)
                   if (!widget.isPreview)
                   Positioned(
                     right: 20,
                     bottom: 16,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black45,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: _statusColor,
-                              shape: BoxShape.circle,
-                            ),
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: FirebaseChatService.instance.presenceVersion,
+                      builder: (context, _, __) {
+                        final bool isOnline =
+                            FirebaseChatService.instance.isOnlineCached(_card.hostUserId) ?? false;
+                        final Color dotColor = isOnline ? const Color(0xFF34C759) : const Color(0xFF8E8E93);
+                        final String label = isOnline ? 'Online' : 'Offline';
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black45,
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                          const SizedBox(width: 6),
-                          Text(
-                            _statusLabel,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: dotColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                label,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
                   ),
                 ],
