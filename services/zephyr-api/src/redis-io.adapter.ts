@@ -23,7 +23,11 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   createIOServer(port: number, options?: Partial<ServerOptions>): Server {
-    const server = super.createIOServer(port, options) as Server;
+    const server = super.createIOServer(port, {
+      ...options,
+      pingInterval: 10000, // ping every 10s
+      pingTimeout: 5000, // 5s to respond → disconnect after 15s max
+    }) as Server;
     if (this.adapterConstructor) {
       server.adapter(this.adapterConstructor);
     }

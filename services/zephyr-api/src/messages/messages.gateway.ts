@@ -14,6 +14,8 @@ import { StoreService } from '../core/store.service';
 import { RoomsGateway } from '../rooms/rooms.gateway';
 
 const OFFLINE_GRACE_MS = 10_000;
+const HEARTBEAT_INTERVAL_MS = 10_000; // sweep every 10s
+const HEARTBEAT_TIMEOUT_MS = 30_000; // no ping for 30s → offline
 
 /**
  * Real-time gateway for direct messages + presence.
@@ -46,8 +48,17 @@ export class MessagesGateway
   /** userId → grace timer (fires offline after OFFLINE_GRACE_MS) */
   private readonly graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  /** userId → last heartbeat timestamp (ms) */
+  private readonly lastHeartbeat = new Map<string, number>();
+
+  private heartbeatSweepInterval: ReturnType<typeof setInterval> | null = null;
+
   afterInit() {
     console.log('[MessagesGateway] WebSocket gateway initialised on /chat');
+    // Periodic sweep: detect users whose client stopped pinging
+    this.heartbeatSweepInterval = setInterval(() => {
+      this.sweepHeartbeats();
+    }, HEARTBEAT_INTERVAL_MS);
   }
 
   handleConnection(client: Socket) {
@@ -63,6 +74,9 @@ export class MessagesGateway
       this.connections.set(userId, sockets);
     }
     sockets.add(client.id);
+
+    // Record initial heartbeat
+    this.lastHeartbeat.set(userId, Date.now());
 
     // Cancel any pending offline timer — user reconnected in time
     const timer = this.graceTimers.get(userId);
@@ -87,10 +101,18 @@ export class MessagesGateway
       sockets.delete(client.id);
       if (sockets.size === 0) {
         this.connections.delete(userId);
+        this.lastHeartbeat.delete(userId);
         // Last socket gone — start grace timer
         this.startGraceTimer(userId);
       }
     }
+  }
+
+  @SubscribeMessage('presence:ping')
+  handlePresencePing(@ConnectedSocket() client: Socket): void {
+    const userId = client.handshake.query['userId'] as string | undefined;
+    if (!userId) return;
+    this.lastHeartbeat.set(userId, Date.now());
   }
 
   @SubscribeMessage('chat:join')
@@ -102,6 +124,27 @@ export class MessagesGateway
   }
 
   // ── Presence internals ────────────────────────────────────────────────────
+
+  private sweepHeartbeats(): void {
+    const now = Date.now();
+    for (const [userId, lastPing] of this.lastHeartbeat) {
+      if (now - lastPing > HEARTBEAT_TIMEOUT_MS) {
+        // Client stopped pinging — force disconnect all their sockets
+        this.lastHeartbeat.delete(userId);
+        const sockets = this.connections.get(userId);
+        if (sockets) {
+          this.connections.delete(userId);
+          // Cancel any existing grace timer — we're going straight to offline
+          const timer = this.graceTimers.get(userId);
+          if (timer) {
+            clearTimeout(timer);
+            this.graceTimers.delete(userId);
+          }
+          this.setOffline(userId);
+        }
+      }
+    }
+  }
 
   private setOnline(userId: string): void {
     void this.storeService.setUserStatus(userId, 'online');

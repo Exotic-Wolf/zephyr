@@ -82,6 +82,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _activeThreadUserId;
   Timer? _badgeSyncTimer;
   Timer? _keepAliveTimer;
+  Timer? _presencePingTimer;
   bool _tickInFlight = false;
   bool _rtcLoading = false;
   static const int _callTickIntervalSeconds = 10;
@@ -183,6 +184,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     )
       ..on('connect', (_) {
         _chatSocket?.emit('chat:join', userId);
+        _startPresencePing();
         _ackUndeliveredMessages();
         if (_chatSocketConnectedOnce) {
           // Reconnect: resync badge from API to recover missed messages
@@ -237,7 +239,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ReadReceiptBus.instance.emit(updated);
         } catch (_) {}
       })
+      ..on('disconnect', (_) {
+        _stopPresencePing();
+      })
       ..connect();
+  }
+
+  void _startPresencePing() {
+    _stopPresencePing();
+    _presencePingTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _chatSocket?.emit('presence:ping'),
+    );
+  }
+
+  void _stopPresencePing() {
+    _presencePingTimer?.cancel();
+    _presencePingTimer = null;
   }
 
   void _connectFeedSocket() {
@@ -331,6 +349,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _feedPollTimer?.cancel();
     _badgeSyncTimer?.cancel();
     _keepAliveTimer?.cancel();
+    _stopPresencePing();
     _feedSocket?.dispose();
     _chatSocket?.dispose();
     _roomTitleController.dispose();
