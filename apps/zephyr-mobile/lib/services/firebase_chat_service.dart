@@ -184,8 +184,9 @@ class FirebaseChatService {
         final data = doc.data();
         final List<String> participants =
             List<String>.from(data['participants'] as List);
-        final String otherUserId =
-            participants.firstWhere((id) => id != _myUserId);
+        final String? otherUserId =
+            participants.cast<String?>().firstWhere((id) => id != _myUserId, orElse: () => null);
+        if (otherUserId == null) return null; // self-chat, skip
         final int unread = (data['unread_$_myUserId'] as int?) ?? 0;
         return FirebaseConversation(
           chatId: doc.id,
@@ -197,7 +198,7 @@ class FirebaseChatService {
               DateTime.now(),
           unreadCount: unread,
         );
-      }).toList();
+      }).whereType<FirebaseConversation>().toList();
       list.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
       return list;
     });

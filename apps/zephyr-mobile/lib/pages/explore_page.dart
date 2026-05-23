@@ -87,6 +87,7 @@ class _ExplorePageState extends State<ExplorePage> {
   }
 
   void _openThread(UserProfile profile) {
+    if (profile.id == widget.myUserId) return;
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ThreadFirebasePage(
         myUserId: widget.myUserId,
