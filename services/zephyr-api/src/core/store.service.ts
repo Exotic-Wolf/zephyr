@@ -74,6 +74,7 @@ export interface Conversation {
   lastMessage: string;
   lastMessageAt: string;
   unreadCount: number;
+  lastSeenAt: string | null;
 }
 
 export interface CoinPack {
@@ -1428,12 +1429,14 @@ export class StoreService {
         last_message: string;
         last_message_at: string;
         unread_count: string;
+        last_seen_at: string | null;
       }>(
         `
           SELECT
             other_users.id AS other_id,
             other_users.display_name,
             other_users.avatar_url,
+            other_users.last_seen_at,
             last_msg.body AS last_message,
             last_msg.created_at AS last_message_at,
             COALESCE(unread.cnt, 0) AS unread_count
@@ -1466,6 +1469,7 @@ export class StoreService {
         lastMessage: row.last_message,
         lastMessageAt: new Date(row.last_message_at).toISOString(),
         unreadCount: parseInt(row.unread_count, 10),
+        lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null,
       }));
     }
 
@@ -1499,6 +1503,7 @@ export class StoreService {
           lastMessage: thread[0].body,
           lastMessageAt: thread[0].createdAt,
           unreadCount,
+          lastSeenAt: null,
         });
       }
     }
@@ -2924,6 +2929,15 @@ export class StoreService {
       await this.databaseService.query(
         `UPDATE users SET status = $1 WHERE id = $2`,
         [status, userId],
+      );
+    }
+  }
+
+  async heartbeat(userId: string): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `UPDATE users SET last_seen_at = NOW() WHERE id = $1`,
+        [userId],
       );
     }
   }

@@ -227,6 +227,7 @@ class ZephyrConversation {
     required this.lastMessageAt,
     required this.unreadCount,
     this.avatarUrl,
+    this.lastSeenAt,
   });
 
   final String userId;
@@ -235,6 +236,7 @@ class ZephyrConversation {
   final String lastMessage;
   final DateTime lastMessageAt;
   final int unreadCount;
+  final DateTime? lastSeenAt;
 
   factory ZephyrConversation.fromJson(Map<String, dynamic> json) {
     return ZephyrConversation(
@@ -244,6 +246,9 @@ class ZephyrConversation {
       lastMessage: json['lastMessage'] as String,
       lastMessageAt: DateTime.parse(json['lastMessageAt'] as String),
       unreadCount: (json['unreadCount'] as num?)?.toInt() ?? 0,
+      lastSeenAt: json['lastSeenAt'] != null
+          ? DateTime.parse(json['lastSeenAt'] as String)
+          : null,
     );
   }
 }

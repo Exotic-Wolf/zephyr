@@ -152,4 +152,13 @@ export class UsersController {
     const blocked = await this.storeService.isBlocked(me.id, userId);
     return { blocked };
   }
+
+  @Post('heartbeat')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async heartbeat(
+    @Headers('authorization') authorization: string | undefined,
+  ): Promise<void> {
+    const me = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.heartbeat(me.id);
+  }
 }

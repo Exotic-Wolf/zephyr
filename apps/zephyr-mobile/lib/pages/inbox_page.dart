@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/local_db.dart';
+import '../services/presence_bus.dart';
 import '../widgets/status_dot.dart';
 import 'thread_page.dart';
 import '../l10n/app_localizations.dart';
@@ -37,6 +38,7 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
   StreamSubscription<ZephyrMessage>? _busSub;
   StreamSubscription<void>? _reconnectSub;
   Timer? _debounce;
+  Timer? _presencePollTimer;
 
   @override
   void initState() {
@@ -45,6 +47,8 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
     _loadLocal();
     _busSub = MessageBus.instance.stream.listen((_) => _debouncedRefresh());
     _reconnectSub = ChatReconnectBus.instance.stream.listen((_) => _refresh());
+    // Poll presence status every 15s while inbox is open
+    _presencePollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
   }
 
   /// Load from local SQLite instantly (no network).
@@ -75,6 +79,7 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
     _busSub?.cancel();
     _reconnectSub?.cancel();
     _debounce?.cancel();
+    _presencePollTimer?.cancel();
     super.dispose();
   }
 
@@ -84,6 +89,14 @@ class _InboxPageState extends State<InboxPage> with WidgetsBindingObserver {
           await widget.apiClient.getConversations(widget.accessToken);
       // Persist to local SQLite for next instant load
       await LocalDb.instance.replaceConversations(convos);
+      // Derive presence from last_seen_at and seed PresenceBus
+      final DateTime threshold = DateTime.now().subtract(const Duration(seconds: 45));
+      for (final ZephyrConversation c in convos) {
+        final String status = (c.lastSeenAt != null && c.lastSeenAt!.isAfter(threshold))
+            ? 'online'
+            : 'offline';
+        PresenceBus.instance.update(c.userId, status);
+      }
       if (mounted) setState(() { _conversations = convos; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = _conversations.isEmpty ? e.toString() : null; _loading = false; });

@@ -83,6 +83,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _badgeSyncTimer;
   Timer? _keepAliveTimer;
   Timer? _presencePingTimer;
+  Timer? _heartbeatTimer;
   bool _tickInFlight = false;
   bool _rtcLoading = false;
   static const int _callTickIntervalSeconds = 10;
@@ -258,6 +259,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _presencePingTimer = null;
   }
 
+  void _sendHeartbeat() {
+    widget.apiClient.heartbeat(widget.accessToken).catchError((_) {});
+  }
+
   void _connectFeedSocket() {
     _feedSocket = sio.io(
       '$apiBaseUrl/feed',
@@ -350,6 +355,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _badgeSyncTimer?.cancel();
     _keepAliveTimer?.cancel();
     _stopPresencePing();
+    _heartbeatTimer?.cancel();
     _feedSocket?.dispose();
     _chatSocket?.dispose();
     _roomTitleController.dispose();
@@ -417,6 +423,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       // Connect chat socket now that we have userId
       if (_chatSocket == null) _connectChatSocket();
+      // Start HTTP heartbeat for presence (runs regardless of socket state)
+      _heartbeatTimer ??= Timer.periodic(
+        const Duration(seconds: 20),
+        (_) => _sendHeartbeat(),
+      );
+      _sendHeartbeat(); // immediate first beat
     } catch (error) {
       setState(() {
         _error = error.toString();

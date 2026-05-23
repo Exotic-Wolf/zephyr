@@ -170,6 +170,14 @@ class ZephyrApiClient {
         .toList();
   }
 
+  Future<void> heartbeat(String accessToken) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/users/heartbeat',
+      accessToken: accessToken,
+    );
+  }
+
   Future<({List<ZephyrMessage> messages, bool hasMore})> getThread(
       String accessToken, String userId, {DateTime? before, DateTime? after}) async {
     final StringBuffer query = StringBuffer();
