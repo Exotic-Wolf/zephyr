@@ -319,12 +319,19 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     setState(() => _translating.add(msg.id));
     final String targetLang =
         Localizations.localeOf(context).languageCode;
-    final String translated = await TranslationService.instance
+    String? translated = await TranslationService.instance
         .translate(msg.body, targetLang: targetLang);
+    // If device language matches source, try English as fallback
+    if (translated == null && targetLang != 'en') {
+      translated = await TranslationService.instance
+          .translate(msg.body, targetLang: 'en');
+    }
     if (mounted) {
       setState(() {
         _translating.remove(msg.id);
-        _translations[msg.id] = translated;
+        if (translated != null) {
+          _translations[msg.id] = translated;
+        }
       });
     }
   }

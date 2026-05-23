@@ -11,9 +11,9 @@ class TranslationService {
   final Map<String, String> _cache = {};
 
   /// Translate [text] to [targetLang] (e.g. 'en', 'fr', 'zh').
-  /// Returns translated text, or original text on failure.
-  Future<String> translate(String text, {String targetLang = 'en'}) async {
-    if (text.trim().isEmpty) return text;
+  /// Returns translated text, or null on failure / no change.
+  Future<String?> translate(String text, {String targetLang = 'en'}) async {
+    if (text.trim().isEmpty) return null;
 
     final String cacheKey = '${targetLang}_$text';
     if (_cache.containsKey(cacheKey)) return _cache[cacheKey]!;
@@ -40,11 +40,14 @@ class TranslationService {
           translated.write(segment[0] as String);
         }
         final String result = translated.toString();
+        if (result.toLowerCase().trim() == text.toLowerCase().trim()) {
+          return null;
+        }
         _cache[cacheKey] = result;
         return result;
       }
     } catch (_) {}
 
-    return text;
+    return null;
   }
 }

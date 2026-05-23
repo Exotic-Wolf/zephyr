@@ -1425,6 +1425,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 apiClient: widget.apiClient,
                 accessToken: widget.accessToken,
                 myUserId: _me?.id ?? '',
+                myDisplayName: _me?.displayName ?? 'User',
+                myAvatarUrl: _me?.avatarUrl,
               ),
             3 => InboxFirebasePage(
                 myUserId: _me?.id ?? '',

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import 'profile_page.dart';
-import 'thread_page.dart';
+import 'thread_firebase_page.dart';
 import '../l10n/app_localizations.dart';
 
 // ── ExplorePage ───────────────────────────────────────────────────────────────
@@ -16,11 +16,15 @@ class ExplorePage extends StatefulWidget {
     required this.apiClient,
     required this.accessToken,
     required this.myUserId,
+    required this.myDisplayName,
+    this.myAvatarUrl,
   });
 
   final ZephyrApiClient apiClient;
   final String accessToken;
   final String myUserId;
+  final String myDisplayName;
+  final String? myAvatarUrl;
 
   @override
   State<ExplorePage> createState() => _ExplorePageState();
@@ -84,10 +88,10 @@ class _ExplorePageState extends State<ExplorePage> {
 
   void _openThread(UserProfile profile) {
     Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => ThreadPage(
-        apiClient: widget.apiClient,
-        accessToken: widget.accessToken,
+      builder: (_) => ThreadFirebasePage(
         myUserId: widget.myUserId,
+        myDisplayName: widget.myDisplayName,
+        myAvatarUrl: widget.myAvatarUrl,
         otherUserId: profile.id,
         otherDisplayName: profile.displayName,
         otherAvatarUrl: profile.avatarUrl,
