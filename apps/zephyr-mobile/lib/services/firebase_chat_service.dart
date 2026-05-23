@@ -153,6 +153,7 @@ class FirebaseChatService {
   // ── Messages (Thread) ──────────────────────────────────────────────────────
 
   /// Stream of messages in a chat, ordered by creation time.
+  /// Filters out messages deleted for the current user.
   Stream<List<FirebaseMessage>> watchMessages(String otherUserId) {
     final String cId = chatId(_myUserId!, otherUserId);
     return _fs
@@ -175,8 +176,85 @@ class FirebaseChatService {
           readAt: (data['readAt'] as Timestamp?)?.toDate(),
           type: (data['type'] as String?) ?? 'text',
           imageUrl: data['imageUrl'] as String?,
+          deletedFor: data['deletedFor'],
         );
+      }).where((msg) {
+        // Filter deleted messages
+        if (msg.deletedFor == 'all') return true; // Show "deleted" placeholder
+        if (msg.deletedFor is List && (msg.deletedFor as List).contains(_myUserId)) {
+          return false; // Hidden for me
+        }
+        return true;
       }).toList();
+    });
+  }
+
+  // ── Block / Report ─────────────────────────────────────────────────────────
+
+  /// Block a user. Prevents messaging and hides conversation.
+  Future<void> blockUser(String otherUserId) async {
+    await _fs.collection('blocks').doc('${_myUserId}_$otherUserId').set({
+      'blockedBy': _myUserId,
+      'blockedUser': otherUserId,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Unblock a user.
+  Future<void> unblockUser(String otherUserId) async {
+    await _fs.collection('blocks').doc('${_myUserId}_$otherUserId').delete();
+  }
+
+  /// Check if current user blocked the other user.
+  Future<bool> isBlocked(String otherUserId) async {
+    final doc = await _fs.collection('blocks').doc('${_myUserId}_$otherUserId').get();
+    return doc.exists;
+  }
+
+  /// Check if the other user blocked me.
+  Future<bool> isBlockedBy(String otherUserId) async {
+    final doc = await _fs.collection('blocks').doc('${otherUserId}_$_myUserId').get();
+    return doc.exists;
+  }
+
+  /// Report a user with reason.
+  Future<void> reportUser(String otherUserId, String reason) async {
+    await _fs.collection('reports').add({
+      'reportedBy': _myUserId,
+      'reportedUser': otherUserId,
+      'reason': reason,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ── Message Deletion ────────────────────────────────────────────────────────
+
+  /// Delete message for me only (hides it locally via a deletedFor field).
+  Future<void> deleteMessageForMe(String otherUserId, String messageId) async {
+    final String cId = chatId(_myUserId!, otherUserId);
+    await _fs
+        .collection('chats')
+        .doc(cId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+      'deletedFor': FieldValue.arrayUnion([_myUserId]),
+    });
+  }
+
+  /// Delete message for everyone (only sender can do this).
+  Future<void> deleteMessageForEveryone(String otherUserId, String messageId) async {
+    final String cId = chatId(_myUserId!, otherUserId);
+    await _fs
+        .collection('chats')
+        .doc(cId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+      'deletedFor': 'all',
+      'body': '',
+      'imageUrl': null,
+      'type': 'deleted',
     });
   }
 
@@ -190,10 +268,20 @@ class FirebaseChatService {
     String? otherAvatarUrl,
     String type = 'text',
     String? imageUrl,
+    String? idempotencyKey,
   }) async {
     final String cId = chatId(_myUserId!, otherUserId);
     final DocumentReference chatDoc = _fs.collection('chats').doc(cId);
     final CollectionReference messagesCol = chatDoc.collection('messages');
+
+    // Duplicate send protection via idempotency key
+    if (idempotencyKey != null) {
+      final existing = await messagesCol
+          .where('idempotencyKey', isEqualTo: idempotencyKey)
+          .limit(1)
+          .get();
+      if (existing.docs.isNotEmpty) return; // Already sent
+    }
 
     final now = FieldValue.serverTimestamp();
 
@@ -203,6 +291,7 @@ class FirebaseChatService {
       'body': body,
       'type': type,
       if (imageUrl != null) 'imageUrl': imageUrl,
+      if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
       'createdAt': now,
       'deliveredAt': null,
       'readAt': null,
@@ -228,6 +317,7 @@ class FirebaseChatService {
   }
 
   /// Upload an image and send it as a message.
+  /// Validates file size (max 5MB) and format before uploading.
   Future<void> sendImage({
     required String otherUserId,
     required File imageFile,
@@ -236,13 +326,23 @@ class FirebaseChatService {
     required String otherDisplayName,
     String? otherAvatarUrl,
   }) async {
+    // Image validation
+    final int fileSize = await imageFile.length();
+    if (fileSize > 5 * 1024 * 1024) {
+      throw Exception('Image too large (max 5 MB)');
+    }
+    final String ext = imageFile.path.split('.').last.toLowerCase();
+    if (!{'jpg', 'jpeg', 'png', 'webp', 'heic'}.contains(ext)) {
+      throw Exception('Unsupported image format');
+    }
+
     final String cId = chatId(_myUserId!, otherUserId);
     final String fileName =
         '${DateTime.now().millisecondsSinceEpoch}_${imageFile.path.split('/').last}';
     final Reference ref =
         FirebaseStorage.instance.ref('chats/$cId/$fileName');
 
-    await ref.putFile(imageFile);
+    await ref.putFile(imageFile, SettableMetadata(contentType: 'image/$ext'));
     final String downloadUrl = await ref.getDownloadURL();
 
     await sendMessage(
@@ -365,6 +465,7 @@ class FirebaseMessage {
     this.readAt,
     this.type = 'text',
     this.imageUrl,
+    this.deletedFor,
   });
 
   final String id;
@@ -375,4 +476,5 @@ class FirebaseMessage {
   final DateTime? readAt;
   final String type;
   final String? imageUrl;
+  final dynamic deletedFor; // 'all' or List<String> of user IDs
 }

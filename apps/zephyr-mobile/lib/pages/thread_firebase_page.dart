@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../services/firebase_chat_service.dart';
+import '../services/translation_service.dart';
 
 /// Firebase-backed thread page — completely isolated from the custom thread.
 /// Uses Firestore real-time listeners for messages.
@@ -33,10 +35,18 @@ class ThreadFirebasePage extends StatefulWidget {
 
 class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   List<FirebaseMessage> _messages = [];
+  List<FirebaseMessage> _olderMessages = [];
   StreamSubscription<List<FirebaseMessage>>? _sub;
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   bool _sending = false;
+  bool _loadingMore = false;
+  bool _hasMore = true;
+  final Map<String, String> _translations = {}; // messageId -> translated text
+  final Set<String> _translating = {}; // messageIds currently being translated
+
+  String _generateKey() =>
+      '${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(999999)}';
 
   @override
   void initState() {
@@ -53,6 +63,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         _markIncomingRead(msgs);
       }
     });
+    _scrollCtrl.addListener(_onScroll);
   }
 
   void _markIncomingRead(List<FirebaseMessage> msgs) {
@@ -67,8 +78,41 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   void dispose() {
     _sub?.cancel();
     _inputCtrl.dispose();
+    _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    // Load more when scrolled near the top (reverse list, so maxScrollExtent = top)
+    if (_scrollCtrl.position.pixels >= _scrollCtrl.position.maxScrollExtent - 100 &&
+        !_loadingMore &&
+        _hasMore) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadMore() async {
+    final allMessages = [..._olderMessages, ..._messages];
+    if (allMessages.isEmpty) return;
+    setState(() => _loadingMore = true);
+    try {
+      final oldest = allMessages.first.createdAt;
+      final older = await FirebaseChatService.instance
+          .loadMoreMessages(widget.otherUserId, oldest);
+      if (mounted) {
+        setState(() {
+          if (older.isEmpty) {
+            _hasMore = false;
+          } else {
+            _olderMessages = [...older, ..._olderMessages];
+          }
+        });
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
   }
 
   void _scrollToBottom({bool jump = false}) {
@@ -86,8 +130,15 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   Future<void> _send() async {
     final String text = _inputCtrl.text.trim();
     if (text.isEmpty || _sending) return;
+    if (text.length > 2000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Message too long (max 2000 characters)')),
+      );
+      return;
+    }
     setState(() => _sending = true);
     _inputCtrl.clear();
+    final String key = _generateKey();
 
     try {
       await FirebaseChatService.instance.sendMessage(
@@ -97,6 +148,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         myAvatarUrl: widget.myAvatarUrl,
         otherDisplayName: widget.otherDisplayName,
         otherAvatarUrl: widget.otherAvatarUrl,
+        idempotencyKey: key,
       );
     } catch (e) {
       if (mounted) {
@@ -131,6 +183,119 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       }
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  List<FirebaseMessage> get _allMessages => [..._olderMessages, ..._messages];
+
+  void _showMessageMenu(FirebaseMessage msg) {
+    final bool isMe = msg.senderId == widget.myUserId;
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Delete for me'),
+              onTap: () {
+                Navigator.pop(ctx);
+                FirebaseChatService.instance
+                    .deleteMessageForMe(widget.otherUserId, msg.id);
+              },
+            ),
+            if (isMe)
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text('Delete for everyone',
+                    style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  FirebaseChatService.instance
+                      .deleteMessageForEveryone(widget.otherUserId, msg.id);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleMenuAction(String action) async {
+    switch (action) {
+      case 'block':
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Block user'),
+            content: Text('Block ${widget.otherDisplayName}? They won\'t be able to message you.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Block', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true && mounted) {
+          await FirebaseChatService.instance.blockUser(widget.otherUserId);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('User blocked')),
+            );
+            Navigator.pop(context);
+          }
+        }
+      case 'report':
+        final controller = TextEditingController();
+        final reason = await showDialog<String>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Report user'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(hintText: 'Reason for reporting...'),
+              maxLines: 3,
+              autofocus: true,
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                child: const Text('Report', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+        if (reason != null && reason.isNotEmpty && mounted) {
+          await FirebaseChatService.instance.reportUser(widget.otherUserId, reason);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Report submitted')),
+            );
+          }
+        }
+    }
+  }
+
+  Future<void> _translateMessage(FirebaseMessage msg) async {
+    if (_translations.containsKey(msg.id)) {
+      // Toggle off — remove translation
+      setState(() => _translations.remove(msg.id));
+      return;
+    }
+    setState(() => _translating.add(msg.id));
+    final String targetLang =
+        Localizations.localeOf(context).languageCode;
+    final String translated = await TranslationService.instance
+        .translate(msg.body, targetLang: targetLang);
+    if (mounted) {
+      setState(() {
+        _translating.remove(msg.id);
+        _translations[msg.id] = translated;
+      });
     }
   }
 
@@ -235,11 +400,21 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
             ),
           ],
         ),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) => _handleMenuAction(value),
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'block', child: Text('Block user')),
+              const PopupMenuItem(value: 'report', child: Text('Report user')),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
           Expanded(
-            child: _messages.isEmpty
+            child: _messages.isEmpty && _olderMessages.isEmpty
                 ? Center(
                     child: Text('Say hello!',
                         style: TextStyle(color: Colors.grey.shade500)))
@@ -247,25 +422,66 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                     reverse: true,
                     controller: _scrollCtrl,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                    itemCount: _messages.length,
+                    itemCount: _allMessages.length + (_loadingMore ? 1 : 0),
                     itemBuilder: (BuildContext ctx, int i) {
-                      final int msgIdx = _messages.length - 1 - i;
-                      final FirebaseMessage msg = _messages[msgIdx];
+                      // Loading indicator at top (end of reverse list)
+                      if (_loadingMore && i == _allMessages.length) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        );
+                      }
+                      final int msgIdx = _allMessages.length - 1 - i;
+                      final FirebaseMessage msg = _allMessages[msgIdx];
                       final bool isMe = msg.senderId == widget.myUserId;
                       final bool showHeader = msgIdx == 0 ||
                           _isDifferentDay(
-                              _messages[msgIdx - 1].createdAt, msg.createdAt);
+                              _allMessages[msgIdx - 1].createdAt, msg.createdAt);
+                      final bool isDeleted = msg.type == 'deleted';
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           if (showHeader)
                             _buildDateHeader(_formatDateHeader(msg.createdAt)),
-                          Align(
-                            alignment: isMe
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: Container(
+                          GestureDetector(
+                            onLongPress: isDeleted ? null : () => _showMessageMenu(msg),
+                            child: Row(
+                            mainAxisAlignment: isMe
+                                ? MainAxisAlignment.end
+                                : MainAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (!isMe && !isDeleted && msg.type == 'text' && msg.body.isNotEmpty)
+                                GestureDetector(
+                                  onTap: () => _translateMessage(msg),
+                                  child: Container(
+                                    margin: const EdgeInsets.only(right: 4, bottom: 6),
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? const Color(0xFF3A3A3C)
+                                          : Colors.grey.shade200,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: _translating.contains(msg.id)
+                                        ? const SizedBox(
+                                            width: 12,
+                                            height: 12,
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 1.5))
+                                        : Icon(
+                                            _translations.containsKey(msg.id)
+                                                ? Icons.translate
+                                                : Icons.translate,
+                                            size: 12,
+                                            color: _translations.containsKey(msg.id)
+                                                ? Colors.blue.shade300
+                                                : Colors.grey.shade500,
+                                          ),
+                                  ),
+                                ),
+                              Flexible(child: Container(
                               margin: const EdgeInsets.symmetric(vertical: 3),
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 14, vertical: 10),
@@ -297,7 +513,13 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                     ? CrossAxisAlignment.end
                                     : CrossAxisAlignment.start,
                                 children: [
-                                  if (msg.type == 'image' && msg.imageUrl != null)
+                                  if (isDeleted)
+                                    Text('🚫 This message was deleted',
+                                        style: TextStyle(
+                                            fontSize: 14,
+                                            fontStyle: FontStyle.italic,
+                                            color: Colors.grey.shade500))
+                                  else if (msg.type == 'image' && msg.imageUrl != null)
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(12),
                                       child: CachedNetworkImage(
@@ -313,8 +535,11 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                         ),
                                       ),
                                     )
-                                  else
-                                    Text(msg.body,
+                                  else ...[
+                                    Text(
+                                        _translations.containsKey(msg.id)
+                                            ? _translations[msg.id]!
+                                            : msg.body,
                                         style: TextStyle(
                                             fontSize: 15,
                                             color: isMe
@@ -322,6 +547,16 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                                 : (isDark
                                                     ? Colors.white
                                                     : Colors.black87))),
+                                    if (_translations.containsKey(msg.id))
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: Text('translated',
+                                            style: TextStyle(
+                                                fontSize: 10,
+                                                fontStyle: FontStyle.italic,
+                                                color: Colors.grey.shade500)),
+                                      ),
+                                  ],
                                   const SizedBox(height: 3),
                                   Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -354,7 +589,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                   ),
                                 ],
                               ),
-                            ),
+                            )),
+                            ],
+                          ),
                           ),
                         ],
                       );
