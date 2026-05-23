@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../widgets/hero_bullet.dart';
-import 'thread_page.dart';
+import 'thread_firebase_page.dart';
 import '../flags.dart';
 import '../widgets/coin_icon.dart';
 import '../l10n/app_localizations.dart';
@@ -20,6 +20,8 @@ class ProfilePage extends StatefulWidget {
     this.apiClient,
     this.accessToken,
     this.myUserId,
+    this.myDisplayName,
+    this.myAvatarUrl,
   });
 
   final LiveFeedCard feedCard;
@@ -28,6 +30,8 @@ class ProfilePage extends StatefulWidget {
   final ZephyrApiClient? apiClient;
   final String? accessToken;
   final String? myUserId;
+  final String? myDisplayName;
+  final String? myAvatarUrl;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -210,15 +214,13 @@ class _ProfilePageState extends State<ProfilePage> {
               flex: 1,
               child: OutlinedButton.icon(
                 onPressed: () {
-                  final api = widget.apiClient;
-                  final token = widget.accessToken;
                   final me = widget.myUserId;
-                  if (api != null && token != null && me != null) {
+                  if (me != null) {
                     Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => ThreadPage(
-                        apiClient: api,
-                        accessToken: token,
+                      builder: (_) => ThreadFirebasePage(
                         myUserId: me,
+                        myDisplayName: widget.myDisplayName ?? 'User',
+                        myAvatarUrl: widget.myAvatarUrl,
                         otherUserId: _card.hostUserId,
                         otherDisplayName: _card.hostDisplayName,
                         otherAvatarUrl: _card.hostAvatarUrl,

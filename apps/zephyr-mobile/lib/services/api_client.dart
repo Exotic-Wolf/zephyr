@@ -212,12 +212,35 @@ class ZephyrApiClient {
     );
   }
 
+  Future<String> getFirebaseToken(String accessToken) async {
+    final Map<String, dynamic> res = await _request(
+      method: 'POST',
+      path: '/v1/auth/firebase-token',
+      accessToken: accessToken,
+    ) as Map<String, dynamic>;
+    return res['firebaseToken'] as String;
+  }
+
   Future<void> unregisterDeviceToken(String accessToken, String token) async {
     await _request(
       method: 'DELETE',
       path: '/v1/messages/device-token',
       accessToken: accessToken,
       body: <String, dynamic>{'token': token},
+    );
+  }
+
+  Future<void> sendPushNotification(
+      String accessToken, String recipientId, String title, String body) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/messages/push',
+      accessToken: accessToken,
+      body: <String, dynamic>{
+        'recipientId': recipientId,
+        'title': title,
+        'body': body,
+      },
     );
   }
 

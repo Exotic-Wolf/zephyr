@@ -9,15 +9,14 @@ import 'package:socket_io_client/socket_io_client.dart' as sio;
 import '../flags.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
-import '../services/local_db.dart';
+import '../services/firebase_chat_service.dart';
 import '../services/presence_bus.dart';
 import '../widgets/coin_icon.dart';
 import 'explore_page.dart';
 import 'go_live_countdown_page.dart';
-import 'inbox_page.dart';
+import 'inbox_firebase_page.dart';
 import 'my_profile_page.dart';
 import 'profile_page.dart';
-import 'thread_page.dart';
 import 'viewer_live_screen.dart';
 import '../app_constants.dart';
 import 'call_price_page.dart';
@@ -50,7 +49,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _roomTitleController = TextEditingController();
   final PageController _feedController = PageController();
   UserProfile? _me;
@@ -76,13 +75,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _callTickTimer;
   Timer? _feedPollTimer;
   sio.Socket? _feedSocket;
-  sio.Socket? _chatSocket;
-  bool _chatSocketConnectedOnce = false;
-  int _inboxUnread = 0;
-  String? _activeThreadUserId;
-  Timer? _badgeSyncTimer;
   Timer? _keepAliveTimer;
-  Timer? _presencePingTimer;
   Timer? _heartbeatTimer;
   bool _tickInFlight = false;
   bool _rtcLoading = false;
@@ -96,7 +89,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool? _apiReachable;
   bool _loading = true;
   final bool _creating = false;
-  int _inboxRefreshSignal = 0;
+
   StreamSubscription<RemoteMessage>? _fcmSub;
   String? _joiningRoomId;
   String? _error;
@@ -104,7 +97,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
+
     _selectedTabIndex = widget.tabNotifier?.value ?? 0;
     widget.tabNotifier?.addListener(_onTabNotify);
     _loadData();
@@ -112,151 +105,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _connectFeedSocket();
     // Safety net: poll every 5s in case socket drops or hasn't connected yet
     _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
-    // Periodic badge resync: covers socket-drop gap when app stays open without a resume event
-    _badgeSyncTimer = Timer.periodic(const Duration(seconds: 60), (_) {
-      if (!mounted) return;
-      _resyncBadge();
-    });
     // Keep Render awake — free tier sleeps after 15 min; ping every 4 min prevents it
     _keepAliveTimer = Timer.periodic(const Duration(minutes: 4), (_) {
       widget.apiClient.ping().ignore();
     });
-    // FCM foreground: ACK delivery + refresh InboxPage when it's open.
-    _fcmSub = FirebaseMessaging.onMessage.listen((RemoteMessage rm) {
-      if (!mounted) return;
-      // ACK delivery for the message that triggered this push
-      final String? msgId = rm.data['messageId'];
-      if (msgId != null && msgId.isNotEmpty) {
-        widget.apiClient.markMessageDelivered(widget.accessToken, msgId).ignore();
-      }
-      if (_selectedTabIndex == 3) setState(() => _inboxRefreshSignal++);
-    });
+    _fcmSub = FirebaseMessaging.onMessage.listen((_) {});
   }
 
   void _onTabNotify() {
     final int tab = widget.tabNotifier?.value ?? 0;
     if (mounted) {
       setState(() => _selectedTabIndex = tab);
-      if (tab == 3) _resyncBadge();
     }
-  }
-
-  void _resyncBadge() {
-    widget.apiClient.getConversations(widget.accessToken).then((convos) {
-      if (!mounted) return;
-      setState(() {
-        _inboxUnread = convos.fold(0, (int s, c) => s + c.unreadCount);
-      });
-    }).ignore();
-  }
-
-  /// ACK delivery for any messages received via FCM while socket was down.
-  void _ackUndeliveredMessages() {
-    final String? userId = _me?.id;
-    if (userId == null) return;
-    LocalDb.instance.getUndeliveredIncomingIds(userId).then((ids) {
-      for (final String id in ids) {
-        widget.apiClient.markMessageDelivered(widget.accessToken, id).ignore();
-      }
-    }).ignore();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _resyncBadge();
-      _ackUndeliveredMessages();
-    }
-  }
-
-  void _connectChatSocket() {
-    final String? userId = _me?.id;
-    if (userId == null) return;
-    _chatSocket = sio.io(
-      '$apiBaseUrl/chat',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .setQuery(<String, String>{'userId': userId})
-          .enableReconnection()
-          .setReconnectionAttempts(999999)
-          .setReconnectionDelay(2000)
-          .disableAutoConnect()
-          .build(),
-    )
-      ..on('connect', (_) {
-        _chatSocket?.emit('chat:join', userId);
-        _startPresencePing();
-        _ackUndeliveredMessages();
-        if (_chatSocketConnectedOnce) {
-          // Reconnect: resync badge from API to recover missed messages
-          ChatReconnectBus.instance.fire();
-          _resyncBadge();
-        } else {
-          _chatSocketConnectedOnce = true;
-        }
-      })
-      ..on('chat:message', (dynamic data) {
-        if (!mounted) return;
-        // Parse and forward to any open ThreadPage via MessageBus
-        ZephyrMessage? msg;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final Map<String, dynamic> msgJson =
-              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
-          msg = ZephyrMessage.fromJson(msgJson);
-          // Persist to local SQLite
-          LocalDb.instance.upsertMessage(msg);
-          MessageBus.instance.emit(msg);
-        } catch (_) {}
-        // Only process INCOMING messages (not our own sends echoed back)
-        if (msg == null || msg.senderId == _me?.id) return;
-        // ACK delivery to server → sender gets ✓✓
-        widget.apiClient.markMessageDelivered(widget.accessToken, msg.id).ignore();
-        if (_selectedTabIndex == 3 && _activeThreadUserId == msg.senderId) return;
-        setState(() => _inboxUnread++);
-      })
-      ..on('chat:delivered', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final Map<String, dynamic> msgJson =
-              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final ZephyrMessage updated = ZephyrMessage.fromJson(msgJson);
-          LocalDb.instance.upsertMessage(updated);
-          ReadReceiptBus.instance.emit(updated);
-        } catch (_) {}
-      })
-      ..on('chat:read', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final Map<String, dynamic> msgJson =
-              (payload['message'] as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final ZephyrMessage updated = ZephyrMessage.fromJson(msgJson);
-          LocalDb.instance.upsertMessage(updated);
-          ReadReceiptBus.instance.emit(updated);
-        } catch (_) {}
-      })
-      ..on('disconnect', (_) {
-        _stopPresencePing();
-      })
-      ..connect();
-  }
-
-  void _startPresencePing() {
-    _stopPresencePing();
-    _presencePingTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => _chatSocket?.emit('presence:ping'),
-    );
-  }
-
-  void _stopPresencePing() {
-    _presencePingTimer?.cancel();
-    _presencePingTimer = null;
   }
 
   void _sendHeartbeat() {
@@ -349,15 +209,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     _fcmSub?.cancel();
     widget.tabNotifier?.removeListener(_onTabNotify);
-    WidgetsBinding.instance.removeObserver(this);
     _callTickTimer?.cancel();
     _feedPollTimer?.cancel();
-    _badgeSyncTimer?.cancel();
     _keepAliveTimer?.cancel();
-    _stopPresencePing();
     _heartbeatTimer?.cancel();
     _feedSocket?.dispose();
-    _chatSocket?.dispose();
     _roomTitleController.dispose();
     _feedController.dispose();
     _searchCtrl.dispose();
@@ -377,7 +233,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         widget.apiClient.getWalletSummary(widget.accessToken),
         widget.apiClient.listCoinPacks(),
         widget.apiClient.getFollowingIds(widget.accessToken),
-        widget.apiClient.getConversations(widget.accessToken),
       ]);
 
       final UserProfile me = data[0] as UserProfile;
@@ -385,7 +240,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final WalletSummary wallet = data[2] as WalletSummary;
       final Set<String> followingIds = data[4] as Set<String>;
       final List<CoinPack> packs = data[3] as List<CoinPack>;
-      final List<ZephyrConversation> conversations = data[5] as List<ZephyrConversation>;
 
       if (!mounted) {
         return;
@@ -416,19 +270,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ? 0
             : _activeFeedIndex.clamp(0, feedCards.length - 1);
         _me = me;
-        // Set initial unread badge from persisted conversation counts
-        if (_selectedTabIndex != 3) {
-          _inboxUnread = conversations.fold(0, (int sum, ZephyrConversation c) => sum + c.unreadCount);
-        }
       });
-      // Connect chat socket now that we have userId
-      if (_chatSocket == null) _connectChatSocket();
       // Start HTTP heartbeat for presence (runs regardless of socket state)
       _heartbeatTimer ??= Timer.periodic(
         const Duration(seconds: 20),
         (_) => _sendHeartbeat(),
       );
       _sendHeartbeat(); // immediate first beat
+      // Initialize Firebase with custom token for secure auth
+      _initFirebaseChat(me.id);
     } catch (error) {
       setState(() {
         _error = error.toString();
@@ -440,6 +290,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
       }
     }
+  }
+
+  Future<void> _initFirebaseChat(String userId) async {
+    try {
+      final String token =
+          await widget.apiClient.getFirebaseToken(widget.accessToken);
+      await FirebaseChatService.instance.init(userId, firebaseToken: token);
+    } catch (_) {
+      // Fallback to anonymous if backend doesn't support custom tokens yet
+      await FirebaseChatService.instance.init(userId);
+    }
+    // Wire push notifications for Firebase chat
+    FirebaseChatService.instance.onSendPush = (recipientId, title, body) async {
+      widget.apiClient
+          .sendPushNotification(widget.accessToken, recipientId, title, body)
+          .ignore();
+    };
   }
 
   Future<void> _refreshApiStatus() async {
@@ -711,6 +578,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           apiClient: widget.apiClient,
           accessToken: widget.accessToken,
           myUserId: _me?.id,
+          myDisplayName: _me?.displayName,
+          myAvatarUrl: _me?.avatarUrl,
           onMessage: () {
             Navigator.of(context).pop();
             setState(() => _selectedTabIndex = 3);
@@ -1661,21 +1530,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 accessToken: widget.accessToken,
                 myUserId: _me?.id ?? '',
               ),
-            3 => InboxPage(
-                key: ValueKey(_inboxRefreshSignal),
-                apiClient: widget.apiClient,
-                accessToken: widget.accessToken,
+            3 => InboxFirebasePage(
                 myUserId: _me?.id ?? '',
-                onThreadChanged: (String? userId, int unreadCount) {
-                  setState(() {
-                    _activeThreadUserId = userId;
-                    if (userId != null) {
-                      // Opening thread: instantly decrement badge by conversation's unread
-                      _inboxUnread = (_inboxUnread - unreadCount).clamp(0, 999);
-                    }
-                  });
-                  if (userId == null) _resyncBadge(); // thread closed → confirm with API
-                },
+                myDisplayName: _me?.displayName ?? 'User',
+                myAvatarUrl: _me?.avatarUrl,
               ),
             4 => _buildMeTab(),
             _ => const SizedBox.shrink(),
@@ -1811,7 +1669,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }),
         onDestinationSelected: (int index) {
           setState(() => _selectedTabIndex = index);
-          if (index == 3) _resyncBadge();
         },
         destinations: <NavigationDestination>[
           NavigationDestination(
@@ -1830,16 +1687,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             label: l10n.explore,
           ),
           NavigationDestination(
-            icon: Badge(
-              isLabelVisible: _inboxUnread > 0,
-              label: Text(_inboxUnread > 99 ? '99+' : '$_inboxUnread'),
-              child: Icon(Icons.chat_bubble_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
-            ),
-            selectedIcon: Badge(
-              isLabelVisible: _inboxUnread > 0,
-              label: Text(_inboxUnread > 99 ? '99+' : '$_inboxUnread'),
-              child: const Icon(Icons.chat_bubble_rounded, color: Color(0xFFFF8F00)),
-            ),
+            icon: Icon(Icons.chat_bubble_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
+            selectedIcon: const Icon(Icons.chat_bubble_rounded, color: Color(0xFFFF8F00)),
             label: l10n.inbox,
           ),
           NavigationDestination(
