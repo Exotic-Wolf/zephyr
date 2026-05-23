@@ -117,10 +117,12 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
       );
 
       _engine = engine;
-      if (mounted) setState(() {
-        _channelName = info.channelName;
-        _engineReady = true;
-      });
+      if (mounted) {
+        setState(() {
+          _channelName = info.channelName;
+          _engineReady = true;
+        });
+      }
     } catch (e) {
       debugPrint('[Agora viewer] init error: $e');
     }

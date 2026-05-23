@@ -103,8 +103,9 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
             ],
           ),
         );
-        if (userId != null && userId.isNotEmpty && mounted) {
-          Navigator.of(context).push(
+        if (userId == null || userId.isEmpty) return;
+        if (!context.mounted) return;
+        Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => ThreadFirebasePage(
                 myUserId: widget.myUserId,
@@ -116,7 +117,6 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
               ),
             ),
           );
-        }
       },
     );
   }

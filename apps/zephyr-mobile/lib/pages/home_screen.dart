@@ -66,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
     CoinPack(id: 'pack_9999', label: '550K',   coins: 550000, priceUsd: 99.99),
   ];
   final int _callMinutes = 2;
-  String _callMode = 'direct';
+  final String _callMode = 'direct';
   int _selectedDirectRate = 2100;
   CallQuote? _callQuote;
   Timer? _callTickTimer;
@@ -1312,10 +1312,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     );
-                    if (confirm == true) {
-                      Navigator.of(context).popUntil((route) => route.isFirst);
-                      widget.onLogout();
-                    }
+                    if (confirm != true) return;
+                    if (!context.mounted) return;
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                    widget.onLogout();
                   },
                 ),
               ],
