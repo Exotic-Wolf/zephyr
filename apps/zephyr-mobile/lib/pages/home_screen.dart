@@ -1,16 +1,17 @@
 import 'dart:async';
-import 'dart:math' show pi, sin;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
-import '../flags.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/firebase_chat_service.dart';
 import '../widgets/coin_icon.dart';
+import '../features/home/widgets/popular_feed.dart';
+import '../features/home/widgets/discover_feed.dart';
+import '../features/home/widgets/follow_feed.dart';
 import 'explore_page.dart';
 import 'go_live_countdown_page.dart';
 import 'inbox_firebase_page.dart';
@@ -479,186 +480,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildDiscoverLiveCard(
-    LiveFeedCard feedCard,
-    bool isTablet, {
-    bool showPreview = true,
-    VoidCallback? onTap,
-  }) {
-    final bool joiningCurrentRoom = feedCard.roomId != null && _joiningRoomId == feedCard.roomId;
-    final double borderRadius = isTablet ? 44 : 34;
-    final String localeLine = showPreview
-        ? '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode} ${feedCard.hostLanguage}'
-        : '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode}';
-
-    return ValueListenableBuilder<int>(
-      valueListenable: FirebaseChatService.instance.presenceVersion,
-      builder: (context, _, __) {
-    final String status =
-        FirebaseChatService.instance.presenceStateCached(feedCard.hostUserId) ?? feedCard.hostStatus;
-    final bool isLive = status == 'live';
-
-    final Color statusDot = switch (status) {
-      'live'    => const Color(0xFFFF3B30),
-      'busy'    => const Color(0xFFFF9500),
-      'offline' => const Color(0xFF8E8E93),
-      _         => const Color(0xFF34C759),
-    };
-    final String statusLabel = switch (status) {
-      'live'    => 'Live',
-      'busy'    => 'Busy',
-      'offline' => 'Offline',
-      _         => 'Online',
-    };
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(borderRadius),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(borderRadius),
-          onTap: joiningCurrentRoom
-              ? null
-              : onTap ?? () => _enterRoom(feedCard),
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: <Color>[Color(0xFF1C1C2E), Color(0xFF2D2D44)],
-              ),
-            ),
-            child: Stack(
-            children: <Widget>[
-              // ── top-left status badge ──────────────────────────────
-              Positioned(
-                top: 16,
-                left: 16,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      if (showPreview) ...[
-                        Icon(
-                          Icons.videocam_rounded,
-                          color: Colors.white,
-                          size: 14,
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: statusDot,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        statusLabel,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // ── joining overlay ────────────────────────────────────
-              Positioned(
-                top: 20,
-                left: 20,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 180),
-                  opacity: joiningCurrentRoom ? 1 : 0,
-                  child: const Text(
-                    'Opening live...',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-              // ── preview box — only shown when Live ─────────────────
-              if (isLive && showPreview)
-                Positioned(
-                  top: 20,
-                  right: 20,
-                  child: Container(
-                    width: isTablet ? 150 : 100,
-                    height: isTablet ? 180 : 130,
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    // LiveKit video widget mounts here when wired
-                  ),
-                ),
-              Positioned(
-                bottom: 12,
-                left: 16,
-                right: 4,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: <Widget>[
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            feedCard.hostDisplayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            localeLine,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    _ShakeCallButton(
-                      onTap: () => _openCallTabForHost(feedCard.hostUserId),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          ),
-        ),
-      ),
-    );
-      },
-    );
-  }
-
   List<LiveFeedCard> get _visibleCards {
     List<LiveFeedCard> cards = _filterCountry == null
         ? _feedCards
@@ -677,166 +498,49 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildPopularTab(bool isTablet) {
     final List<LiveFeedCard> cards = _visibleCards;
-    if (cards.isEmpty) {
-      return Center(
-        child: Text(
-          _feedCards.isEmpty
-              ? AppLocalizations.of(context)!.noPopularStreamersRightNow
-              : _searchQuery.isNotEmpty
-                  ? AppLocalizations.of(context)!.noResultsFor(_searchQuery)
-                  : AppLocalizations.of(context)!.noStreamersFrom(_filterCountry?.name ?? 'there'),
-        ),
-      );
-    }
-
-    return Stack(
-      children: <Widget>[
-        GridView.builder(
-          padding: const EdgeInsets.only(bottom: 56),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: isTablet ? 0.72 : 0.62,
-          ),
-          itemCount: cards.length,
-          itemBuilder: (BuildContext context, int index) {
-            return _buildDiscoverLiveCard(cards[index], isTablet,
-                showPreview: false,
-                onTap: () => _openProfilePage(cards[index]));
-          },
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Center(
-            child: FilledButton(
-              onPressed: _startRandomMatchFromHome,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF7BEA3B),
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-              ),
-              child: const Text('Random match'),
-            ),
-          ),
-        ),
-      ],
+    return PopularFeed(
+      cards: cards,
+      allCardsEmpty: _feedCards.isEmpty,
+      searchQuery: _searchQuery,
+      filterCountryName: _filterCountry?.name,
+      isTablet: isTablet,
+      onCardTap: _openProfilePage,
+      onCallTap: (card) => _openCallTabForHost(card.hostUserId),
+      onRandomMatch: _startRandomMatchFromHome,
     );
   }
 
   Widget _buildFollowTab(bool isTablet) {
-    final List<LiveFeedCard> followed = _visibleCards
-        .where((LiveFeedCard c) => _followingIds.contains(c.hostUserId))
-        .toList();
-
-    if (_followingIds.isEmpty || followed.isEmpty) {
-      return Center(
-        child: Text(
-          _followingIds.isEmpty
-              ? AppLocalizations.of(context)!.followSomeoneToSeeThemHere
-              : AppLocalizations.of(context)!.noneOfPeopleYouFollowAreLive(_filterCountry?.name ?? 'there'),
-          textAlign: TextAlign.center,
-        ),
-      );
-    }
-
-    return Stack(
-      children: <Widget>[
-        GridView.builder(
-          padding: const EdgeInsets.only(bottom: 56),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: isTablet ? 0.72 : 0.62,
-          ),
-          itemCount: followed.length,
-          itemBuilder: (BuildContext context, int index) {
-            return _buildDiscoverLiveCard(followed[index], isTablet,
-                showPreview: false,
-                onTap: () => _openProfilePage(followed[index]));
-          },
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Center(
-            child: FilledButton(
-              onPressed: _startRandomMatchFromHome,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF7BEA3B),
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-              ),
-              child: const Text('Random match'),
-            ),
-          ),
-        ),
-      ],
+    final List<LiveFeedCard> cards = _visibleCards;
+    return FollowFeed(
+      cards: cards,
+      followingIds: _followingIds,
+      filterCountryName: _filterCountry?.name,
+      isTablet: isTablet,
+      onCardTap: _openProfilePage,
+      onCallTap: (card) => _openCallTabForHost(card.hostUserId),
+      onRandomMatch: _startRandomMatchFromHome,
     );
   }
 
   Widget _buildDiscoverTab(bool isTablet) {
     final List<LiveFeedCard> cards = _visibleCards;
-    if (cards.isEmpty) {
-      return Center(
-        child: Text(
-          _feedCards.isEmpty
-              ? AppLocalizations.of(context)!.noOneIsLiveRightNow
-              : _searchQuery.isNotEmpty
-                  ? AppLocalizations.of(context)!.noResultsFor(_searchQuery)
-                  : AppLocalizations.of(context)!.noOneIsLiveFrom(_filterCountry?.name ?? 'there'),
-        ),
-      );
-    }
-
-    return Stack(
-      children: <Widget>[
-        PageView.builder(
-          controller: _feedController,
-          scrollDirection: Axis.vertical,
-          itemCount: cards.length,
-          onPageChanged: (int index) {
-            setState(() {
-              _activeFeedIndex = index;
-            });
-          },
-          itemBuilder: (BuildContext context, int index) {
-            return Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 18),
-              child: _buildDiscoverLiveCard(cards[index], isTablet),
-            );
-          },
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Center(
-            child: FilledButton(
-              onPressed: _startRandomMatchFromHome,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF7BEA3B),
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-              ),
-              child: const Text('Random match'),
-            ),
-          ),
-        ),
-      ],
+    return DiscoverFeed(
+      cards: cards,
+      allCardsEmpty: _feedCards.isEmpty,
+      searchQuery: _searchQuery,
+      filterCountryName: _filterCountry?.name,
+      isTablet: isTablet,
+      pageController: _feedController,
+      onPageChanged: (int index) {
+        setState(() {
+          _activeFeedIndex = index;
+        });
+      },
+      onCardTap: _enterRoom,
+      onCallTap: (card) => _openCallTabForHost(card.hostUserId),
+      onRandomMatch: _startRandomMatchFromHome,
+      joiningRoomId: _joiningRoomId,
     );
   }
 
@@ -1603,124 +1307,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
         ],
-      ),
-    );
-  }
-}
-
-class _ShakeCallButton extends StatefulWidget {
-  const _ShakeCallButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  State<_ShakeCallButton> createState() => _ShakeCallButtonState();
-}
-
-class _ShakeCallButtonState extends State<_ShakeCallButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  static const Color _baseGreen = Color(0xFF00A651);
-  static const Color _lightGreen = Color(0xFF7BEA3B);
-  static const double _btnSize = 52;
-
-  @override
-  void initState() {
-    super.initState();
-    // 3.8 s cycle: short shake, rings expand slowly, long rest
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 3800),
-      vsync: this,
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  // gentle ring: only first 15% of cycle, slower oscillation (±6°)
-  double _shakeAngle(double t) {
-    if (t > 0.15) return 0;
-    return sin(t * 10 * 2 * pi) * (6 * pi / 180);
-  }
-
-  // ring grows slowly — expands over 40% of the cycle, staggered by phase
-  double? _ringProgress(double t, double phase) {
-    final double shifted = (t + phase) % 1.0;
-    if (shifted > 0.40) return null;
-    return shifted / 0.40;
-  }
-
-  Widget _buildRing(double progress) {
-    final double size = _btnSize + progress * 48;
-    final double opacity = (1 - progress) * 0.35;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: _baseGreen.withValues(alpha: opacity),
-          width: 2.0,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (BuildContext context, Widget? child) {
-        final double t = _controller.value;
-        final double? r1 = _ringProgress(t, 0.0);
-        final double? r2 = _ringProgress(t, 0.15);
-
-        return SizedBox(
-          width: _btnSize + 40,
-          height: _btnSize + 40,
-          child: Stack(
-            alignment: Alignment.center,
-            children: <Widget>[
-              if (r1 != null) _buildRing(r1),
-              if (r2 != null) _buildRing(r2),
-              Transform.rotate(
-                angle: _shakeAngle(t),
-                child: child,
-              ),
-            ],
-          ),
-        );
-      },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          width: _btnSize,
-          height: _btnSize,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.bottomLeft,
-              end: Alignment.topRight,
-              colors: <Color>[_baseGreen, _lightGreen],
-            ),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: Colors.black26,
-                blurRadius: 6,
-                offset: Offset(0, 3),
-              ),
-            ],
-          ),
-          child: const Icon(
-            Icons.call_rounded,
-            color: Colors.white,
-            size: 26,
-          ),
-        ),
       ),
     );
   }

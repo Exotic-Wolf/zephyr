@@ -195,10 +195,12 @@ class _ExplorePageState extends State<ExplorePage> {
           // ── Results / states ─────────────────────────────────────────────
           if (_searching)
             const SliverFillRemaining(
+              hasScrollBody: false,
               child: Center(child: CircularProgressIndicator()),
             )
           else if (!_hasSearched)
             SliverFillRemaining(
+              hasScrollBody: false,
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -263,6 +265,7 @@ class _ExplorePageState extends State<ExplorePage> {
             )
           else if (_results.isEmpty)
             SliverFillRemaining(
+              hasScrollBody: false,
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
