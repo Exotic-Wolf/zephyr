@@ -48,6 +48,7 @@ export class RoomsController {
       hostCountryCode: user.countryCode ?? 'PH',
       hostLanguage: user.language ?? 'English',
       hostStatus: 'live',
+      hostCallRateCoinsPerMinute: user.callRateCoinsPerMinute ?? null,
       startedAt: room.createdAt,
     });
     return room;

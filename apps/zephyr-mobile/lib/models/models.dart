@@ -144,6 +144,32 @@ class CallSessionTickResult {
   }
 }
 
+class WalletTransaction {
+  WalletTransaction({
+    required this.id,
+    required this.type,
+    required this.coinsDelta,
+    this.amountUsd,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String type;
+  final int coinsDelta;
+  final double? amountUsd;
+  final String createdAt;
+
+  factory WalletTransaction.fromJson(Map<String, dynamic> json) {
+    return WalletTransaction(
+      id: json['id'] as String,
+      type: json['type'] as String,
+      coinsDelta: (json['coinsDelta'] as num?)?.toInt() ?? 0,
+      amountUsd: (json['amountUsd'] as num?)?.toDouble(),
+      createdAt: json['createdAt'] as String,
+    );
+  }
+}
+
 class RtcJoinInfo {
   RtcJoinInfo({
     required this.provider,
@@ -347,6 +373,7 @@ class LiveFeedCard {
     required this.hostLanguage,
     required this.hostStatus,
     required this.startedAt,
+    this.callRateCoinsPerMinute,
   });
 
   final String? roomId;
@@ -360,6 +387,7 @@ class LiveFeedCard {
   /// 'live' | 'online' | 'busy' | 'offline'
   final String hostStatus;
   final DateTime startedAt;
+  final int? callRateCoinsPerMinute;
 
   factory LiveFeedCard.fromJson(Map<String, dynamic> json) {
     return LiveFeedCard(
@@ -375,6 +403,7 @@ class LiveFeedCard {
       hostLanguage: (json['hostLanguage'] as String? ?? 'English').trim(),
       hostStatus: (json['hostStatus'] as String? ?? 'online').trim().toLowerCase(),
       startedAt: DateTime.parse(json['startedAt'] as String),
+      callRateCoinsPerMinute: (json['hostCallRateCoinsPerMinute'] as num?)?.toInt(),
     );
   }
 
@@ -390,6 +419,7 @@ class LiveFeedCard {
       hostLanguage: hostLanguage,
       hostStatus: hostStatus ?? this.hostStatus,
       startedAt: startedAt,
+      callRateCoinsPerMinute: callRateCoinsPerMinute,
     );
   }
 }

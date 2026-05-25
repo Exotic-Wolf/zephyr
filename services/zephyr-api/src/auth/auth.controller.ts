@@ -1,4 +1,5 @@
 import { Body, Controller, Headers, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { StoreService } from '../core/store.service';
 import { FcmService } from '../core/fcm.service';
 import { GuestLoginDto } from './dto/guest-login.dto';
@@ -13,6 +14,7 @@ export class AuthController {
   ) {}
 
   @Post('guest-login')
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   async guestLogin(
     @Body() body: GuestLoginDto,
   ): Promise<{ accessToken: string; user: unknown }> {
@@ -20,6 +22,7 @@ export class AuthController {
   }
 
   @Post('google-login')
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   async googleLogin(
     @Body() body: GoogleLoginDto,
   ): Promise<{ accessToken: string; user: unknown }> {
@@ -27,6 +30,7 @@ export class AuthController {
   }
 
   @Post('apple-login')
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   async appleLogin(
     @Body() body: AppleLoginDto,
   ): Promise<{ accessToken: string; user: unknown }> {

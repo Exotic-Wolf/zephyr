@@ -55,6 +55,7 @@ export interface LiveFeedCard {
   hostCountryCode: string;
   hostLanguage: string;
   hostStatus: string;
+  hostCallRateCoinsPerMinute: number | null;
   startedAt: string;
 }
 
@@ -157,6 +158,15 @@ export interface GiftSendResult {
   receiverSpark: number;
   platformCoins: number;
   senderCoinBalanceAfter: number;
+}
+
+export interface WalletTransaction {
+  id: string;
+  type: string;
+  coinsDelta: number;
+  amountUsd: number | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
 }
 
 interface Session {
@@ -765,6 +775,7 @@ export class StoreService {
         host_country_code: string | null;
         host_language: string | null;
         user_status: string;
+        call_rate_coins_per_minute: number | null;
         room_id: string | null;
         audience_count: number | null;
         started_at: string | null;
@@ -777,6 +788,7 @@ export class StoreService {
             users.country_code  AS host_country_code,
             users.language      AS host_language,
             COALESCE(users.status, 'online') AS user_status,
+            users.call_rate_coins_per_minute,
             rooms.id            AS room_id,
             rooms.audience_count,
             rooms.created_at    AS started_at
@@ -803,6 +815,7 @@ export class StoreService {
         hostCountryCode: row.host_country_code ?? 'PH',
         hostLanguage: row.host_language ?? 'English',
         hostStatus: row.room_id ? 'live' : row.user_status,
+        hostCallRateCoinsPerMinute: row.call_rate_coins_per_minute,
         startedAt: row.started_at
           ? new Date(row.started_at).toISOString()
           : new Date().toISOString(),
@@ -825,6 +838,7 @@ export class StoreService {
           hostCountryCode: u.countryCode ?? 'PH',
           hostLanguage: u.language ?? 'English',
           hostStatus: room ? 'live' : (u as any).status ?? 'online',
+          hostCallRateCoinsPerMinute: u.callRateCoinsPerMinute ?? null,
           startedAt: room?.createdAt ?? new Date().toISOString(),
         };
       })
@@ -1350,6 +1364,41 @@ export class StoreService {
       .filter((s) => s.callerUserId === userId || s.receiverUserId === userId)
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
       .slice(0, normalizedLimit);
+  }
+
+  async getTransactionHistory(userId: string, limit = 50): Promise<WalletTransaction[]> {
+    const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
+
+    if (!this.databaseService?.isEnabled()) {
+      return [];
+    }
+
+    const result = await this.databaseService.query<{
+      id: string;
+      type: string;
+      coins_delta: number;
+      amount_usd: string | null;
+      metadata: Record<string, unknown> | null;
+      created_at: string;
+    }>(
+      `
+        SELECT id, type, coins_delta, amount_usd, metadata, created_at
+        FROM wallet_transactions
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+      `,
+      [userId, normalizedLimit],
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      coinsDelta: row.coins_delta,
+      amountUsd: row.amount_usd ? Number.parseFloat(row.amount_usd) : null,
+      metadata: row.metadata ?? {},
+      createdAt: row.created_at,
+    }));
   }
 
   // ── Messaging ────────────────────────────────────────────────────────────────
@@ -1986,6 +2035,141 @@ export class StoreService {
       directCallAllowedRatesCoinsPerMinute:
         config.directCallAllowedRatesCoinsPerMinute,
     };
+  }
+
+  // ─── Random Call Matching (longest-live-first + 4h cooldown) ──────────────
+
+  /**
+   * Find the best live host for a random call.
+   * Priority: longest live first (started_at ASC).
+   * Excludes: the caller, blocked users, hosts matched within 4h.
+   * Fallback: if all live hosts are in cooldown, ignore cooldown.
+   */
+  async findBestRandomMatch(callerId: string): Promise<string | null> {
+    if (!this.databaseService?.isEnabled()) return null;
+    const blockedIds = await this.getBlockedIds(callerId);
+    const blockedArr = [...blockedIds];
+
+    // Step 1: longest live + respect 4h cooldown
+    const withCooldown = await this.databaseService.query<{ host_user_id: string }>(
+      `SELECT r.host_user_id FROM rooms r
+       WHERE r.status = 'live'
+         AND r.host_user_id != $1
+         ${blockedArr.length > 0 ? `AND r.host_user_id != ALL($2::uuid[])` : ''}
+         AND NOT EXISTS (
+           SELECT 1 FROM random_call_matches m
+           WHERE m.caller_id = $1
+             AND m.host_id = r.host_user_id
+             AND m.matched_at > NOW() - INTERVAL '4 hours'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM call_sessions cs
+           WHERE cs.receiver_user_id = r.host_user_id
+             AND cs.status = 'live'
+         )
+       ORDER BY r.created_at ASC
+       LIMIT 1`,
+      blockedArr.length > 0 ? [callerId, blockedArr] : [callerId],
+    );
+
+    if (withCooldown.rows.length > 0) {
+      return withCooldown.rows[0].host_user_id;
+    }
+
+    // Step 2: fallback — ignore cooldown, still pick longest live
+    const fallback = await this.databaseService.query<{ host_user_id: string }>(
+      `SELECT r.host_user_id FROM rooms r
+       WHERE r.status = 'live'
+         AND r.host_user_id != $1
+         ${blockedArr.length > 0 ? `AND r.host_user_id != ALL($2::uuid[])` : ''}
+         AND NOT EXISTS (
+           SELECT 1 FROM call_sessions cs
+           WHERE cs.receiver_user_id = r.host_user_id
+             AND cs.status = 'live'
+         )
+       ORDER BY r.created_at ASC
+       LIMIT 1`,
+      blockedArr.length > 0 ? [callerId, blockedArr] : [callerId],
+    );
+
+    return fallback.rows.length > 0 ? fallback.rows[0].host_user_id : null;
+  }
+
+  /** Record a random call match for cooldown tracking. */
+  async recordRandomMatch(callerId: string, hostId: string): Promise<void> {
+    if (!this.databaseService?.isEnabled()) return;
+    await this.databaseService.query(
+      `INSERT INTO random_call_matches (caller_id, host_id) VALUES ($1, $2)`,
+      [callerId, hostId],
+    );
+  }
+
+  /**
+   * Find the best online user for a random call (fallback when no live hosts).
+   * Priority: longest online (last_seen_at most recent = actively using the app).
+   * Excludes: the caller, blocked users, users already in a call, 4h cooldown.
+   * Fallback: ignores cooldown if all exhausted.
+   */
+  async findBestOnlineMatch(callerId: string): Promise<string | null> {
+    if (!this.databaseService?.isEnabled()) return null;
+    const blockedIds = await this.getBlockedIds(callerId);
+    const blockedArr = [...blockedIds];
+
+    // Step 1: online user with recent heartbeat, respect 4h cooldown
+    const withCooldown = await this.databaseService.query<{ id: string }>(
+      `SELECT u.id FROM users u
+       WHERE u.status = 'online'
+         AND u.id != $1
+         AND u.is_banned = FALSE
+         AND u.last_seen_at > NOW() - INTERVAL '60 seconds'
+         ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}
+         AND NOT EXISTS (
+           SELECT 1 FROM random_call_matches m
+           WHERE m.caller_id = $1
+             AND m.host_id = u.id
+             AND m.matched_at > NOW() - INTERVAL '4 hours'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM call_sessions cs
+           WHERE (cs.caller_user_id = u.id OR cs.receiver_user_id = u.id)
+             AND cs.status = 'live'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM rooms r
+           WHERE r.host_user_id = u.id AND r.status = 'live'
+         )
+       ORDER BY u.last_seen_at DESC
+       LIMIT 1`,
+      blockedArr.length > 0 ? [callerId, blockedArr] : [callerId],
+    );
+
+    if (withCooldown.rows.length > 0) {
+      return withCooldown.rows[0].id;
+    }
+
+    // Step 2: fallback — ignore cooldown
+    const fallback = await this.databaseService.query<{ id: string }>(
+      `SELECT u.id FROM users u
+       WHERE u.status = 'online'
+         AND u.id != $1
+         AND u.is_banned = FALSE
+         AND u.last_seen_at > NOW() - INTERVAL '60 seconds'
+         ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}
+         AND NOT EXISTS (
+           SELECT 1 FROM call_sessions cs
+           WHERE (cs.caller_user_id = u.id OR cs.receiver_user_id = u.id)
+             AND cs.status = 'live'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM rooms r
+           WHERE r.host_user_id = u.id AND r.status = 'live'
+         )
+       ORDER BY u.last_seen_at DESC
+       LIMIT 1`,
+      blockedArr.length > 0 ? [callerId, blockedArr] : [callerId],
+    );
+
+    return fallback.rows.length > 0 ? fallback.rows[0].id : null;
   }
 
   async startCallSession(

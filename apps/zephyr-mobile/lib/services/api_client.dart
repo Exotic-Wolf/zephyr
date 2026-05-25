@@ -535,6 +535,18 @@ class ZephyrApiClient {
     );
   }
 
+  Future<List<WalletTransaction>> getTransactionHistory(String accessToken, {int limit = 50}) async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/economy/transactions?limit=$limit',
+      accessToken: accessToken,
+    );
+    if (data is! List<dynamic>) return <WalletTransaction>[];
+    return data
+        .map((dynamic item) => WalletTransaction.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<RtcJoinInfo> getRoomRtcToken(String accessToken, String roomId) async {
     final Map<String, dynamic> data = await _request(
       method: 'POST',

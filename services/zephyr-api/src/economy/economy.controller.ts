@@ -10,6 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   StoreService,
 } from '../core/store.service';
@@ -58,6 +59,7 @@ export class EconomyController {
   }
 
   @Post('purchase-coins')
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   async purchaseCoins(
     @Headers('authorization') authorization: string | undefined,
     @Body() body: PurchaseCoinsDto,
@@ -107,6 +109,7 @@ export class EconomyController {
   }
 
   @Post('gifts/send')
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   async sendGift(
     @Headers('authorization') authorization: string | undefined,
     @Body() body: SendGiftDto,
@@ -126,6 +129,15 @@ export class EconomyController {
   ): Promise<CallSession[]> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     return this.storeService.getCallHistory(user.id, limit);
+  }
+
+  @Get('transactions')
+  async getTransactionHistory(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+  ) {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    return this.storeService.getTransactionHistory(user.id, limit);
   }
 
   @Post('calls/start')

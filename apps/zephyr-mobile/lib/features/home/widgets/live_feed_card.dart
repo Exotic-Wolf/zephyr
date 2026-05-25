@@ -15,6 +15,7 @@ class LiveFeedCardWidget extends StatelessWidget {
     this.isJoining = false,
     this.onTap,
     this.onCallTap,
+    this.livePreviewWidget,
   });
 
   final LiveFeedCard feedCard;
@@ -23,6 +24,7 @@ class LiveFeedCardWidget extends StatelessWidget {
   final bool isJoining;
   final VoidCallback? onTap;
   final VoidCallback? onCallTap;
+  final Widget? livePreviewWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -136,14 +138,15 @@ class LiveFeedCardWidget extends StatelessWidget {
                       Positioned(
                         top: 20,
                         right: 20,
-                        child: Container(
-                          width: isTablet ? 150 : 100,
-                          height: isTablet ? 180 : 130,
-                          decoration: BoxDecoration(
-                            color: Colors.black,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                        ),
+                        child: livePreviewWidget ??
+                            Container(
+                              width: isTablet ? 150 : 100,
+                              height: isTablet ? 180 : 130,
+                              decoration: BoxDecoration(
+                                color: Colors.black,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
                       ),
                     Positioned(
                       bottom: 12,

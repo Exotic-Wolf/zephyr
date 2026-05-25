@@ -1,0 +1,159 @@
+import 'package:flutter/material.dart';
+
+/// Full-screen overlay shown when another user is ringing this user for a
+/// random video call. Provides Accept / Reject buttons.
+class IncomingCallOverlay extends StatefulWidget {
+  const IncomingCallOverlay({
+    super.key,
+    required this.callerId,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  final String callerId;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  @override
+  State<IncomingCallOverlay> createState() => _IncomingCallOverlayState();
+}
+
+class _IncomingCallOverlayState extends State<IncomingCallOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xF0111118),
+      child: SafeArea(
+        child: Column(
+          children: <Widget>[
+            const Spacer(flex: 2),
+            // Pulsing phone icon
+            AnimatedBuilder(
+              animation: _pulseCtrl,
+              builder: (_, __) {
+                final double scale = 1.0 + _pulseCtrl.value * 0.12;
+                return Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    width: 110,
+                    height: 110,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF1FA4EA).withValues(alpha: 0.12),
+                      border: Border.all(
+                        color: const Color(0xFF1FA4EA).withValues(alpha: 0.6),
+                        width: 2.5,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.videocam_rounded,
+                      color: Color(0xFF1FA4EA),
+                      size: 48,
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 32),
+            const Text(
+              'Incoming Video Call',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Someone wants to chat with you',
+              style: TextStyle(color: Colors.white54, fontSize: 14),
+            ),
+            const Spacer(flex: 3),
+            // Accept / Reject buttons
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: <Widget>[
+                  // Reject
+                  _CircleButton(
+                    icon: Icons.call_end_rounded,
+                    color: Colors.red,
+                    label: 'Decline',
+                    onTap: widget.onReject,
+                  ),
+                  // Accept
+                  _CircleButton(
+                    icon: Icons.videocam_rounded,
+                    color: const Color(0xFF4CAF50),
+                    label: 'Accept',
+                    onTap: widget.onAccept,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 60),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CircleButton extends StatelessWidget {
+  const _CircleButton({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color,
+            ),
+            child: Icon(icon, color: Colors.white, size: 30),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}

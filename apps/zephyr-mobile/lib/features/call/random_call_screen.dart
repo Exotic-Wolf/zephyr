@@ -18,11 +18,16 @@ class RandomCallScreen extends StatefulWidget {
     required this.apiClient,
     required this.accessToken,
     required this.userId,
+    this.initialMatch,
   });
 
   final ZephyrApiClient apiClient;
   final String accessToken;
   final String userId;
+
+  /// If non-null, skip searching and start directly in connected state.
+  /// Used when this user accepted an incoming call.
+  final Map<String, dynamic>? initialMatch;
 
   @override
   State<RandomCallScreen> createState() => _RandomCallScreenState();
@@ -60,7 +65,20 @@ class _RandomCallScreenState extends State<RandomCallScreen>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
-    _requestPermissionsAndConnect();
+
+    if (widget.initialMatch != null) {
+      // Accepted an incoming call — go directly to connected state
+      _requestPermissionsAndJoinMatch(widget.initialMatch!);
+    } else {
+      _requestPermissionsAndConnect();
+    }
+  }
+
+  Future<void> _requestPermissionsAndJoinMatch(Map<String, dynamic> match) async {
+    await Permission.camera.request();
+    await Permission.microphone.request();
+    _connectSocket(); // Still connect socket for Next / End / partner_left
+    _onMatched(match);
   }
 
   Future<void> _requestPermissionsAndConnect() async {

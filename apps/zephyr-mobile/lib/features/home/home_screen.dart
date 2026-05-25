@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +19,7 @@ import '../profile/profile_page.dart';
 import '../live/viewer_live_screen.dart';
 import '../../app_constants.dart';
 import '../call/random_call_screen.dart';
+import '../call/incoming_call_overlay.dart';
 import '../../l10n/app_localizations.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -71,6 +73,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _joiningRoomId;
   String? _error;
 
+  // ── Incoming call state ───────────────────────────────────────────────────
+  sio.Socket? _callSocket;
+  String? _incomingCallerId;
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +87,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadData();
     _refreshApiStatus();
     _connectFeedSocket();
+    _connectCallSocket();
     _fcmSub = FirebaseMessaging.onMessage.listen((_) {});
   }
 
@@ -170,6 +177,90 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ..connect();
   }
 
+  // ── Call socket (incoming call detection) ─────────────────────────────────
+  void _connectCallSocket() {
+    final String? userId = _me?.id;
+    // Will be connected once _me loads — see _loadData
+    _callSocket = sio.io(
+      '$apiBaseUrl/call',
+      sio.OptionBuilder()
+          .setTransports(<String>['websocket', 'polling'])
+          .enableReconnection()
+          .setReconnectionAttempts(100)
+          .setReconnectionDelay(3000)
+          .setQuery(<String, dynamic>{'userId': userId ?? ''})
+          .disableAutoConnect()
+          .build(),
+    );
+
+    _callSocket!
+      ..on('call:incoming', (dynamic data) {
+        if (!mounted) return;
+        final Map<String, dynamic> payload =
+            (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+        final String callerId = payload['callerId'] as String;
+        setState(() => _incomingCallerId = callerId);
+      })
+      ..on('call:cancelled', (_) {
+        if (!mounted) return;
+        setState(() => _incomingCallerId = null);
+      })
+      ..on('call:matched', (dynamic data) {
+        if (!mounted) return;
+        final Map<String, dynamic> payload =
+            (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+        setState(() => _incomingCallerId = null);
+        _navigateToAcceptedCall(payload);
+      });
+    // Don't connect yet — need userId; connected in _loadData after _me resolves
+  }
+
+  void _reconnectCallSocket() {
+    final String? userId = _me?.id;
+    if (userId == null) return;
+    _callSocket?.io.options?['query'] = <String, dynamic>{'userId': userId};
+    if (_callSocket?.disconnected == true) {
+      _callSocket!.connect();
+    }
+  }
+
+  void _acceptIncomingCall() {
+    final String? userId = _me?.id;
+    if (userId == null) return;
+    _callSocket?.emit('call:accept', <String, dynamic>{'userId': userId});
+    // call:matched will arrive from server → _navigateToAcceptedCall
+  }
+
+  void _rejectIncomingCall() {
+    final String? userId = _me?.id;
+    if (userId == null) return;
+    _callSocket?.emit('call:reject', <String, dynamic>{'userId': userId});
+    setState(() => _incomingCallerId = null);
+  }
+
+  void _navigateToAcceptedCall(Map<String, dynamic> matchPayload) {
+    final String? userId = _me?.id;
+    if (userId == null) return;
+
+    // Disconnect the home call socket so it doesn't conflict with the call screen's socket
+    _callSocket?.disconnect();
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => RandomCallScreen(
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          userId: userId,
+          initialMatch: matchPayload,
+        ),
+      ),
+    ).then((_) {
+      // Re-connect call socket after returning from call
+      _reconnectCallSocket();
+    });
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -179,6 +270,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _feedPollTimer?.cancel();
     _heartbeatTimer?.cancel();
     _feedSocket?.dispose();
+    _callSocket?.dispose();
     _roomTitleController.dispose();
     _feedController.dispose();
     _searchCtrl.dispose();
@@ -192,6 +284,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_feedSocket?.disconnected == true) {
         _feedSocket!.connect();
       }
+      _reconnectCallSocket();
       _refreshFeed();
     }
   }
@@ -219,25 +312,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _me = me;
         _followingIds = followingIds;
-        _feedCards = <LiveFeedCard>[
+        final incoming = <LiveFeedCard>[
           ...feedCards.where((LiveFeedCard c) => c.hostUserId != me.id),
-        ]..sort((LiveFeedCard a, LiveFeedCard b) {
-          int rank(String s) => switch (s) {
-            'live'    => 0,
-            'busy'    => 1,
-            'online'  => 2,
-            _         => 3,
-          };
-          return rank(a.hostStatus).compareTo(rank(b.hostStatus));
-        });
+        ];
+        _rankFeed(incoming);
         // Warm Firebase RTDB presence for feed card hosts
         FirebaseChatService.instance.warmPresence(
           _feedCards.map((c) => c.hostUserId).toList(),
         );
-        _activeFeedIndex = feedCards.isEmpty
-            ? 0
-            : _activeFeedIndex.clamp(0, feedCards.length - 1);
       });
+      // Connect call socket now that we have userId
+      _reconnectCallSocket();
       // Start HTTP heartbeat for presence (runs regardless of socket state)
       _heartbeatTimer ??= Timer.periodic(
         const Duration(seconds: 20),
@@ -304,27 +389,102 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final List<LiveFeedCard> feedCards =
           await widget.apiClient.listLiveFeed(widget.accessToken);
       if (!mounted) return;
-      _feedCards = <LiveFeedCard>[
+      final incoming = <LiveFeedCard>[
         ...feedCards.where((LiveFeedCard c) => c.hostUserId != _me?.id),
-      ]..sort((LiveFeedCard a, LiveFeedCard b) {
-        int rank(String s) => switch (s) {
-          'live'   => 0,
-          'busy'   => 1,
-          'online' => 2,
-          _        => 3,
-        };
-        return rank(a.hostStatus).compareTo(rank(b.hostStatus));
-      });
+      ];
+      _rankFeed(incoming, isRefresh: true);
       if (_selectedTabIndex == 0) setState(() {});
     } catch (_) {
       // ignore — next poll will retry
     }
   }
 
-  Future<void> _enterRoom(LiveFeedCard feedCard) async {
+  /// Ranks feed cards using "Frozen Past, Hot Future" strategy.
+  ///
+  /// On initial load: full sort by score (live + fresh first).
+  /// On refresh while Discover is active: cards 0..activeIndex stay in place,
+  /// hot zone (below viewport) is re-ranked with live/fresh priority.
+  /// Freshness decay: recently-live hosts rank higher to maximize random-call turnover.
+  void _rankFeed(List<LiveFeedCard> incoming, {bool isRefresh = false}) {
+    final now = DateTime.now();
+    final incomingMap = {for (final c in incoming) c.hostUserId: c};
+
+    double score(LiveFeedCard c) {
+      final status =
+          FirebaseChatService.instance.presenceStateCached(c.hostUserId) ??
+              c.hostStatus;
+
+      // Base tier
+      double s = switch (status) {
+        'live' => 1000,
+        'online' => 500,
+        'busy' => 250,
+        _ => 0,
+      };
+
+      // Freshness boost within live tier — fresh hosts drive random-call revenue
+      if (status == 'live') {
+        final minutes = now.difference(c.startedAt).inMinutes;
+        if (minutes < 5) {
+          s += 100; // just went live — prime for random call
+        } else if (minutes < 15) {
+          s += 50;
+        } else if (minutes < 30) {
+          s += 20;
+        }
+        // > 30 min: no boost (still live tier, just lower within it)
+      }
+
+      // Deterministic jitter so same-score cards don't always appear in same order
+      s += (c.hostUserId.hashCode % 10).abs().toDouble();
+      return s;
+    }
+
+    final bool useFreeze =
+        isRefresh && _homeTopTabIndex == 1 && _activeFeedIndex > 0;
+
+    if (!useFreeze) {
+      // Full sort (initial load, or user at top, or not on Discover tab)
+      _feedCards = incoming..sort((a, b) => score(b).compareTo(score(a)));
+    } else {
+      // Frozen past: keep positions 0..activeIndex, update their data
+      final frozen = <LiveFeedCard>[];
+      for (int i = 0; i <= _activeFeedIndex && i < _feedCards.length; i++) {
+        final updated = incomingMap[_feedCards[i].hostUserId];
+        if (updated != null) {
+          frozen.add(updated);
+        }
+      }
+
+      final frozenIds = frozen.map((c) => c.hostUserId).toSet();
+
+      // Hot zone: everything not in frozen set, ranked by score
+      final hot = incoming
+          .where((c) => !frozenIds.contains(c.hostUserId))
+          .toList()
+        ..sort((a, b) => score(b).compareTo(score(a)));
+
+      _feedCards = [...frozen, ...hot];
+    }
+
+    _activeFeedIndex = _feedCards.isEmpty
+        ? 0
+        : _activeFeedIndex.clamp(0, _feedCards.length - 1);
+  }
+
+  Future<void> _enterRoomWithEngine(
+    LiveFeedCard feedCard,
+    RtcEngine engine,
+    int hostUid,
+    String channelName,
+  ) async {
     final String? roomId = feedCard.roomId;
-    if (roomId == null) return;
-    // Join before opening — get correct initial count
+    if (roomId == null) {
+      engine.leaveChannel();
+      engine.release();
+      return;
+    }
+    setState(() => _joiningRoomId = roomId);
     int updatedCount = feedCard.audienceCount;
     bool didJoin = false;
     try {
@@ -332,7 +492,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       updatedCount = joined.audienceCount;
       didJoin = true;
     } catch (_) {}
-    if (!mounted) return;
+    if (!mounted) {
+      engine.leaveChannel();
+      engine.release();
+      return;
+    }
+    setState(() => _joiningRoomId = null);
     await Navigator.of(context).push(MaterialPageRoute<void>(
       fullscreenDialog: true,
       builder: (_) => ViewerLiveScreen(
@@ -341,12 +506,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         accessToken: widget.accessToken,
         myUserId: _me?.id ?? '',
         myDisplayName: _me?.displayName ?? 'Guest',
-        onLeave: () => _loadData(),
+        onLeave: () {},
         initialViewerCount: updatedCount,
         didJoin: didJoin,
+        existingEngine: engine,
+        existingHostUid: hostUid,
+        existingChannelName: channelName,
       ),
     ));
-    // leaveRoom is now handled by ViewerLiveScreen.dispose()
     await _loadData();
   }
 
@@ -472,12 +639,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       filterCountryName: _filterCountry?.name,
       isTablet: isTablet,
       pageController: _feedController,
+      activeIndex: _activeFeedIndex,
       onPageChanged: (int index) {
         setState(() {
           _activeFeedIndex = index;
         });
       },
-      onCardTap: _enterRoom,
+      onLivePreviewTap: _enterRoomWithEngine,
       onCallTap: (card) => _openCallTabForHost(card.hostUserId),
       onRandomMatch: _startRandomMatchFromHome,
       joiningRoomId: _joiningRoomId,
@@ -685,7 +853,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return PopScope(
       canPop: false,
-      child: Scaffold(
+      child: Stack(
+        children: <Widget>[
+          Scaffold(
       backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : null) : null,
       appBar: AppBar(
         backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : null) : null,
@@ -851,6 +1021,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ),
     ),
+          // Incoming call overlay
+          if (_incomingCallerId != null)
+            Positioned.fill(
+              child: IncomingCallOverlay(
+                callerId: _incomingCallerId!,
+                onAccept: _acceptIncomingCall,
+                onReject: _rejectIncomingCall,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

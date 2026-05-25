@@ -160,7 +160,7 @@ class _LivePreviewWidgetState extends State<LivePreviewWidget>
     _engine = null;
     if (engine != null) {
       engine.leaveChannel();
-      engine.release();
+      engine.release(sync: true);
     }
   }
 
@@ -178,9 +178,7 @@ class _LivePreviewWidgetState extends State<LivePreviewWidget>
   Widget build(BuildContext context) {
     if (_failed) return const SizedBox.shrink();
 
-    return GestureDetector(
-      onTap: _handleTap,
-      child: Container(
+    return Container(
         width: widget.width,
         height: widget.height,
         decoration: BoxDecoration(
@@ -237,8 +235,7 @@ class _LivePreviewWidgetState extends State<LivePreviewWidget>
             ),
           ],
         ),
-      ),
-    );
+      );
   }
 }
 

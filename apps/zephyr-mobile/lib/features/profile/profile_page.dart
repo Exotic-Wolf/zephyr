@@ -1,11 +1,14 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:socket_io_client/socket_io_client.dart' as sio;
 
+import '../../app_constants.dart';
 import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import '../../widgets/hero_bullet.dart';
 import '../chat/thread_firebase_page.dart';
+import '../call/random_call_screen.dart';
 import '../../flags.dart';
 import '../../widgets/coin_icon.dart';
 import '../../l10n/app_localizations.dart';
@@ -43,7 +46,13 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isBlocked = false;
   bool _blockLoading = false;
 
+  // Direct call state
+  bool _calling = false;
+  sio.Socket? _callSocket;
+
   LiveFeedCard get _card => widget.feedCard;
+
+  int get _callRate => _card.callRateCoinsPerMinute ?? 4200;
 
   @override
   void initState() {
@@ -100,91 +109,104 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void _showCallSheet(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                // drag handle
-                Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                // video call row
-                InkWell(
-                  onTap: () => Navigator.of(context).pop(),
-                  borderRadius: BorderRadius.circular(14),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 16, horizontal: 8),
-                    child: Row(
-                      children: <Widget>[
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF00A651).withValues(alpha: 0.12),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.call_rounded,
-                            color: Color(0xFF00A651),
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        const Expanded(
-                          child: Text(
-                            'Video call',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        Row(
-                          children: <Widget>[
-                            const Text(
-                              '4200',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const CoinIcon(size: 18),
-                            const Text(
-                              ' /min',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+  @override
+  void dispose() {
+    _callSocket?.dispose();
+    super.dispose();
+  }
+
+  void _initiateDirectCall() {
+    final userId = widget.myUserId;
+    if (userId == null) return;
+
+    setState(() => _calling = true);
+
+    _callSocket = sio.io(
+      '$apiBaseUrl/call',
+      sio.OptionBuilder()
+          .setTransports(<String>['websocket', 'polling'])
+          .enableReconnection()
+          .setReconnectionAttempts(3)
+          .setQuery(<String, dynamic>{'userId': userId})
+          .disableAutoConnect()
+          .build(),
+    );
+
+    _callSocket!
+      ..on('connect', (_) {
+        _callSocket!.emit('call:direct', <String, dynamic>{
+          'userId': userId,
+          'receiverId': _card.hostUserId,
+        });
+      })
+      ..on('call:matched', (dynamic data) {
+        if (!mounted) return;
+        final Map<String, dynamic> payload =
+            (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+        _callSocket?.disconnect();
+        setState(() => _calling = false);
+        // Navigate to call screen with pre-matched data
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => RandomCallScreen(
+              apiClient: widget.apiClient!,
+              accessToken: widget.accessToken!,
+              userId: userId,
+              initialMatch: payload,
             ),
           ),
         );
-      },
+      })
+      ..on('call:busy', (_) {
+        if (!mounted) return;
+        _callSocket?.disconnect();
+        setState(() => _calling = false);
+        _showErrorSnack('They are on another call');
+      })
+      ..on('call:unavailable', (_) {
+        if (!mounted) return;
+        _callSocket?.disconnect();
+        setState(() => _calling = false);
+        _showErrorSnack('User is not available right now');
+      })
+      ..on('call:no_answer', (_) {
+        if (!mounted) return;
+        _callSocket?.disconnect();
+        setState(() => _calling = false);
+        _showErrorSnack('No answer');
+      })
+      ..on('call:rejected', (_) {
+        if (!mounted) return;
+        _callSocket?.disconnect();
+        setState(() => _calling = false);
+        _showErrorSnack('Call declined');
+      })
+      ..on('call:error', (dynamic data) {
+        if (!mounted) return;
+        _callSocket?.disconnect();
+        setState(() => _calling = false);
+        _showErrorSnack('Unable to call this user');
+      })
+      ..connect();
+  }
+
+  void _cancelDirectCall() {
+    final userId = widget.myUserId;
+    if (userId != null) {
+      _callSocket?.emit('call:end', <String, dynamic>{
+        'userId': userId,
+        'sessionId': '',
+      });
+    }
+    _callSocket?.disconnect();
+    if (mounted) setState(() => _calling = false);
+  }
+
+  void _showErrorSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
     );
   }
 
@@ -242,12 +264,12 @@ class _ProfilePageState extends State<ProfilePage> {
               child: FilledButton(
                 onPressed: (_card.hostStatus == 'offline' || _card.hostStatus == 'busy')
                     ? null
-                    : () => _showCallSheet(context),
+                    : _calling ? _cancelDirectCall : _initiateDirectCall,
                 style: FilledButton.styleFrom(
                   backgroundColor: switch (_card.hostStatus) {
                     'offline' => Colors.grey.shade400,
                     'busy'    => Colors.orange.shade300,
-                    _         => const Color(0xFF00A651),
+                    _ => _calling ? Colors.red.shade400 : const Color(0xFF00A651),
                   },
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
@@ -275,24 +297,40 @@ class _ProfilePageState extends State<ProfilePage> {
                         Text(AppLocalizations.of(context)!.currentlyBusy),
                       ],
                     ),
-                  _ => Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        const Icon(Icons.call_rounded, size: 18),
-                        const SizedBox(width: 6),
-                        const Text('Video call',
-                            style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600)),
-                        const SizedBox(width: 8),
-                        const Text('4200',
-                            style: TextStyle(fontSize: 12)),
-                        const SizedBox(width: 3),
-                        const CoinIcon(size: 13),
-                        const Text('/min',
-                            style: TextStyle(fontSize: 12)),
-                      ],
-                    ),
+                  _ => _calling
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          const SizedBox(
+                            width: 16, height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text('Calling...',
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600)),
+                        ],
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          const Icon(Icons.call_rounded, size: 18),
+                          const SizedBox(width: 6),
+                          const Text('Video call',
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(width: 8),
+                          Text('$_callRate',
+                              style: const TextStyle(fontSize: 12)),
+                          const SizedBox(width: 3),
+                          const CoinIcon(size: 13),
+                          const Text('/min',
+                              style: TextStyle(fontSize: 12)),
+                        ],
+                      ),
                 },
               ),
             ),

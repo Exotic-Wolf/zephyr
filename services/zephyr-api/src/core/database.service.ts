@@ -351,6 +351,21 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       )
     `);
 
+    // Random call match history — used for 4h cooldown between same pair
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS random_call_matches (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        caller_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        host_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        matched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS rcm_caller_host_time_idx
+      ON random_call_matches(caller_id, host_id, matched_at DESC)
+    `);
+
     // Periodic cleanup every 10s:
     //  - no heartbeat for 40s → dead (heartbeat sent every 15s, so 2.5x grace)
     //  - any room older than 30 min → dead (host gone / crashed / forgot to end)
