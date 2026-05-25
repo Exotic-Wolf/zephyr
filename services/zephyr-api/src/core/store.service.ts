@@ -12,10 +12,11 @@ import { JWTPayload, createRemoteJWKSet, jwtVerify } from 'jose';
 import { JwtPayload, sign, verify } from 'jsonwebtoken';
 import { DatabaseService } from './database.service';
 
-function derivePublicId(uuid: string): string {
+function derivePublicId(uuid: string, attempt = 0): string {
+  const input = attempt === 0 ? uuid : `${uuid}:${attempt}`;
   let h = 5381;
-  for (let i = 0; i < uuid.length; i++) {
-    h = ((h << 5) + h + uuid.charCodeAt(i)) & 0x7fffffff;
+  for (let i = 0; i < input.length; i++) {
+    h = ((h << 5) + h + input.charCodeAt(i)) & 0x7fffffff;
   }
   return Math.abs(h).toString().padStart(8, '0').substring(0, 8);
 }
@@ -171,6 +172,20 @@ export class StoreService {
   private readonly logger = new Logger(StoreService.name);
   private readonly googleClient = new OAuth2Client();
 
+  private async uniquePublicId(uuid: string): Promise<string> {
+    if (!this.databaseService?.isEnabled()) return derivePublicId(uuid);
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const candidate = derivePublicId(uuid, attempt);
+      const { rows } = await this.databaseService.query(
+        `SELECT 1 FROM users WHERE public_id = $1 LIMIT 1`,
+        [candidate],
+      );
+      if (rows.length === 0) return candidate;
+    }
+    // Fallback: use full UUID prefix (extremely unlikely to reach here)
+    return uuid.replace(/-/g, '').substring(0, 8);
+  }
+
   private readonly users = new Map<string, UserProfile>();
   private readonly sessions = new Map<string, Session>();
   private readonly rooms = new Map<string, Room>();
@@ -208,7 +223,7 @@ export class StoreService {
           INSERT INTO users (id, display_name, avatar_url, bio, public_id, created_at)
           VALUES ($1, $2, $3, $4, $5, $6)
         `,
-        [user.id, user.displayName, user.avatarUrl, user.bio, derivePublicId(user.id), user.createdAt],
+        [user.id, user.displayName, user.avatarUrl, user.bio, await this.uniquePublicId(user.id), user.createdAt],
       );
       await this.databaseService.query(
         `
@@ -296,7 +311,7 @@ export class StoreService {
             googleSubject,
             avatarUrl,
             null,
-            derivePublicId(userId),
+            await this.uniquePublicId(userId),
             new Date().toISOString(),
           ],
         );
@@ -451,7 +466,7 @@ export class StoreService {
             appleSubject,
             null,
             null,
-            derivePublicId(userId),
+            await this.uniquePublicId(userId),
             new Date().toISOString(),
           ],
         );
