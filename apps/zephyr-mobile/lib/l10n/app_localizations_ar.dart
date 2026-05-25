@@ -485,4 +485,7 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get welcomeToLive => 'مرحباً ببثي المباشر! 👋';
+
+  @override
+  String get liveHasEnded => 'انتهى البث المباشر';
 }

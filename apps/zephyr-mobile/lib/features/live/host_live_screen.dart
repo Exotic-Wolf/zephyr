@@ -4,13 +4,14 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
+import 'package:wakelock_plus/wakelock_plus.dart';
 
-import '../models/models.dart';
-import '../services/api_client.dart';
-import '../services/firebase_chat_service.dart';
-import '../widgets/shared_live_widgets.dart';
-import '../app_constants.dart';
-import '../l10n/app_localizations.dart';
+import '../../models/models.dart';
+import '../../services/api_client.dart';
+import '../../services/firebase_chat_service.dart';
+import '../../widgets/shared_live_widgets.dart';
+import '../../app_constants.dart';
+import '../../l10n/app_localizations.dart';
 
 // ── HostLiveScreen ────────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ class HostLiveScreen extends StatefulWidget {
 }
 
 class _HostLiveScreenState extends State<HostLiveScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   bool _micOn = true;
   bool _cameraOn = true;
   bool _ending = false;
@@ -59,6 +60,8 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WakelockPlus.enable();
     _viewerCount = widget.room.audienceCount;
     _viewerCountNotifier.value = widget.room.audienceCount;
     _pulseCtrl = AnimationController(
@@ -118,7 +121,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           _engineReady = true;
           _cameraLoading = false;
         });
-        FirebaseChatService.instance.setLiveStatus();
+        FirebaseChatService.instance.setLiveStatus(roomId: widget.room.id);
         _ticker = Timer.periodic(
             const Duration(seconds: 1), (_) {
           if (mounted) setState(() => _elapsedSeconds++);
@@ -158,7 +161,33 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused && !_ending) {
+      // End live immediately — timers don't fire reliably in background
+      _forceEnd();
+    }
+  }
+
+  Future<void> _forceEnd() async {
+    _ending = true;
+    // Release engine immediately so Agora fires onUserOffline on viewers fast
+    _engine?.leaveChannel();
+    _engine?.release();
+    _engine = null;
+    FirebaseChatService.instance.clearLiveStatus();
+    try {
+      await widget.apiClient.endRoom(widget.accessToken, widget.room.id);
+    } catch (e) {
+      debugPrint('[endRoom background] error: $e');
+    }
+    if (mounted) Navigator.of(context).pop();
+    widget.onEnd();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    WakelockPlus.disable();
     _ticker?.cancel();
     _heartbeatTimer?.cancel();
     _socket?.dispose();

@@ -6,11 +6,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../models/models.dart';
-import '../services/api_client.dart';
-import '../widgets/language_picker_sheet.dart';
+import '../../models/models.dart';
+import '../../services/api_client.dart';
+import '../../widgets/language_picker_sheet.dart';
 import 'profile_page.dart';
-import '../l10n/app_localizations.dart';
+import '../../l10n/app_localizations.dart';
 
 class MyProfilePage extends StatefulWidget {
   const MyProfilePage({

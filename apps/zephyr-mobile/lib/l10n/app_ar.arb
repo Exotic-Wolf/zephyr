@@ -497,5 +497,8 @@
   "@saySomething": {},
 
   "welcomeToLive": "مرحباً ببثي المباشر! 👋",
-  "@welcomeToLive": {}
+  "@welcomeToLive": {},
+
+  "liveHasEnded": "انتهى البث المباشر",
+  "@liveHasEnded": {}
 }

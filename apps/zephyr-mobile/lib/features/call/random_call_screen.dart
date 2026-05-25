@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
-import '../app_constants.dart';
-import '../services/api_client.dart';
+import '../../app_constants.dart';
+import '../../services/api_client.dart';
 
 // How often the client reports elapsed seconds for billing
 const int _tickIntervalSeconds = 15;

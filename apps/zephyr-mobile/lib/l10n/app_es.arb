@@ -497,5 +497,8 @@
   "@saySomething": {},
 
   "welcomeToLive": "¡Bienvenido a mi en vivo! 👋",
-  "@welcomeToLive": {}
+  "@welcomeToLive": {},
+
+  "liveHasEnded": "El en vivo ha terminado",
+  "@liveHasEnded": {}
 }

@@ -5,10 +5,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
-import '../models/models.dart';
-import '../services/api_client.dart';
-import '../app_constants.dart';
-import '../l10n/app_localizations.dart';
+import '../../models/models.dart';
+import '../../services/api_client.dart';
+import '../../app_constants.dart';
+import '../../l10n/app_localizations.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({

@@ -4,11 +4,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
-import '../models/models.dart';
-import '../services/api_client.dart';
-import '../widgets/shared_live_widgets.dart';
-import '../app_constants.dart';
-import '../l10n/app_localizations.dart';
+import '../../models/models.dart';
+import '../../services/api_client.dart';
+import '../../widgets/shared_live_widgets.dart';
+import '../../app_constants.dart';
+import '../../l10n/app_localizations.dart';
 
 // ── ViewerLiveScreen ──────────────────────────────────────────────────────────
 
@@ -23,6 +23,9 @@ class ViewerLiveScreen extends StatefulWidget {
     required this.onLeave,
     this.initialViewerCount,
     this.didJoin = false,
+    this.existingEngine,
+    this.existingHostUid,
+    this.existingChannelName,
   });
 
   final LiveFeedCard feedCard;
@@ -34,6 +37,11 @@ class ViewerLiveScreen extends StatefulWidget {
   final int? initialViewerCount;
   /// True when the caller already successfully called joinRoom before pushing this screen.
   final bool didJoin;
+
+  /// Pre-connected Agora engine handed off from a preview widget.
+  final RtcEngine? existingEngine;
+  final int? existingHostUid;
+  final String? existingChannelName;
 
   @override
   State<ViewerLiveScreen> createState() => _ViewerLiveScreenState();
@@ -56,6 +64,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   String? _channelName;
   bool _engineReady = false;
   bool _welcomeAdded = false;
+  bool _liveEnded = false;
 
   @override
   void initState() {
@@ -63,11 +72,12 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     _viewerCount = widget.initialViewerCount ?? widget.feedCard.audienceCount;
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))
       ..repeat(reverse: true);
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsedSeconds++);
-    });
     _connectSocket();
-    _initAgora();
+    if (widget.existingEngine != null) {
+      _adoptEngine();
+    } else {
+      _initAgora();
+    }
   }
 
   @override
@@ -80,6 +90,37 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
         text: AppLocalizations.of(context)!.welcomeToLive,
       ));
     }
+  }
+
+  /// Adopt a pre-connected engine from the preview widget (instant video).
+  void _adoptEngine() {
+    final engine = widget.existingEngine!;
+    // Re-register handlers so this screen gets updates
+    engine.registerEventHandler(RtcEngineEventHandler(
+      onUserJoined: (connection, remoteUid, elapsed) {
+        if (mounted) setState(() => _hostUid = remoteUid);
+      },
+      onUserOffline: (connection, remoteUid, reason) {
+        if (mounted && !_liveEnded) _onLiveEnded();
+      },
+    ));
+    // Unmute audio (preview was silent)
+    engine.muteAllRemoteAudioStreams(false);
+    // Switch to high-quality stream
+    if (widget.existingHostUid != null) {
+      engine.setRemoteVideoStreamType(
+        uid: widget.existingHostUid!,
+        streamType: VideoStreamType.videoStreamHigh,
+      );
+    }
+    _engine = engine;
+    _hostUid = widget.existingHostUid;
+    _channelName = widget.existingChannelName;
+    _engineReady = true;
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsedSeconds++);
+    });
+    setState(() {});
   }
 
   Future<void> _initAgora() async {
@@ -96,7 +137,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
           if (mounted) setState(() => _hostUid = remoteUid);
         },
         onUserOffline: (connection, remoteUid, reason) {
-          if (mounted) setState(() => _hostUid = null);
+          if (mounted && !_liveEnded) _onLiveEnded();
         },
       ));
 
@@ -121,6 +162,9 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
         setState(() {
           _channelName = info.channelName;
           _engineReady = true;
+        });
+        _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) setState(() => _elapsedSeconds++);
         });
       }
     } catch (e) {
@@ -166,7 +210,31 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
           }
         } catch (_) {}
       })
+      ..on('feed:room-ended', (dynamic data) {
+        if (!mounted || _liveEnded) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          if (payload['roomId'] == widget.feedCard.roomId) {
+            _onLiveEnded();
+          }
+        } catch (_) {}
+      })
       ..connect();
+  }
+
+  void _onLiveEnded() {
+    setState(() => _liveEnded = true);
+    _ticker?.cancel();
+    _engine?.leaveChannel();
+    _engine?.release();
+    _engine = null;
+    Future<void>.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        Navigator.of(context).pop();
+        widget.onLeave();
+      }
+    });
   }
 
   void _sendComment() {
@@ -235,7 +303,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
                   radius: 64,
                   backgroundColor: Colors.white12,
                   backgroundImage: widget.feedCard.hostAvatarUrl != null
-                      ? NetworkImage(widget.feedCard.hostAvatarUrl!)
+                      ? CachedNetworkImageProvider(widget.feedCard.hostAvatarUrl!)
                       : null,
                   child: widget.feedCard.hostAvatarUrl == null
                       ? Text(widget.feedCard.hostDisplayName[0].toUpperCase(),
@@ -426,6 +494,42 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
               ),
             ),
           ),
+
+          // ── Live ended overlay ───────────────────────────────────────────
+          if (_liveEnded)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black87,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      CircleAvatar(
+                        radius: 48,
+                        backgroundColor: Colors.white12,
+                        backgroundImage: widget.feedCard.hostAvatarUrl != null
+                            ? CachedNetworkImageProvider(widget.feedCard.hostAvatarUrl!)
+                            : null,
+                        child: widget.feedCard.hostAvatarUrl == null
+                            ? Text(widget.feedCard.hostDisplayName[0].toUpperCase(),
+                                style: const TextStyle(fontSize: 36, color: Colors.white))
+                            : null,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        AppLocalizations.of(context)!.liveHasEnded,
+                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.feedCard.hostDisplayName,
+                        style: const TextStyle(color: Colors.white60, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
       ),

@@ -4,7 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../services/firebase_chat_service.dart';
+import '../../services/firebase_chat_service.dart';
 import 'thread_firebase_page.dart';
 
 /// Firebase-backed inbox page — completely isolated from the custom inbox.
@@ -290,6 +290,7 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
                     otherUserId: c.otherUserId,
                     otherDisplayName: c.otherDisplayName,
                     otherAvatarUrl: c.otherAvatarUrl,
+
                   ),
                 ),
               );

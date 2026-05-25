@@ -10,6 +10,9 @@ import '../models/models.dart';
 class ZephyrApiClient {
   ZephyrApiClient({required this.baseUrl});
 
+  static ZephyrApiClient? instance;
+  static String? accessToken;
+
   final String baseUrl;
   final HttpClient _httpClient = HttpClient()
     ..connectionTimeout = const Duration(seconds: 30)

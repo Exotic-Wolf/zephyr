@@ -8,6 +8,7 @@ class TranslationService {
   TranslationService._();
   static final TranslationService instance = TranslationService._();
 
+  static const int _maxCacheSize = 500;
   final Map<String, String> _cache = {};
 
   /// Translate [text] to [targetLang] (e.g. 'en', 'fr', 'zh').
@@ -42,6 +43,9 @@ class TranslationService {
         final String result = translated.toString();
         if (result.toLowerCase().trim() == text.toLowerCase().trim()) {
           return null;
+        }
+        if (_cache.length >= _maxCacheSize) {
+          _cache.remove(_cache.keys.first);
         }
         _cache[cacheKey] = result;
         return result;

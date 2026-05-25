@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../models/models.dart';
-import '../services/api_client.dart';
-import '../widgets/coin_icon.dart';
-import '../widgets/spark_icon.dart';
-import '../widgets/hero_bullet.dart';
-import '../l10n/app_localizations.dart';
+import '../../models/models.dart';
+import '../../services/api_client.dart';
+import '../../widgets/coin_icon.dart';
+import '../../widgets/spark_icon.dart';
+import '../../widgets/hero_bullet.dart';
+import '../../l10n/app_localizations.dart';
 
 // ── CallPricePage ────────────────────────────────────────────────────────────
 
@@ -35,13 +35,11 @@ const List<_CallTier> _kCallTiers = <_CallTier>[
 class CallPricePage extends StatefulWidget {
   const CallPricePage({
     super.key,
-    required this.userLevel,
     required this.apiClient,
     required this.accessToken,
     this.me,
   });
 
-  final int userLevel;
   final ZephyrApiClient apiClient;
   final String accessToken;
   final UserProfile? me;
@@ -51,23 +49,45 @@ class CallPricePage extends StatefulWidget {
 }
 
 class _CallPricePageState extends State<CallPricePage> {
-  // default to highest tier the user qualifies for
-  late int _selectedCoins = _kCallTiers
-      .lastWhere(
-        (t) => t.minLevel <= widget.userLevel,
-        orElse: () => _kCallTiers.first,
-      )
-      .coinsPerMin;
+  int _userLevel = 1;
+  int? _selectedCoins;
+  bool _loading = true;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    // Pre-populate from saved rate if it matches a valid tier
-    final int? saved = widget.me?.callRateCoinsPerMinute;
-    if (saved != null &&
-        _kCallTiers.any((t) => t.coinsPerMin == saved && t.minLevel <= widget.userLevel)) {
-      _selectedCoins = saved;
+    _loadLevel();
+  }
+
+  Future<void> _loadLevel() async {
+    try {
+      final wallet = await widget.apiClient.getWalletSummary(widget.accessToken);
+      if (!mounted) return;
+      setState(() {
+        _userLevel = wallet.level;
+        // Pre-populate from saved rate if it matches a valid tier
+        final int? saved = widget.me?.callRateCoinsPerMinute;
+        if (saved != null &&
+            _kCallTiers.any((t) => t.coinsPerMin == saved && t.minLevel <= _userLevel)) {
+          _selectedCoins = saved;
+        } else {
+          // Default to highest tier the user qualifies for
+          _selectedCoins = _kCallTiers
+              .lastWhere(
+                (t) => t.minLevel <= _userLevel,
+                orElse: () => _kCallTiers.first,
+              )
+              .coinsPerMin;
+        }
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _selectedCoins = _kCallTiers.first.coinsPerMin;
+        _loading = false;
+      });
     }
   }
 
@@ -77,7 +97,7 @@ class _CallPricePageState extends State<CallPricePage> {
     try {
       final UserProfile updated = await widget.apiClient.updateMe(
         widget.accessToken,
-        callRateCoinsPerMinute: _selectedCoins,
+        callRateCoinsPerMinute: _selectedCoins!,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -105,6 +125,13 @@ class _CallPricePageState extends State<CallPricePage> {
   @override
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    if (_loading) {
+      return Scaffold(
+        appBar: AppBar(title: Text(AppLocalizations.of(context)!.myCallPrice)),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    final int selectedCoins = _selectedCoins!;
     return Scaffold(
       appBar: AppBar(
         title: Text(AppLocalizations.of(context)!.myCallPrice),
@@ -216,7 +243,7 @@ class _CallPricePageState extends State<CallPricePage> {
                     children: <Widget>[
                       Text(AppLocalizations.of(context)!.callersWillSee,
                           style: const TextStyle(fontSize: 13)),
-                      Text('${AppLocalizations.of(context)!.videoCall}  $_selectedCoins',
+                      Text('${AppLocalizations.of(context)!.videoCall}  $selectedCoins',
                           style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700)),
@@ -235,7 +262,7 @@ class _CallPricePageState extends State<CallPricePage> {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           const SizedBox(height: 4),
           Text(
-            AppLocalizations.of(context)!.yourLevelIs(widget.userLevel),
+            AppLocalizations.of(context)!.yourLevelIs(_userLevel),
             style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 12),
@@ -282,9 +309,9 @@ class _CallPricePageState extends State<CallPricePage> {
                 const Divider(height: 1),
                 ..._kCallTiers.map((_CallTier tier) {
                   final bool unlocked =
-                      widget.userLevel >= tier.minLevel;
+                      _userLevel >= tier.minLevel;
                   final bool selected =
-                      _selectedCoins == tier.coinsPerMin;
+                      selectedCoins == tier.coinsPerMin;
                   return Column(
                     children: <Widget>[
                       InkWell(

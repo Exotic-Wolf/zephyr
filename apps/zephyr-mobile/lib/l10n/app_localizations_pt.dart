@@ -491,4 +491,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get welcomeToLive => 'Bem-vindo ao meu ao vivo! 👋';
+
+  @override
+  String get liveHasEnded => 'A live terminou';
 }

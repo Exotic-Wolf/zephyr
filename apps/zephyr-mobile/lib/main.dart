@@ -12,9 +12,9 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
 import 'services/api_client.dart';
-import 'pages/onboarding_page.dart';
-import 'pages/home_screen.dart';
-import 'pages/splash_screen.dart';
+import 'features/onboarding/onboarding_page.dart';
+import 'features/home/home_screen.dart';
+import 'splash_screen.dart';
 
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
@@ -70,6 +70,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final ZephyrApiClient _apiClient = ZephyrApiClient(baseUrl: apiBaseUrl);
+  
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   static const String _tokenKey = 'access_token';
   static const String _themeModeKey = 'theme_mode';
@@ -84,6 +85,7 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    ZephyrApiClient.instance = _apiClient;
     _restoreSession();
     _setupFcmHandlers();
   }
@@ -115,6 +117,7 @@ class _MyAppState extends State<MyApp> {
         try {
           await _apiClient.getMe(saved);
           if (mounted) {
+            ZephyrApiClient.accessToken = saved;
             setState(() => _accessToken = saved);
             _registerFcmToken(saved);
           }
@@ -146,6 +149,7 @@ class _MyAppState extends State<MyApp> {
 
   void _onLoginSuccess(String accessToken) {
     _storage.write(key: _tokenKey, value: accessToken);
+    ZephyrApiClient.accessToken = accessToken;
     setState(() => _accessToken = accessToken);
     _registerFcmToken(accessToken);
   }
@@ -164,6 +168,7 @@ class _MyAppState extends State<MyApp> {
   void _onLogout() {
     final token = _accessToken;
     _storage.delete(key: _tokenKey);
+    ZephyrApiClient.accessToken = null;
     setState(() => _accessToken = null);
     if (token != null) _unregisterFcmToken(token);
   }

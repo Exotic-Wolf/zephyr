@@ -490,4 +490,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get welcomeToLive => '¡Bienvenido a mi en vivo! 👋';
+
+  @override
+  String get liveHasEnded => 'El en vivo ha terminado';
 }

@@ -2,12 +2,17 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../services/firebase_chat_service.dart';
-import '../services/translation_service.dart';
+import '../../models/models.dart';
+import '../../services/api_client.dart';
+import '../../services/firebase_chat_service.dart';
+import '../../services/translation_service.dart';
+import '../live/viewer_live_screen.dart';
+import 'live_preview_widget.dart';
 
 /// Firebase-backed thread page — completely isolated from the custom thread.
 /// Uses Firestore real-time listeners for messages.
@@ -45,6 +50,10 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   final Map<String, String> _translations = {}; // messageId -> translated text
   final Set<String> _translating = {}; // messageIds currently being translated
 
+  // Live preview
+  String? _liveRoomId;
+  int _previewGen = 0;
+
   // Anti-spam
   final List<DateTime> _sendTimestamps = [];
   String? _lastSentText;
@@ -71,6 +80,21 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       }
     });
     _scrollCtrl.addListener(_onScroll);
+    _lookupLiveRoom();
+  }
+
+  /// Fetches roomId from live feed if presence doesn't include it.
+  Future<void> _lookupLiveRoom() async {
+    final api = ZephyrApiClient.instance;
+    final token = ZephyrApiClient.accessToken;
+    if (api == null || token == null) return;
+    try {
+      final feed = await api.listLiveFeed(token);
+      final match = feed.where((c) => c.hostUserId == widget.otherUserId).firstOrNull;
+      if (match?.roomId != null && mounted) {
+        setState(() => _liveRoomId = match!.roomId);
+      }
+    } catch (_) {}
   }
 
   void _markIncomingRead(List<FirebaseMessage> msgs) {
@@ -458,7 +482,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
+        children: [
+          Column(
         children: [
           Expanded(
             child: _messages.isEmpty && _olderMessages.isEmpty
@@ -715,6 +741,80 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           ),
         ],
       ),
+          // ── Live preview overlay ───────────────────────────────────────────
+          ValueListenableBuilder<int>(
+            valueListenable: FirebaseChatService.instance.presenceVersion,
+            builder: (context, _, __) {
+              final String state =
+                  FirebaseChatService.instance.presenceStateCached(widget.otherUserId) ?? 'offline';
+              final String? roomId =
+                  FirebaseChatService.instance.presenceRoomIdCached(widget.otherUserId)
+                  ?? _liveRoomId;
+              if (state != 'live' || roomId == null) {
+                return const SizedBox.shrink();
+              }
+              return Positioned(
+                top: 8,
+                right: 12,
+                child: LivePreviewWidget(
+                  key: ValueKey('$roomId-$_previewGen'),
+                  roomId: roomId,
+                  onTap: (engine, hostUid, channelName) =>
+                      _openLiveStream(roomId, engine, hostUid, channelName),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
+  }
+
+  Future<void> _openLiveStream(String roomId, RtcEngine engine, int hostUid, String channelName) async {
+    final api = ZephyrApiClient.instance;
+    final token = ZephyrApiClient.accessToken;
+    if (api == null || token == null) return;
+
+    final feedCard = LiveFeedCard(
+      roomId: roomId,
+      title: '${widget.otherDisplayName}\'s live',
+      audienceCount: 0,
+      hostUserId: widget.otherUserId,
+      hostDisplayName: widget.otherDisplayName,
+      hostAvatarUrl: widget.otherAvatarUrl,
+      hostCountryCode: '',
+      hostLanguage: '',
+      hostStatus: 'live',
+      startedAt: DateTime.now(),
+    );
+
+    // Join room before navigating
+    int viewerCount = 0;
+    bool didJoin = false;
+    try {
+      final room = await api.joinRoom(token, roomId);
+      viewerCount = room.audienceCount;
+      didJoin = true;
+    } catch (_) {}
+    if (!mounted) return;
+
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => ViewerLiveScreen(
+        feedCard: feedCard,
+        apiClient: api,
+        accessToken: token,
+        myUserId: widget.myUserId,
+        myDisplayName: widget.myDisplayName,
+        onLeave: () {},
+        initialViewerCount: viewerCount,
+        didJoin: didJoin,
+        existingEngine: engine,
+        existingHostUid: hostUid,
+        existingChannelName: channelName,
+      ),
+    ));
+    // Bump generation so preview rebuilds fresh with a new engine
+    if (mounted) setState(() => _previewGen++);
   }
 }

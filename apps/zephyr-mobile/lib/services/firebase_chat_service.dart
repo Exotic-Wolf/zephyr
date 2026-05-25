@@ -35,7 +35,10 @@ class FirebaseChatService {
 
   /// Cached state per user: 'online', 'offline', or 'live'.
   final Map<String, String> _presenceCache = {};
+  /// Cached roomId per user (only set when state == 'live').
+  final Map<String, String> _presenceRoomCache = {};
   final Map<String, StreamSubscription<DatabaseEvent>> _presenceSubs = {};
+  StreamSubscription<DatabaseEvent>? _connectedSub;
 
   /// Notifies listeners whenever any user's presence changes.
   final ValueNotifier<int> presenceVersion = ValueNotifier<int>(0);
@@ -50,17 +53,41 @@ class FirebaseChatService {
   /// Returns the raw presence state: 'online', 'offline', or 'live'. Null if unknown.
   String? presenceStateCached(String userId) => _presenceCache[userId];
 
+  /// Returns the roomId for a user who is currently live. Null otherwise.
+  String? presenceRoomIdCached(String userId) => _presenceRoomCache[userId];
+
   /// Pre-warm presence for a list of user IDs. Subscribes once per user.
+  /// Caps at 50 subscriptions to avoid unbounded RTDB listeners.
+  static const int _maxPresenceSubs = 50;
+
   void warmPresence(List<String> userIds) {
     for (final String uid in userIds) {
       if (_presenceSubs.containsKey(uid)) continue;
+
+      // Evict oldest subscriptions if at capacity
+      while (_presenceSubs.length >= _maxPresenceSubs) {
+        final String oldest = _presenceSubs.keys.first;
+        _presenceSubs.remove(oldest)?.cancel();
+      }
+
       _presenceSubs[uid] = _rtdb.ref('presence/$uid').onValue.listen((event) {
         final data = event.snapshot.value;
         final String state =
             (data is Map ? data['state'] as String? : null) ?? 'offline';
+        final String? roomId =
+            data is Map ? data['roomId'] as String? : null;
 
-        if (_presenceCache[uid] != state) {
-          _presenceCache[uid] = state;
+        final bool changed = _presenceCache[uid] != state ||
+            _presenceRoomCache[uid] != roomId;
+
+        _presenceCache[uid] = state;
+        if (state == 'live' && roomId != null) {
+          _presenceRoomCache[uid] = roomId;
+        } else {
+          _presenceRoomCache.remove(uid);
+        }
+
+        if (changed) {
           presenceVersion.value++;
           // Keep PresenceBus in sync so StatusDot (inbox) reflects the same state.
           PresenceBus.instance.update(uid, state);
@@ -98,7 +125,8 @@ class FirebaseChatService {
     final DatabaseReference presenceRef = _rtdb.ref('presence/$userId');
     final DatabaseReference connectedRef = _rtdb.ref('.info/connected');
 
-    connectedRef.onValue.listen((DatabaseEvent event) {
+    _connectedSub?.cancel();
+    _connectedSub = connectedRef.onValue.listen((DatabaseEvent event) {
       final bool connected = event.snapshot.value as bool? ?? false;
       if (!connected) return;
 
@@ -126,12 +154,13 @@ class FirebaseChatService {
   }
 
   /// Mark current user as "live" in Firebase RTDB presence.
-  void setLiveStatus() {
+  void setLiveStatus({String? roomId}) {
     if (_myUserId == null) return;
     _isLive = true;
     _rtdb.ref('presence/$_myUserId').set({
       'state': 'live',
       'lastSeen': ServerValue.timestamp,
+      if (roomId != null) 'roomId': roomId,
     });
   }
 

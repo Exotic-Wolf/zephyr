@@ -487,4 +487,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get welcomeToLive => 'Welcome to my live! 👋';
+
+  @override
+  String get liveHasEnded => 'Live has ended';
 }

@@ -2,11 +2,11 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
-import '../models/models.dart';
-import '../services/api_client.dart';
-import 'profile_page.dart';
-import 'thread_firebase_page.dart';
-import '../l10n/app_localizations.dart';
+import '../../models/models.dart';
+import '../../services/api_client.dart';
+import '../profile/profile_page.dart';
+import '../chat/thread_firebase_page.dart';
+import '../../l10n/app_localizations.dart';
 
 // ── ExplorePage ───────────────────────────────────────────────────────────────
 

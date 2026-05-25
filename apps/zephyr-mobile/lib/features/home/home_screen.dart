@@ -1,27 +1,24 @@
 import 'dart:async';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:country_picker/country_picker.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
 
-import '../models/models.dart';
-import '../services/api_client.dart';
-import '../services/firebase_chat_service.dart';
-import '../widgets/coin_icon.dart';
-import '../features/home/widgets/popular_feed.dart';
-import '../features/home/widgets/discover_feed.dart';
-import '../features/home/widgets/follow_feed.dart';
-import 'explore_page.dart';
-import 'go_live_countdown_page.dart';
-import 'inbox_firebase_page.dart';
-import 'my_profile_page.dart';
-import 'profile_page.dart';
-import 'viewer_live_screen.dart';
-import '../app_constants.dart';
-import 'call_price_page.dart';
-import 'random_call_screen.dart';
-import '../l10n/app_localizations.dart';
+import '../../models/models.dart';
+import '../../services/api_client.dart';
+import '../../services/firebase_chat_service.dart';
+import 'widgets/popular_feed.dart';
+import 'widgets/discover_feed.dart';
+import 'widgets/follow_feed.dart';
+import '../me/me_tab.dart';
+import '../explore/explore_page.dart';
+import '../live/go_live_countdown_page.dart';
+import '../chat/inbox_firebase_page.dart';
+import '../profile/profile_page.dart';
+import '../live/viewer_live_screen.dart';
+import '../../app_constants.dart';
+import '../call/random_call_screen.dart';
+import '../../l10n/app_localizations.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -49,7 +46,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController _roomTitleController = TextEditingController();
   final PageController _feedController = PageController();
   UserProfile? _me;
@@ -57,25 +54,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Set<String> _followingIds = <String>{};
   int _selectedTabIndex = 0;
   int _homeTopTabIndex = 1;
-  int _coinBalance = 1200;
-  int _userLevel = 4;
-  double _myRevenue = 86.40;
-  List<CoinPack> _coinPacks = <CoinPack>[
-    CoinPack(id: 'pack_299',  label: '16.5K',  coins: 16500,  priceUsd: 2.99),
-    CoinPack(id: 'pack_999',  label: '55K',    coins: 55000,  priceUsd: 9.99),
-    CoinPack(id: 'pack_2999', label: '165K',   coins: 165000, priceUsd: 29.99),
-    CoinPack(id: 'pack_9999', label: '550K',   coins: 550000, priceUsd: 99.99),
-  ];
-  final int _callMinutes = 2;
-  final String _callMode = 'direct';
-  int _selectedDirectRate = 2100;
-  CallQuote? _callQuote;
-  Timer? _callTickTimer;
   Timer? _feedPollTimer;
   sio.Socket? _feedSocket;
-  Timer? _keepAliveTimer;
   Timer? _heartbeatTimer;
-  bool _quoteLoading = false;
   int _activeFeedIndex = 0;
   Country? _filterCountry;
   String _searchQuery = '';
@@ -86,24 +67,20 @@ class _HomeScreenState extends State<HomeScreen> {
   final bool _creating = false;
 
   StreamSubscription<RemoteMessage>? _fcmSub;
+  StreamSubscription<List<dynamic>>? _convoDeliverySub;
   String? _joiningRoomId;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _selectedTabIndex = widget.tabNotifier?.value ?? 0;
     widget.tabNotifier?.addListener(_onTabNotify);
     _loadData();
     _refreshApiStatus();
     _connectFeedSocket();
-    // Safety net: poll every 5s in case socket drops or hasn't connected yet
-    _feedPollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshFeed());
-    // Keep Render awake — free tier sleeps after 15 min; ping every 4 min prevents it
-    _keepAliveTimer = Timer.periodic(const Duration(minutes: 4), (_) {
-      widget.apiClient.ping().ignore();
-    });
     _fcmSub = FirebaseMessaging.onMessage.listen((_) {});
   }
 
@@ -124,13 +101,26 @@ class _HomeScreenState extends State<HomeScreen> {
       sio.OptionBuilder()
           .setTransports(<String>['websocket', 'polling'])
           .enableReconnection()
-          .setReconnectionAttempts(999999)
+          .setReconnectionAttempts(100)
           .setReconnectionDelay(2000)
           .disableAutoConnect()
           .build(),
     );
 
     _feedSocket!
+      ..on('connect', (_) {
+        // Socket is healthy — kill the fallback poll
+        _feedPollTimer?.cancel();
+        _feedPollTimer = null;
+        _refreshFeed(); // one sync to catch anything missed
+      })
+      ..on('disconnect', (_) {
+        // Socket dropped — start fallback polling until it reconnects
+        _feedPollTimer ??= Timer.periodic(
+          const Duration(seconds: 30),
+          (_) => _refreshFeed(),
+        );
+      })
       ..on('feed:room-created', (dynamic data) {
         if (!mounted) return;
         try {
@@ -140,16 +130,14 @@ class _HomeScreenState extends State<HomeScreen> {
               (payload['card'] as Map<dynamic, dynamic>)
                   .cast<String, dynamic>());
           if (card.hostUserId == _me?.id) return;
-          setState(() {
-            // Update existing card for this user to live, or prepend if new
-            final bool exists = _feedCards.any((LiveFeedCard c) => c.hostUserId == card.hostUserId);
-            if (exists) {
-              _feedCards = _feedCards.map((LiveFeedCard c) =>
-                c.hostUserId == card.hostUserId ? card : c).toList();
-            } else {
-              _feedCards = <LiveFeedCard>[card, ..._feedCards];
-            }
-          });
+          final bool exists = _feedCards.any((LiveFeedCard c) => c.hostUserId == card.hostUserId);
+          if (exists) {
+            _feedCards = _feedCards.map((LiveFeedCard c) =>
+              c.hostUserId == card.hostUserId ? card : c).toList();
+          } else {
+            _feedCards = <LiveFeedCard>[card, ..._feedCards];
+          }
+          if (_selectedTabIndex == 0) setState(() {});
         } catch (_) {}
       })
       ..on('feed:room-ended', (dynamic data) {
@@ -158,14 +146,12 @@ class _HomeScreenState extends State<HomeScreen> {
           final Map<String, dynamic> payload =
               (data as Map<dynamic, dynamic>).cast<String, dynamic>();
           final String hostUserId = payload['hostUserId'] as String;
-          setState(() {
-            // Card stays — just flip status back to online
-            _feedCards = _feedCards.map((LiveFeedCard c) =>
-              c.hostUserId == hostUserId
-                  ? c.copyWith(hostStatus: 'online', roomId: null, audienceCount: 0)
-                  : c,
-            ).toList();
-          });
+          _feedCards = _feedCards.map((LiveFeedCard c) =>
+            c.hostUserId == hostUserId
+                ? c.copyWith(hostStatus: 'online', roomId: null, audienceCount: 0)
+                : c,
+          ).toList();
+          if (_selectedTabIndex == 0) setState(() {});
         } catch (_) {}
       })
       ..on('feed:room-updated', (dynamic data) {
@@ -175,11 +161,10 @@ class _HomeScreenState extends State<HomeScreen> {
               (data as Map<dynamic, dynamic>).cast<String, dynamic>();
           final String roomId = payload['roomId'] as String;
           final int count = payload['audienceCount'] as int;
-          setState(() {
-            _feedCards = _feedCards.map((LiveFeedCard c) =>
-              c.roomId == roomId ? c.copyWith(audienceCount: count) : c,
-            ).toList();
-          });
+          _feedCards = _feedCards.map((LiveFeedCard c) =>
+            c.roomId == roomId ? c.copyWith(audienceCount: count) : c,
+          ).toList();
+          if (_selectedTabIndex == 0) setState(() {});
         } catch (_) {}
       })
       ..connect();
@@ -187,17 +172,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _convoDeliverySub?.cancel();
     _fcmSub?.cancel();
     widget.tabNotifier?.removeListener(_onTabNotify);
-    _callTickTimer?.cancel();
     _feedPollTimer?.cancel();
-    _keepAliveTimer?.cancel();
     _heartbeatTimer?.cancel();
     _feedSocket?.dispose();
     _roomTitleController.dispose();
     _feedController.dispose();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App back to foreground — reconnect socket fresh + sync feed
+      if (_feedSocket?.disconnected == true) {
+        _feedSocket!.connect();
+      }
+      _refreshFeed();
+    }
   }
 
   Future<void> _loadData() async {
@@ -210,16 +206,12 @@ class _HomeScreenState extends State<HomeScreen> {
       final List<dynamic> data = await Future.wait<dynamic>(<Future<dynamic>>[
         widget.apiClient.getMe(widget.accessToken),
         widget.apiClient.listLiveFeed(widget.accessToken),
-        widget.apiClient.getWalletSummary(widget.accessToken),
-        widget.apiClient.listCoinPacks(),
         widget.apiClient.getFollowingIds(widget.accessToken),
       ]);
 
       final UserProfile me = data[0] as UserProfile;
       final List<LiveFeedCard> feedCards = data[1] as List<LiveFeedCard>;
-      final WalletSummary wallet = data[2] as WalletSummary;
-      final Set<String> followingIds = data[4] as Set<String>;
-      final List<CoinPack> packs = data[3] as List<CoinPack>;
+      final Set<String> followingIds = data[2] as Set<String>;
 
       if (!mounted) {
         return;
@@ -242,14 +234,9 @@ class _HomeScreenState extends State<HomeScreen> {
         FirebaseChatService.instance.warmPresence(
           _feedCards.map((c) => c.hostUserId).toList(),
         );
-        _coinBalance = wallet.coinBalance;
-        _userLevel = wallet.level;
-        _myRevenue = wallet.revenueUsd;
-        _coinPacks = packs;
         _activeFeedIndex = feedCards.isEmpty
             ? 0
             : _activeFeedIndex.clamp(0, feedCards.length - 1);
-        _me = me;
       });
       // Start HTTP heartbeat for presence (runs regardless of socket state)
       _heartbeatTimer ??= Timer.periodic(
@@ -289,7 +276,8 @@ class _HomeScreenState extends State<HomeScreen> {
     };
 
     // Global delivery receipts — mark messages delivered as soon as app receives them
-    FirebaseChatService.instance.watchConversations().listen((convos) {
+    _convoDeliverySub?.cancel();
+    _convoDeliverySub = FirebaseChatService.instance.watchConversations().listen((convos) {
       for (final c in convos) {
         if (c.unreadCount > 0) {
           FirebaseChatService.instance.markDelivered(c.otherUserId);
@@ -316,65 +304,20 @@ class _HomeScreenState extends State<HomeScreen> {
       final List<LiveFeedCard> feedCards =
           await widget.apiClient.listLiveFeed(widget.accessToken);
       if (!mounted) return;
-      setState(() {
-        _feedCards = <LiveFeedCard>[
-          ...feedCards.where((LiveFeedCard c) => c.hostUserId != _me?.id),
-        ]..sort((LiveFeedCard a, LiveFeedCard b) {
-          int rank(String s) => switch (s) {
-            'live'   => 0,
-            'busy'   => 1,
-            'online' => 2,
-            _        => 3,
-          };
-          return rank(a.hostStatus).compareTo(rank(b.hostStatus));
-        });
+      _feedCards = <LiveFeedCard>[
+        ...feedCards.where((LiveFeedCard c) => c.hostUserId != _me?.id),
+      ]..sort((LiveFeedCard a, LiveFeedCard b) {
+        int rank(String s) => switch (s) {
+          'live'   => 0,
+          'busy'   => 1,
+          'online' => 2,
+          _        => 3,
+        };
+        return rank(a.hostStatus).compareTo(rank(b.hostStatus));
       });
+      if (_selectedTabIndex == 0) setState(() {});
     } catch (_) {
       // ignore — next poll will retry
-    }
-  }
-
-  Future<void> _loadCallQuote() async {
-    setState(() {
-      _quoteLoading = true;
-    });
-
-    try {
-      final CallQuote quote = await widget.apiClient.getPrivateCallQuote(
-        minutes: _callMinutes,
-        mode: _callMode,
-        directRateCoinsPerMinute: _callMode == 'direct'
-            ? _selectedDirectRate
-            : null,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _callQuote = quote;
-        if (
-            quote.mode == 'direct' &&
-            !quote.directCallAllowedRatesCoinsPerMinute.contains(
-              _selectedDirectRate,
-            )) {
-          _selectedDirectRate = quote.directCallAllowedRatesCoinsPerMinute.first;
-        }
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _quoteLoading = false;
-        });
-      }
     }
   }
 
@@ -411,9 +354,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _selectedTabIndex = 2;
     });
-    if (_callQuote == null && !_quoteLoading) {
-      _loadCallQuote();
-    }
   }
 
 
@@ -703,418 +643,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  String _formatRevenue(double value) {
-    return value.toStringAsFixed(2);
-  }
-
-  String _formatUsd(double value) {
-    return '\$${_formatRevenue(value)}';
-  }
-
-  Future<void> _openLevelPage() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) {
-          return Scaffold(
-            appBar: AppBar(title: Text(AppLocalizations.of(context)!.level)),
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(Icons.military_tech_rounded, size: 56),
-                    const SizedBox(height: 12),
-                    Text(
-                      AppLocalizations.of(context)!.levelValue(_userLevel),
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      AppLocalizations.of(context)!.keepStreamingToLevelUp,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _openBalancePage() async {
-    String? purchasingPackId;
-
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) {
-          return StatefulBuilder(
-            builder: (
-              BuildContext context,
-              void Function(void Function()) setInnerState,
-            ) {
-              Future<void> buyCoins(CoinPack pack) async {
-                setInnerState(() {
-                  purchasingPackId = pack.id;
-                });
-
-                try {
-                  final WalletSummary wallet = await widget.apiClient
-                      .purchaseCoins(widget.accessToken, pack.id);
-
-                  if (!mounted) {
-                    return;
-                  }
-
-                  setState(() {
-                    _coinBalance = wallet.coinBalance;
-                    _userLevel = wallet.level;
-                    _myRevenue = wallet.revenueUsd;
-                  });
-
-                  if (!mounted) {
-                    return;
-                  }
-
-                  setInnerState(() {
-                    purchasingPackId = null;
-                  });
-
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Added ${pack.coins} coins via ${pack.label}.',
-                      ),
-                    ),
-                  );
-                } catch (error) {
-                  if (!mounted) {
-                    return;
-                  }
-
-                  setInnerState(() {
-                    purchasingPackId = null;
-                  });
-
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    SnackBar(content: Text('Purchase failed: $error')),
-                  );
-                }
-              }
-
-              return Scaffold(
-                appBar: AppBar(title: Text(AppLocalizations.of(context)!.myBalance)),
-                body: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: <Widget>[
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              AppLocalizations.of(context)!.coinBalance,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              AppLocalizations.of(context)!.coinsAmount(_coinBalance),
-                              style: const TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      AppLocalizations.of(context)!.buyCoins,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    ..._coinPacks.map((CoinPack pack) {
-                      final bool isPurchasing = purchasingPackId == pack.id;
-
-                      return ListTile(
-                        leading: const CoinIcon(size: 28),
-                        title: Text(AppLocalizations.of(context)!.coinPackLabel(pack.coins, pack.label)),
-                        subtitle: Text(_formatUsd(pack.priceUsd)),
-                        trailing: ElevatedButton(
-                          onPressed: isPurchasing
-                              ? null
-                              : () {
-                                  buyCoins(pack);
-                                },
-                          child: Text(isPurchasing ? AppLocalizations.of(context)!.buying : AppLocalizations.of(context)!.buy),
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _openRevenuePage() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) {
-          return Scaffold(
-            appBar: AppBar(title: Text(AppLocalizations.of(context)!.myRevenue)),
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(Icons.account_balance_wallet_rounded, size: 56),
-                    const SizedBox(height: 12),
-                    Text(
-                      _formatUsd(_myRevenue),
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      AppLocalizations.of(context)!.revenueFromGiftsAndCalls,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _openMyProfilePage() async {
-    final UserProfile? updated = await Navigator.of(context).push(
-      MaterialPageRoute<UserProfile>(
-        builder: (_) => MyProfilePage(
-          me: _me,
-          apiClient: widget.apiClient,
-          accessToken: widget.accessToken,
-          onLogout: widget.onLogout,
-        ),
-      ),
-    );
-    if (updated != null && mounted) {
-      setState(() => _me = updated);
-    }
-  }
-
-  Future<void> _openCallPricePage() async {
-    final UserProfile? updated = await Navigator.of(context).push(
-      MaterialPageRoute<UserProfile>(
-        builder: (_) => CallPricePage(
-          userLevel: _userLevel,
-          apiClient: widget.apiClient,
-          accessToken: widget.accessToken,
-          me: _me,
-        ),
-      ),
-    );
-    if (updated != null && mounted) {
-      setState(() => _me = updated);
-    }
-  }
-
-  Future<void> _openSettingsPage() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) {
-          return Scaffold(
-            appBar: AppBar(title: Text(AppLocalizations.of(context)!.settings)),
-            body: ListView(
-              children: <Widget>[
-                ListTile(
-                  leading: const Icon(Icons.person_outline_rounded),
-                  title: Text(AppLocalizations.of(context)!.account),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.privacy_tip_outlined),
-                  title: Text(AppLocalizations.of(context)!.privacy),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.notifications_none_rounded),
-                  title: Text(AppLocalizations.of(context)!.notifications),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.language_rounded),
-                  title: Text(AppLocalizations.of(context)!.language),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => _LanguagePage(
-                          current: widget.locale,
-                          onChanged: widget.onLocaleChanged,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.brightness_6_rounded),
-                  title: Text(AppLocalizations.of(context)!.appearance),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => _AppearancePage(
-                          current: widget.themeMode,
-                          onChanged: widget.onThemeModeChanged,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.logout, color: Colors.red),
-                  title: Text(
-                    AppLocalizations.of(context)!.logout,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                  onTap: () async {
-                    final bool? confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: Text(AppLocalizations.of(ctx)!.logout),
-                        content: Text(AppLocalizations.of(ctx)!.logoutConfirm),
-                        actions: <Widget>[
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: Text(AppLocalizations.of(ctx)!.cancel),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: Text(
-                              AppLocalizations.of(ctx)!.logout,
-                              style: const TextStyle(color: Colors.red),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirm != true) return;
-                    if (!context.mounted) return;
-                    Navigator.of(context).popUntil((route) => route.isFirst);
-                    widget.onLogout();
-                  },
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildMeTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: <Widget>[
-        Card(
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundImage: _me?.avatarUrl != null ? CachedNetworkImageProvider(_me!.avatarUrl!) : null,
-              child: _me?.avatarUrl == null ? const Icon(Icons.person_rounded) : null,
-            ),
-            title: Row(
-              children: <Widget>[
-                Text(_me?.displayName ?? AppLocalizations.of(context)!.me),
-                if (_me?.isAdmin == true) ...<Widget>[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: <Color>[Color(0xFFFFD700), Color(0xFFFF8C00)],
-                      ),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      AppLocalizations.of(context)!.owner,
-                      style: const TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: _openMyProfilePage,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Column(
-            children: <Widget>[
-              ListTile(
-                leading: const Icon(Icons.military_tech_rounded),
-                title: Text(AppLocalizations.of(context)!.level),
-                trailing: Text('Lv $_userLevel'),
-                onTap: _openLevelPage,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.account_balance_wallet_rounded),
-                title: Text(AppLocalizations.of(context)!.myBalance),
-                trailing: Text(AppLocalizations.of(context)!.coinsAmount(_coinBalance)),
-                onTap: _openBalancePage,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.payments_rounded),
-                title: Text(AppLocalizations.of(context)!.myRevenue),
-                trailing: Text(_formatUsd(_myRevenue)),
-                onTap: _openRevenuePage,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.call_rounded),
-                title: Text(AppLocalizations.of(context)!.myCallPrice),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: _openCallPricePage,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.settings_rounded),
-                title: Text(AppLocalizations.of(context)!.settings),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: _openSettingsPage,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final bool isTablet = MediaQuery.sizeOf(context).width >= tabletBreakpoint;
@@ -1137,13 +665,27 @@ class _HomeScreenState extends State<HomeScreen> {
                 myDisplayName: _me?.displayName ?? 'User',
                 myAvatarUrl: _me?.avatarUrl,
               ),
-            4 => _buildMeTab(),
+            4 => MeTab(
+                me: _me,
+                apiClient: widget.apiClient,
+                accessToken: widget.accessToken,
+                onLogout: widget.onLogout,
+                locale: widget.locale,
+                onLocaleChanged: widget.onLocaleChanged,
+                themeMode: widget.themeMode,
+                onThemeModeChanged: widget.onThemeModeChanged,
+                onProfileUpdated: (profile) {
+                  setState(() => _me = profile);
+                },
+              ),
             _ => const SizedBox.shrink(),
           };
 
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
       backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : null) : null,
       appBar: AppBar(
         backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : null) : null,
@@ -1308,127 +850,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
         ],
       ),
-    );
-  }
-}
-
-// ── Language Settings Page ────────────────────────────────────────────────────
-class _LanguagePage extends StatelessWidget {
-  const _LanguagePage({required this.current, required this.onChanged});
-
-  final Locale? current;
-  final ValueChanged<Locale?> onChanged;
-
-  static const List<Map<String, String>> _languages = <Map<String, String>>[
-    {'code': '', 'flag': '🌐', 'name': 'System default', 'native': 'Auto'},
-    {'code': 'en', 'flag': '🇬🇧', 'name': 'English', 'native': 'English'},
-    {'code': 'ar', 'flag': '🇸🇦', 'name': 'Arabic', 'native': 'العربية'},
-    {'code': 'pt', 'flag': '🇧🇷', 'name': 'Portuguese', 'native': 'Português'},
-    {'code': 'es', 'flag': '🇪🇸', 'name': 'Spanish', 'native': 'Español'},
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final String currentCode = current?.languageCode ?? '';
-    return Scaffold(
-      appBar: AppBar(title: Text(AppLocalizations.of(context)!.language)),
-      body: ListView.separated(
-        itemCount: _languages.length,
-        separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
-        itemBuilder: (BuildContext ctx, int i) {
-          final Map<String, String> lang = _languages[i];
-          final bool selected = lang['code'] == currentCode;
-          return ListTile(
-            leading: Text(lang['flag']!, style: const TextStyle(fontSize: 28)),
-            title: Text(lang['native']!, style: const TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: Text(lang['name']!),
-            trailing: selected
-                ? const Icon(Icons.check_rounded, color: Color(0xFFFF8F00))
-                : null,
-            onTap: () {
-              final String code = lang['code']!;
-              onChanged(code.isEmpty ? null : Locale(code));
-              Navigator.of(ctx).pop();
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ── Appearance Settings Page ──────────────────────────────────────────────────
-class _AppearancePage extends StatelessWidget {
-  const _AppearancePage({required this.current, required this.onChanged});
-
-  final ThemeMode current;
-  final ValueChanged<ThemeMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(AppLocalizations.of(context)!.appearance)),
-      body: ListView(
-        children: <Widget>[
-          _AppearanceTile(
-            icon: Icons.brightness_auto_rounded,
-            label: AppLocalizations.of(context)!.systemDefault,
-            subtitle: AppLocalizations.of(context)!.followDeviceSetting,
-            mode: ThemeMode.system,
-            current: current,
-            onChanged: onChanged,
-          ),
-          _AppearanceTile(
-            icon: Icons.light_mode_rounded,
-            label: AppLocalizations.of(context)!.lightMode,
-            subtitle: AppLocalizations.of(context)!.alwaysUseLightMode,
-            mode: ThemeMode.light,
-            current: current,
-            onChanged: onChanged,
-          ),
-          _AppearanceTile(
-            icon: Icons.dark_mode_rounded,
-            label: AppLocalizations.of(context)!.darkMode,
-            subtitle: AppLocalizations.of(context)!.alwaysUseDarkMode,
-            mode: ThemeMode.dark,
-            current: current,
-            onChanged: onChanged,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AppearanceTile extends StatelessWidget {
-  const _AppearanceTile({
-    required this.icon,
-    required this.label,
-    required this.subtitle,
-    required this.mode,
-    required this.current,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String label;
-  final String subtitle;
-  final ThemeMode mode;
-  final ThemeMode current;
-  final ValueChanged<ThemeMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final bool selected = current == mode;
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(label),
-      subtitle: Text(subtitle),
-      trailing: selected
-          ? Icon(Icons.check_circle_rounded,
-              color: Theme.of(context).colorScheme.primary)
-          : const Icon(Icons.radio_button_unchecked_rounded),
-      onTap: () => onChanged(mode),
+    ),
     );
   }
 }

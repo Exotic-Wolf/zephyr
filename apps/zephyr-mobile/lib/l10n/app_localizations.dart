@@ -977,6 +977,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Welcome to my live! 👋'**
   String get welcomeToLive;
+
+  /// No description provided for @liveHasEnded.
+  ///
+  /// In en, this message translates to:
+  /// **'Live has ended'**
+  String get liveHasEnded;
 }
 
 class _AppLocalizationsDelegate
