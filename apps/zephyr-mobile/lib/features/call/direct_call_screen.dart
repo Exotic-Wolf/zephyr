@@ -163,6 +163,14 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
 
   @override
   void dispose() {
+    if (!_disposed) {
+      // End session on server if not already ended
+      widget.apiClient.endCallSession(
+        accessToken: widget.accessToken,
+        sessionId: widget.sessionId,
+        reason: 'disposed',
+      ).ignore();
+    }
     _disposed = true;
     _elapsedTimer?.cancel();
     _tickTimer?.cancel();
