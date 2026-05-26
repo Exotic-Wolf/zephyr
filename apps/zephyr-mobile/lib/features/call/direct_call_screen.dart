@@ -255,7 +255,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   }
 
   Widget _buildLocalPreview() {
-    if (_engine == null || _cameraMuted) return const SizedBox.shrink();
+    if (_engine == null) return const SizedBox.shrink();
     return Positioned(
       top: MediaQuery.of(context).padding.top + 12,
       right: 12,
@@ -269,16 +269,21 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
             border: Border.all(color: Colors.white24, width: 1),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: _localVideoReady
-              ? AgoraVideoView(
-                  controller: VideoViewController(
-                    rtcEngine: _engine!,
-                    canvas: const VideoCanvas(uid: 0),
-                  ),
+          child: _cameraMuted
+              ? const Center(
+                  child: Icon(Icons.videocam_off_rounded,
+                      color: Colors.white38, size: 32),
                 )
-              : const Center(
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white24)),
+              : _localVideoReady
+                  ? AgoraVideoView(
+                      controller: VideoViewController(
+                        rtcEngine: _engine!,
+                        canvas: const VideoCanvas(uid: 0),
+                      ),
+                    )
+                  : const Center(
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white24)),
         ),
       ),
     );
