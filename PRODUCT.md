@@ -22,7 +22,7 @@
 | Database | PostgreSQL (Render) | Singapore region |
 | Real-time | Socket.IO (`/feed`, `/call` namespaces) | Backend |
 | Messaging | Firebase Firestore + Storage + FCM | `firebase_chat_service.dart` |
-| Status & Presence | Firebase RTDB (asia-southeast1) | Online/offline, call state, live state — **source of truth for availability** |
+| Status & Presence | Firebase RTDB (asia-southeast1) | Online/offline, call state, live state, direct call signaling — **source of truth for availability** |
 | Video | Agora (calls + live streaming) | SDK in mobile |
 | Deploy | Render (auto-deploy from `main`) | `https://zephyr-api-wr1s.onrender.com` |
 
@@ -58,7 +58,9 @@ pnpm --filter zephyr-api start:dev
 | `models/models.dart` | All data models: `UserProfile`, `Room`, `ZephyrMessage`, `WalletSummary`, `CoinPack`, `CallSession`, etc. |
 | `services/api_client.dart` | All HTTP calls — GET/POST/PATCH/DELETE |
 | `services/firebase_chat_service.dart` | Firebase chat — Firestore messages, RTDB presence, Storage images, block/report |
-| `pages/home_screen.dart` | Feed, socket connection, inbox badge, 5s poll fallback |
+| `pages/home_screen.dart` | Feed, socket connection, inbox badge, 5s poll fallback, RTDB listener for incoming direct calls |
+| `features/call/direct_call_screen.dart` | Reusable Agora video call screen (direct + random), remote mute detection, PIP |
+| `features/call/incoming_call_overlay.dart` | Incoming call overlay — accept/decline, caller info |
 | `pages/host_live_screen.dart` | Host live stream, heartbeat timer (15s) |
 | `pages/go_live_countdown_page.dart` | 3-2-1 countdown, creates room |
 | `pages/viewer_live_screen.dart` | Viewer live stream, reactions, comments |
@@ -206,7 +208,7 @@ Firebase Chat:
 | Wallet / coins UI | ❌ Partial | 30% |
 | Gifts during live | ❌ Not started | 0% |
 | Report system (calls) | ❌ Not started | 0% |
-| Direct call ringing screen | ❌ Not started | 0% |
+| Direct call (signaling + video) | ✅ Done | 90% |
 | App icon + splash | ✅ Done | 100% |
 | Onboarding flow | ❌ Missing | 0% |
 
@@ -220,7 +222,7 @@ Firebase Chat:
 | Mock cards in feed | Remove `[Mock]` cards before production |
 | Render API sleeps | Upgrade to Standard plan ($25/mo) |
 | No report system | `POST /v1/calls/:sessionId/report` endpoint + in-call button |
-| No direct call ringing | Caller "calling…" + receiver accept/decline screen |
+| ~~No direct call ringing~~ | ✅ Done — RTDB signaling + Agora video + accept/decline overlay |
 
 ---
 
@@ -381,11 +383,14 @@ Random calls are priced cheap intentionally (600 coins/min = ~$0.11/min to calle
 
 ### Direct Call (paid, receiver sets rate)
 
-- Caller initiates from a profile
-- Receiver gets an incoming call screen — they can **accept** or **decline**
-- If declined: caller is not charged for that minute
+- Caller initiates from receiver's `ProfilePage` → writes to Firebase RTDB at `/direct_calls/{receiverUserId}`
+- RTDB payload: `callerId`, `callerName`, `callerAvatarUrl`, `sessionId`, `status`, `ts`
+- Receiver's `HomeScreen` listens on that RTDB path → shows `IncomingCallOverlay` (accept/decline)
+- On accept: both navigate to `DirectCallScreen` (Agora video), backend `startCallSession` begins billing
+- On decline: caller is not charged, RTDB node cleaned up
 - Rate is set by receiver based on their level (2,100 → 27,000 coins/min)
 - Receiver earns 60% of the rate they set
+- Camera-off detection: `onRemoteVideoStateChanged` with reason-based muting (not state-based) to avoid false positives on camera flip
 
 ---
 
@@ -525,7 +530,7 @@ Centered screen with:
 - [ ] Message ordering under rapid fire — no sequence numbers; 3 fast messages can appear out of order (~3% gap)
 - [ ] MessageCache eviction — thread messages unbounded in memory; causes pressure on long sessions (~2% gap)
 - [ ] Report user in-call — report button + `POST /v1/calls/:sessionId/report` endpoint
-- [ ] Direct call ringing — caller sees "calling…", receiver gets accept/decline screen
+- [x] Direct call ringing — caller sees "calling…", receiver gets accept/decline overlay (RTDB signaling)
 - [ ] Post-call screen — "Call ended", option to send DM
 - [ ] Custom Sentry breadcrumbs — log socket events, message send, login
 
@@ -597,3 +602,5 @@ Centered screen with:
 - [x] Settings — logout at Me → ⚙ Settings → Sign Out
 - [x] Redis Socket.IO adapter — wired, no-op without `REDIS_URL`
 - [x] Mock data removed — mock feed cards, mock followingIds, debug logs gone
+- [x] Direct call — RTDB signaling (`/direct_calls/{receiverUserId}`), incoming call overlay (accept/decline), Agora video screen with remote mute detection, camera-off PIP placeholder, dispose cleanup
+- [x] Direct call camera-off handling — remote mute detected via `onRemoteVideoStateChanged` (reason-based, not state-based), camera flip no longer triggers false "camera off" on remote side
