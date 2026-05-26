@@ -366,6 +366,34 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ON random_call_matches(caller_id, host_id, matched_at DESC)
     `);
 
+    // ── Call rate tiers (managed in DB) ──────────────────────────────────────
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS call_rate_tiers (
+        id SERIAL PRIMARY KEY,
+        label TEXT NOT NULL,
+        min_level INT NOT NULL,
+        coins_per_minute INT NOT NULL,
+        spark_per_minute INT NOT NULL,
+        sort_order INT NOT NULL DEFAULT 0
+      )
+    `);
+
+    // Seed default tiers if table is empty
+    const tierCount = await this.pool.query('SELECT count(*)::int AS cnt FROM call_rate_tiers');
+    if (tierCount.rows[0].cnt === 0) {
+      await this.pool.query(`
+        INSERT INTO call_rate_tiers (label, min_level, coins_per_minute, spark_per_minute, sort_order)
+        VALUES
+          ('≤Lv3', 1, 2100, 1260, 1),
+          ('Lv4',  4, 3200, 1920, 2),
+          ('Lv5',  5, 4200, 2520, 3),
+          ('Lv6',  6, 5400, 3240, 4),
+          ('Lv7',  7, 6400, 3840, 5),
+          ('Lv8',  8, 8000, 4800, 6),
+          ('Lv9+', 9, 27000, 16200, 7)
+      `);
+    }
+
     // Periodic cleanup every 10s:
     //  - no heartbeat for 40s → dead (heartbeat sent every 15s, so 2.5x grace)
     //  - any room older than 30 min → dead (host gone / crashed / forgot to end)

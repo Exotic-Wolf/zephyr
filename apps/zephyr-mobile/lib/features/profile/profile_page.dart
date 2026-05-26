@@ -1,8 +1,10 @@
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/material.dart';
-import 'package:socket_io_client/socket_io_client.dart' as sio;
+import 'dart:async';
 
-import '../../app_constants.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/material.dart';
+
 import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
@@ -48,18 +50,35 @@ class _ProfilePageState extends State<ProfilePage> {
 
   // Direct call state
   bool _calling = false;
-  sio.Socket? _callSocket;
+  StreamSubscription<DatabaseEvent>? _callSub;
+  Timer? _callTimeout;
+  String? _callSessionId;
+
+  // Fresh call rate fetched from backend
+  int? _freshCallRate;
 
   LiveFeedCard get _card => widget.feedCard;
 
-  int get _callRate => _card.callRateCoinsPerMinute ?? 4200;
+  int? get _callRate => _freshCallRate;
 
   @override
   void initState() {
     super.initState();
     _loadBlockStatus();
+    _loadFreshCallRate();
     // Warm Firebase RTDB presence for this user
     FirebaseChatService.instance.warmPresence([_card.hostUserId]);
+  }
+
+  Future<void> _loadFreshCallRate() async {
+    final api = widget.apiClient;
+    if (api == null) return;
+    try {
+      final user = await api.getUserById(_card.hostUserId);
+      if (mounted && user.callRateCoinsPerMinute != null) {
+        setState(() => _freshCallRate = user.callRateCoinsPerMinute);
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadBlockStatus() async {
@@ -111,96 +130,147 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
-    _callSocket?.dispose();
+    _callSub?.cancel();
+    _callTimeout?.cancel();
     super.dispose();
   }
 
-  void _initiateDirectCall() {
+  void _initiateDirectCall() async {
     final userId = widget.myUserId;
-    if (userId == null) return;
+    final api = widget.apiClient;
+    final token = widget.accessToken;
+    if (userId == null || api == null || token == null) return;
 
     setState(() => _calling = true);
 
-    _callSocket = sio.io(
-      '$apiBaseUrl/call',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .enableReconnection()
-          .setReconnectionAttempts(3)
-          .setQuery(<String, dynamic>{'userId': userId})
-          .disableAutoConnect()
-          .build(),
-    );
+    try {
+      debugPrint('[DirectCall] startCallSession: receiverUserId=${_card.hostUserId}, rate=$_callRate');
+      // 1. Create call session on backend
+      final session = await api.startCallSession(
+        accessToken: token,
+        mode: 'direct',
+        receiverUserId: _card.hostUserId,
+        directRateCoinsPerMinute: _callRate,
+      );
+      debugPrint('[DirectCall] session created: ${session.id}');
+      _callSessionId = session.id;
 
-    _callSocket!
-      ..on('connect', (_) {
-        _callSocket!.emit('call:direct', <String, dynamic>{
-          'userId': userId,
-          'receiverId': _card.hostUserId,
-        });
-      })
-      ..on('call:matched', (dynamic data) {
+      // 2. Write signaling node to RTDB
+      final ref = FirebaseDatabase.instanceFor(
+        app: Firebase.app(),
+        databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
+      ).ref('direct_calls/${_card.hostUserId}');
+
+      await ref.set(<String, dynamic>{
+        'callerId': userId,
+        'sessionId': session.id,
+        'status': 'ringing',
+        'ts': ServerValue.timestamp,
+      });
+
+      // 3. Listen for status changes (accepted / declined)
+      _callSub = ref.onValue.listen((DatabaseEvent event) {
         if (!mounted) return;
-        final Map<String, dynamic> payload =
-            (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-        _callSocket?.disconnect();
-        setState(() => _calling = false);
-        // Navigate to call screen with pre-matched data
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            fullscreenDialog: true,
-            builder: (_) => RandomCallScreen(
-              apiClient: widget.apiClient!,
-              accessToken: widget.accessToken!,
-              userId: userId,
-              initialMatch: payload,
-            ),
-          ),
-        );
-      })
-      ..on('call:busy', (_) {
-        if (!mounted) return;
-        _callSocket?.disconnect();
-        setState(() => _calling = false);
-        _showErrorSnack('They are on another call');
-      })
-      ..on('call:unavailable', (_) {
-        if (!mounted) return;
-        _callSocket?.disconnect();
-        setState(() => _calling = false);
-        _showErrorSnack('User is not available right now');
-      })
-      ..on('call:no_answer', (_) {
-        if (!mounted) return;
-        _callSocket?.disconnect();
-        setState(() => _calling = false);
+        final data = event.snapshot.value;
+        if (data == null) {
+          // Node deleted (cancelled from other side)
+          _cleanupCall();
+          return;
+        }
+        final map = Map<String, dynamic>.from(data as Map);
+        final status = map['status'] as String?;
+        if (status == 'accepted') {
+          _onCallAccepted(session.id);
+        } else if (status == 'declined') {
+          _cleanupCall();
+          _showErrorSnack('Call declined');
+        }
+      });
+
+      // 4. 30s timeout
+      _callTimeout = Timer(const Duration(seconds: 30), () {
+        if (!mounted || !_calling) return;
+        ref.remove();
+        _cleanupCall();
         _showErrorSnack('No answer');
-      })
-      ..on('call:rejected', (_) {
-        if (!mounted) return;
-        _callSocket?.disconnect();
-        setState(() => _calling = false);
-        _showErrorSnack('Call declined');
-      })
-      ..on('call:error', (dynamic data) {
-        if (!mounted) return;
-        _callSocket?.disconnect();
-        setState(() => _calling = false);
-        _showErrorSnack('Unable to call this user');
-      })
-      ..connect();
+        // End the unused session
+        api.endCallSession(accessToken: token, sessionId: session.id, reason: 'no_answer').ignore();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _calling = false);
+      final msg = e.toString();
+      debugPrint('[DirectCall] error: $msg');
+      if (msg.contains('busy')) {
+        _showErrorSnack('They are on another call');
+      } else {
+        _showErrorSnack('Call error: $msg');
+      }
+    }
+  }
+
+  void _onCallAccepted(String sessionId) async {
+    final userId = widget.myUserId;
+    final api = widget.apiClient;
+    final token = widget.accessToken;
+    if (userId == null || api == null || token == null || !mounted) return;
+
+    _callSub?.cancel();
+    _callTimeout?.cancel();
+
+    try {
+      final rtc = await api.requestCallRtcToken(accessToken: token, sessionId: sessionId);
+      if (!mounted) return;
+      setState(() => _calling = false);
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => RandomCallScreen(
+            apiClient: api,
+            accessToken: token,
+            userId: userId,
+            initialMatch: <String, dynamic>{
+              'sessionId': sessionId,
+              'appId': rtc.appId,
+              'channelName': rtc.channelName,
+              'uid': rtc.uid,
+              'token': rtc.token,
+              'partnerId': _card.hostUserId,
+            },
+          ),
+        ),
+      );
+    } catch (_) {
+      _cleanupCall();
+      _showErrorSnack('Failed to connect call');
+    }
+  }
+
+  void _cleanupCall() {
+    _callSub?.cancel();
+    _callTimeout?.cancel();
+    _callSub = null;
+    _callTimeout = null;
+    if (mounted) setState(() => _calling = false);
   }
 
   void _cancelDirectCall() {
-    final userId = widget.myUserId;
-    if (userId != null) {
-      _callSocket?.emit('call:end', <String, dynamic>{
-        'userId': userId,
-        'sessionId': '',
-      });
+    final api = widget.apiClient;
+    final token = widget.accessToken;
+
+    // Remove the RTDB signaling node
+    final ref = FirebaseDatabase.instanceFor(
+      app: Firebase.app(),
+      databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
+    ).ref('direct_calls/${_card.hostUserId}');
+    ref.remove();
+
+    // End the unused session
+    if (_callSessionId != null && api != null && token != null) {
+      api.endCallSession(accessToken: token, sessionId: _callSessionId!, reason: 'caller_cancelled').ignore();
     }
-    _callSocket?.disconnect();
-    if (mounted) setState(() => _calling = false);
+
+    _cleanupCall();
   }
 
   void _showErrorSnack(String message) {
@@ -322,13 +392,15 @@ class _ProfilePageState extends State<ProfilePage> {
                               style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w600)),
-                          const SizedBox(width: 8),
-                          Text('$_callRate',
-                              style: const TextStyle(fontSize: 12)),
-                          const SizedBox(width: 3),
-                          const CoinIcon(size: 13),
-                          const Text('/min',
-                              style: TextStyle(fontSize: 12)),
+                          if (_callRate != null) ...<Widget>[
+                            const SizedBox(width: 8),
+                            Text('$_callRate',
+                                style: const TextStyle(fontSize: 12)),
+                            const SizedBox(width: 3),
+                            const CoinIcon(size: 13),
+                            const Text('/min',
+                                style: TextStyle(fontSize: 12)),
+                          ],
                         ],
                       ),
                 },

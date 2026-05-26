@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -176,11 +177,61 @@ interface Session {
 }
 
 @Injectable()
-export class StoreService {
+export interface CallRateTier {
+  label: string;
+  minLevel: number;
+  coinsPerMinute: number;
+  sparkPerMinute: number;
+}
+
+export class StoreService implements OnModuleInit {
   constructor(@Optional() private readonly databaseService?: DatabaseService) {}
 
   private readonly logger = new Logger(StoreService.name);
   private readonly googleClient = new OAuth2Client();
+  private cachedCallRateTiers: CallRateTier[] = [];
+
+  async onModuleInit(): Promise<void> {
+    await this.loadCallRateTiers();
+  }
+
+  private async loadCallRateTiers(): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      try {
+        const result = await this.databaseService.query<{
+          label: string;
+          min_level: number;
+          coins_per_minute: number;
+          spark_per_minute: number;
+        }>('SELECT label, min_level, coins_per_minute, spark_per_minute FROM call_rate_tiers ORDER BY sort_order ASC');
+        if (result.rows.length > 0) {
+          this.cachedCallRateTiers = result.rows.map(r => ({
+            label: r.label,
+            minLevel: r.min_level,
+            coinsPerMinute: r.coins_per_minute,
+            sparkPerMinute: r.spark_per_minute,
+          }));
+          return;
+        }
+      } catch (e) {
+        this.logger.warn('Failed to load call rate tiers from DB, using defaults', e);
+      }
+    }
+    // Fallback defaults matching PRODUCT.md
+    this.cachedCallRateTiers = [
+      { label: '≤Lv3', minLevel: 1, coinsPerMinute: 2100, sparkPerMinute: 1260 },
+      { label: 'Lv4', minLevel: 4, coinsPerMinute: 3200, sparkPerMinute: 1920 },
+      { label: 'Lv5', minLevel: 5, coinsPerMinute: 4200, sparkPerMinute: 2520 },
+      { label: 'Lv6', minLevel: 6, coinsPerMinute: 5400, sparkPerMinute: 3240 },
+      { label: 'Lv7', minLevel: 7, coinsPerMinute: 6400, sparkPerMinute: 3840 },
+      { label: 'Lv8', minLevel: 8, coinsPerMinute: 8000, sparkPerMinute: 4800 },
+      { label: 'Lv9+', minLevel: 9, coinsPerMinute: 27000, sparkPerMinute: 16200 },
+    ];
+  }
+
+  getCallRateTiers(): CallRateTier[] {
+    return this.cachedCallRateTiers;
+  }
 
   private async uniquePublicId(uuid: string): Promise<string> {
     if (!this.databaseService?.isEnabled()) return derivePublicId(uuid);
@@ -2668,23 +2719,9 @@ export class StoreService {
   }
 
   private getDirectCallAllowedRates(): number[] {
-    const rawRates =
-      process.env.DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE ??
-      '2100,3200,4200,5400,6400,8000,27000';
-
-    const parsed = rawRates
-      .split(',')
-      .map((value) => Number.parseInt(value.trim(), 10))
-      .filter((value) => Number.isFinite(value) && value > 0);
-
-    const uniqueRates = [...new Set(parsed)];
-    if (uniqueRates.length > 0) {
-      return uniqueRates;
+    if (this.cachedCallRateTiers.length > 0) {
+      return this.cachedCallRateTiers.map(t => t.coinsPerMinute);
     }
-
-    this.logger.warn(
-      'Invalid DIRECT_CALL_ALLOWED_RATES_COINS_PER_MINUTE. Using default rates 2100,3200,4200,5400,6400,8000,27000.',
-    );
     return [2100, 3200, 4200, 5400, 6400, 8000, 27000];
   }
 

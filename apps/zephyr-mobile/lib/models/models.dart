@@ -51,6 +51,29 @@ class CoinPack {
   }
 }
 
+class CallRateTier {
+  CallRateTier({
+    required this.label,
+    required this.minLevel,
+    required this.coinsPerMinute,
+    required this.sparkPerMinute,
+  });
+
+  final String label;
+  final int minLevel;
+  final int coinsPerMinute;
+  final int sparkPerMinute;
+
+  factory CallRateTier.fromJson(Map<String, dynamic> json) {
+    return CallRateTier(
+      label: json['label'] as String,
+      minLevel: (json['minLevel'] as num).toInt(),
+      coinsPerMinute: (json['coinsPerMinute'] as num).toInt(),
+      sparkPerMinute: (json['sparkPerMinute'] as num).toInt(),
+    );
+  }
+}
+
 class CallQuote {
   CallQuote({
     required this.minutes,

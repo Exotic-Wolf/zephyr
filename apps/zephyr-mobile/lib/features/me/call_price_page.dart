@@ -9,29 +9,6 @@ import '../../l10n/app_localizations.dart';
 
 // ── CallPricePage ────────────────────────────────────────────────────────────
 
-class _CallTier {
-  const _CallTier({
-    required this.label,
-    required this.sparkPerMin,
-    required this.coinsPerMin,
-    required this.minLevel,
-  });
-  final String label;
-  final int sparkPerMin;
-  final int coinsPerMin;
-  final int minLevel;
-}
-
-const List<_CallTier> _kCallTiers = <_CallTier>[
-  _CallTier(label: '≤Lv3',  sparkPerMin:  1260,  coinsPerMin:  2100,  minLevel: 1),
-  _CallTier(label: 'Lv4',   sparkPerMin:  1920,  coinsPerMin:  3200,  minLevel: 4),
-  _CallTier(label: 'Lv5',   sparkPerMin:  2520,  coinsPerMin:  4200,  minLevel: 5),
-  _CallTier(label: 'Lv6',   sparkPerMin:  3240,  coinsPerMin:  5400,  minLevel: 6),
-  _CallTier(label: 'Lv7',   sparkPerMin:  3840,  coinsPerMin:  6400,  minLevel: 7),
-  _CallTier(label: 'Lv8',   sparkPerMin:  4800,  coinsPerMin:  8000,  minLevel: 8),
-  _CallTier(label: 'Lv9+',  sparkPerMin: 16200,  coinsPerMin: 27000,  minLevel: 9),
-];
-
 class CallPricePage extends StatefulWidget {
   const CallPricePage({
     super.key,
@@ -53,39 +30,44 @@ class _CallPricePageState extends State<CallPricePage> {
   int? _selectedCoins;
   bool _loading = true;
   bool _saving = false;
+  List<CallRateTier> _tiers = <CallRateTier>[];
 
   @override
   void initState() {
     super.initState();
-    _loadLevel();
+    _loadData();
   }
 
-  Future<void> _loadLevel() async {
+  Future<void> _loadData() async {
     try {
-      final wallet = await widget.apiClient.getWalletSummary(widget.accessToken);
+      final results = await Future.wait(<Future<dynamic>>[
+        widget.apiClient.getWalletSummary(widget.accessToken),
+        widget.apiClient.getCallRateTiers(),
+      ]);
+      final wallet = results[0] as WalletSummary;
+      final tiers = results[1] as List<CallRateTier>;
       if (!mounted) return;
       setState(() {
+        _tiers = tiers;
         _userLevel = wallet.level;
-        // Pre-populate from saved rate if it matches a valid tier
         final int? saved = widget.me?.callRateCoinsPerMinute;
         if (saved != null &&
-            _kCallTiers.any((t) => t.coinsPerMin == saved && t.minLevel <= _userLevel)) {
+            _tiers.any((t) => t.coinsPerMinute == saved && t.minLevel <= _userLevel)) {
           _selectedCoins = saved;
         } else {
-          // Default to highest tier the user qualifies for
-          _selectedCoins = _kCallTiers
+          _selectedCoins = _tiers
               .lastWhere(
                 (t) => t.minLevel <= _userLevel,
-                orElse: () => _kCallTiers.first,
+                orElse: () => _tiers.first,
               )
-              .coinsPerMin;
+              .coinsPerMinute;
         }
         _loading = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _selectedCoins = _kCallTiers.first.coinsPerMin;
+        _selectedCoins = _tiers.isNotEmpty ? _tiers.first.coinsPerMinute : 2100;
         _loading = false;
       });
     }
@@ -307,17 +289,17 @@ class _CallPricePageState extends State<CallPricePage> {
                   ),
                 ),
                 const Divider(height: 1),
-                ..._kCallTiers.map((_CallTier tier) {
+                ..._tiers.map((CallRateTier tier) {
                   final bool unlocked =
                       _userLevel >= tier.minLevel;
                   final bool selected =
-                      selectedCoins == tier.coinsPerMin;
+                      selectedCoins == tier.coinsPerMinute;
                   return Column(
                     children: <Widget>[
                       InkWell(
                         onTap: unlocked
                             ? () {
-                                setState(() => _selectedCoins = tier.coinsPerMin);
+                                setState(() => _selectedCoins = tier.coinsPerMinute);
                               }
                             : null,
                         child: Container(
@@ -349,7 +331,7 @@ class _CallPricePageState extends State<CallPricePage> {
                                 child: Row(
                                   children: <Widget>[
                                     Text(
-                                      '${tier.sparkPerMin}',
+                                      '${tier.sparkPerMinute}',
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: unlocked
@@ -373,7 +355,7 @@ class _CallPricePageState extends State<CallPricePage> {
                                 child: Row(
                                   children: <Widget>[
                                     Text(
-                                      '${tier.coinsPerMin}',
+                                      '${tier.coinsPerMinute}',
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: unlocked
@@ -405,7 +387,7 @@ class _CallPricePageState extends State<CallPricePage> {
                           ),
                         ),
                       ),
-                      if (tier != _kCallTiers.last)
+                      if (tier != _tiers.last)
                         const Divider(height: 1),
                     ],
                   );

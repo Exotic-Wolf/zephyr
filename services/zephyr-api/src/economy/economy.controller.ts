@@ -25,6 +25,7 @@ import type {
   GiftSendResult,
   CallSession,
   CallSessionTickResult,
+  CallRateTier,
   WalletSummary,
 } from '../core/store.service';
 import { EndCallSessionDto } from './dto/end-call-session.dto';
@@ -43,6 +44,11 @@ export class EconomyController {
   @Get('config')
   getEconomyConfig(): EconomyConfig {
     return this.storeService.getEconomyConfig();
+  }
+
+  @Get('call-rate-tiers')
+  getCallRateTiers(): CallRateTier[] {
+    return this.storeService.getCallRateTiers();
   }
 
   @Get('coin-packs')

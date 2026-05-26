@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:country_picker/country_picker.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
@@ -74,8 +76,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _error;
 
   // ── Incoming call state ───────────────────────────────────────────────────
-  sio.Socket? _callSocket;
+  StreamSubscription<DatabaseEvent>? _incomingCallSub;
   String? _incomingCallerId;
+  String? _incomingSessionId;
 
   @override
   void initState() {
@@ -87,7 +90,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadData();
     _refreshApiStatus();
     _connectFeedSocket();
-    _connectCallSocket();
     _fcmSub = FirebaseMessaging.onMessage.listen((_) {});
   }
 
@@ -177,87 +179,134 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ..connect();
   }
 
-  // ── Call socket (incoming call detection) ─────────────────────────────────
-  void _connectCallSocket() {
+  // ── Incoming call detection (RTDB-based) ───────────────────────────────────
+  void _listenForIncomingCalls() {
     final String? userId = _me?.id;
-    // Will be connected once _me loads — see _loadData
-    _callSocket = sio.io(
-      '$apiBaseUrl/call',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .enableReconnection()
-          .setReconnectionAttempts(100)
-          .setReconnectionDelay(3000)
-          .setQuery(<String, dynamic>{'userId': userId ?? ''})
-          .disableAutoConnect()
-          .build(),
-    );
+    if (userId == null) return;
 
-    _callSocket!
-      ..on('call:incoming', (dynamic data) {
-        if (!mounted) return;
-        final Map<String, dynamic> payload =
-            (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-        final String callerId = payload['callerId'] as String;
-        setState(() => _incomingCallerId = callerId);
-      })
-      ..on('call:cancelled', (_) {
-        if (!mounted) return;
-        setState(() => _incomingCallerId = null);
-      })
-      ..on('call:matched', (dynamic data) {
-        if (!mounted) return;
-        final Map<String, dynamic> payload =
-            (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-        setState(() => _incomingCallerId = null);
-        _navigateToAcceptedCall(payload);
+    _incomingCallSub?.cancel();
+    final ref = FirebaseDatabase.instanceFor(
+      app: Firebase.app(),
+      databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
+    ).ref('direct_calls/$userId');
+
+    _incomingCallSub = ref.onValue.listen((DatabaseEvent event) {
+      if (!mounted) return;
+      final data = event.snapshot.value;
+      if (data == null) {
+        // Node deleted — call cancelled or cleaned up
+        if (_incomingCallerId != null) {
+          setState(() {
+            _incomingCallerId = null;
+            _incomingSessionId = null;
+          });
+        }
+        return;
+      }
+      final map = Map<String, dynamic>.from(data as Map);
+      final status = map['status'] as String?;
+      final callerId = map['callerId'] as String?;
+      final sessionId = map['sessionId'] as String?;
+
+      if (status == 'ringing' && callerId != null && sessionId != null) {
+        setState(() {
+          _incomingCallerId = callerId;
+          _incomingSessionId = sessionId;
+        });
+      } else if (status == 'cancelled' || status == 'declined') {
+        setState(() {
+          _incomingCallerId = null;
+          _incomingSessionId = null;
+        });
+      }
+    });
+  }
+
+  void _acceptIncomingCall() async {
+    final String? userId = _me?.id;
+    final String? sessionId = _incomingSessionId;
+    final String? callerId = _incomingCallerId;
+    if (userId == null || sessionId == null || callerId == null) return;
+
+    // Update RTDB status to 'accepted' so caller knows
+    final ref = FirebaseDatabase.instanceFor(
+      app: Firebase.app(),
+      databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
+    ).ref('direct_calls/$userId/status');
+    await ref.set('accepted');
+
+    // Get Agora token from server
+    try {
+      final rtc = await widget.apiClient.requestCallRtcToken(
+        accessToken: widget.accessToken,
+        sessionId: sessionId,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _incomingCallerId = null;
+        _incomingSessionId = null;
       });
-    // Don't connect yet — need userId; connected in _loadData after _me resolves
-  }
 
-  void _reconnectCallSocket() {
-    final String? userId = _me?.id;
-    if (userId == null) return;
-    _callSocket?.io.options?['query'] = <String, dynamic>{'userId': userId};
-    if (_callSocket?.disconnected == true) {
-      _callSocket!.connect();
+      // Pause the RTDB listener while in call
+      _incomingCallSub?.cancel();
+
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => RandomCallScreen(
+            apiClient: widget.apiClient,
+            accessToken: widget.accessToken,
+            userId: userId,
+            initialMatch: <String, dynamic>{
+              'sessionId': sessionId,
+              'appId': rtc.appId,
+              'channelName': rtc.channelName,
+              'uid': rtc.uid,
+              'token': rtc.token,
+              'partnerId': callerId,
+            },
+          ),
+        ),
+      ).then((_) {
+        // Clean up the RTDB node and resume listening
+        FirebaseDatabase.instanceFor(
+          app: Firebase.app(),
+          databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
+        ).ref('direct_calls/$userId').remove();
+        _listenForIncomingCalls();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _incomingCallerId = null;
+        _incomingSessionId = null;
+      });
     }
-  }
-
-  void _acceptIncomingCall() {
-    final String? userId = _me?.id;
-    if (userId == null) return;
-    _callSocket?.emit('call:accept', <String, dynamic>{'userId': userId});
-    // call:matched will arrive from server → _navigateToAcceptedCall
   }
 
   void _rejectIncomingCall() {
     final String? userId = _me?.id;
     if (userId == null) return;
-    _callSocket?.emit('call:reject', <String, dynamic>{'userId': userId});
-    setState(() => _incomingCallerId = null);
-  }
 
-  void _navigateToAcceptedCall(Map<String, dynamic> matchPayload) {
-    final String? userId = _me?.id;
-    if (userId == null) return;
+    // Update RTDB status so caller gets notified
+    final ref = FirebaseDatabase.instanceFor(
+      app: Firebase.app(),
+      databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
+    ).ref('direct_calls/$userId/status');
+    ref.set('declined');
 
-    // Disconnect the home call socket so it doesn't conflict with the call screen's socket
-    _callSocket?.disconnect();
+    // Then remove the node after a short delay so caller can read it
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      FirebaseDatabase.instanceFor(
+        app: Firebase.app(),
+        databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
+      ).ref('direct_calls/$userId').remove();
+    });
 
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => RandomCallScreen(
-          apiClient: widget.apiClient,
-          accessToken: widget.accessToken,
-          userId: userId,
-          initialMatch: matchPayload,
-        ),
-      ),
-    ).then((_) {
-      // Re-connect call socket after returning from call
-      _reconnectCallSocket();
+    setState(() {
+      _incomingCallerId = null;
+      _incomingSessionId = null;
     });
   }
 
@@ -270,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _feedPollTimer?.cancel();
     _heartbeatTimer?.cancel();
     _feedSocket?.dispose();
-    _callSocket?.dispose();
+    _incomingCallSub?.cancel();
     _roomTitleController.dispose();
     _feedController.dispose();
     _searchCtrl.dispose();
@@ -284,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_feedSocket?.disconnected == true) {
         _feedSocket!.connect();
       }
-      _reconnectCallSocket();
+      _listenForIncomingCalls();
       _refreshFeed();
     }
   }
@@ -321,8 +370,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _feedCards.map((c) => c.hostUserId).toList(),
         );
       });
-      // Connect call socket now that we have userId
-      _reconnectCallSocket();
+      // Start listening for incoming calls now that we have userId
+      _listenForIncomingCalls();
       // Start HTTP heartbeat for presence (runs regardless of socket state)
       _heartbeatTimer ??= Timer.periodic(
         const Duration(seconds: 20),

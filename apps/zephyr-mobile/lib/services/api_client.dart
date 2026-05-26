@@ -150,6 +150,14 @@ class ZephyrApiClient {
     return UserProfile.fromJson(data as Map<String, dynamic>);
   }
 
+  Future<UserProfile> getUserById(String userId) async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/users/$userId',
+    );
+    return UserProfile.fromJson(data as Map<String, dynamic>);
+  }
+
   Future<List<UserProfile>> searchUsers(String q) async {
     final dynamic data = await _request(
       method: 'GET',
@@ -438,6 +446,17 @@ class ZephyrApiClient {
     );
 
     return WalletSummary.fromJson(data);
+  }
+
+  Future<List<CallRateTier>> getCallRateTiers() async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/economy/call-rate-tiers',
+    );
+    if (data is! List<dynamic>) return <CallRateTier>[];
+    return data
+        .map((dynamic e) => CallRateTier.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<CallQuote> getPrivateCallQuote({
