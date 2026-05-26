@@ -221,48 +221,56 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
   /** Direct call: ring a specific user (paid call from profile). */
   private async initiateDirectCall(callerId: string, receiverId: string, callerSocketId: string): Promise<void> {
     console.log(`[Call] direct: caller=${callerId} receiver=${receiverId} receiverSocket=${this.socketByUser.get(receiverId) ?? 'NOT_FOUND'} knownUsers=[${[...this.socketByUser.keys()].join(',')}]`);
-    // Reject banned users
-    const user = await this.storeService.getUserById(callerId).catch(() => null) as any;
-    if (user?.is_banned) return;
+    try {
+      // Reject banned users
+      const user = await this.storeService.getUserById(callerId).catch(() => null) as any;
+      if (user?.is_banned) { console.log('[Call] direct: caller is banned'); return; }
 
-    // Check if receiver is blocked
-    const blocked = await this.storeService.getBlockedIds(callerId);
-    if (blocked.has(receiverId)) {
-      this.server.to(callerSocketId).emit('call:error', { reason: 'blocked' });
-      return;
+      // Check if receiver is blocked
+      const blocked = await this.storeService.getBlockedIds(callerId);
+      if (blocked.has(receiverId)) {
+        console.log('[Call] direct: receiver is blocked');
+        this.server.to(callerSocketId).emit('call:error', { reason: 'blocked' });
+        return;
+      }
+
+      // Check if receiver is already in a call
+      if (this.activeSession.has(receiverId) || this.pendingCalls.has(receiverId)) {
+        console.log('[Call] direct: receiver is busy');
+        this.server.to(callerSocketId).emit('call:busy', { userId: receiverId });
+        return;
+      }
+
+      const receiverSocketId = this.socketByUser.get(receiverId);
+      if (!receiverSocketId) {
+        console.log('[Call] direct: receiver socket not found');
+        this.server.to(callerSocketId).emit('call:unavailable', { userId: receiverId });
+        return;
+      }
+
+      // Ring the receiver
+      const timeout = setTimeout(() => {
+        this.pendingCalls.delete(receiverId);
+        this.server.to(callerSocketId).emit('call:no_answer', { userId: receiverId });
+      }, MatchmakingGateway.RING_TIMEOUT_MS);
+
+      this.pendingCalls.set(receiverId, {
+        callerId,
+        receiverId,
+        callerSocket: callerSocketId,
+        mode: 'direct',
+        timeout,
+      });
+
+      console.log(`[Call] direct: emitting call:incoming to ${receiverSocketId}`);
+      this.server.to(receiverSocketId).emit('call:incoming', {
+        callerId,
+        mode: 'direct',
+      });
+    } catch (err) {
+      console.error('[Call] direct: FAILED', err);
+      this.server.to(callerSocketId).emit('call:error', { reason: 'internal' });
     }
-
-    // Check if receiver is already in a call
-    if (this.activeSession.has(receiverId) || this.pendingCalls.has(receiverId)) {
-      this.server.to(callerSocketId).emit('call:busy', { userId: receiverId });
-      return;
-    }
-
-    const receiverSocketId = this.socketByUser.get(receiverId);
-    if (!receiverSocketId) {
-      // Receiver not connected to /call namespace — they're offline or not on the app
-      this.server.to(callerSocketId).emit('call:unavailable', { userId: receiverId });
-      return;
-    }
-
-    // Ring the receiver
-    const timeout = setTimeout(() => {
-      this.pendingCalls.delete(receiverId);
-      this.server.to(callerSocketId).emit('call:no_answer', { userId: receiverId });
-    }, MatchmakingGateway.RING_TIMEOUT_MS);
-
-    this.pendingCalls.set(receiverId, {
-      callerId,
-      receiverId,
-      callerSocket: callerSocketId,
-      mode: 'direct',
-      timeout,
-    });
-
-    this.server.to(receiverSocketId).emit('call:incoming', {
-      callerId,
-      mode: 'direct',
-    });
   }
 
   /** Try to ring the next online user for this caller. */
