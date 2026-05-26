@@ -21,6 +21,7 @@ import '../profile/profile_page.dart';
 import '../live/viewer_live_screen.dart';
 import '../../app_constants.dart';
 import '../call/random_call_screen.dart';
+import '../call/direct_call_screen.dart';
 import '../call/incoming_call_overlay.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -78,6 +79,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // ── Incoming call state ───────────────────────────────────────────────────
   StreamSubscription<DatabaseEvent>? _incomingCallSub;
   String? _incomingCallerId;
+  String? _incomingCallerName;
+  String? _incomingCallerAvatarUrl;
   String? _incomingSessionId;
 
   @override
@@ -199,6 +202,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           setState(() {
             _incomingCallerId = null;
             _incomingSessionId = null;
+            _incomingCallerName = null;
+            _incomingCallerAvatarUrl = null;
           });
         }
         return;
@@ -212,11 +217,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() {
           _incomingCallerId = callerId;
           _incomingSessionId = sessionId;
+          _incomingCallerName = map['callerName'] as String?;
+          _incomingCallerAvatarUrl = map['callerAvatarUrl'] as String?;
         });
       } else if (status == 'cancelled' || status == 'declined') {
         setState(() {
           _incomingCallerId = null;
           _incomingSessionId = null;
+          _incomingCallerName = null;
+          _incomingCallerAvatarUrl = null;
         });
       }
     });
@@ -246,6 +255,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _incomingCallerId = null;
         _incomingSessionId = null;
+        _incomingCallerName = null;
+        _incomingCallerAvatarUrl = null;
       });
 
       // Pause the RTDB listener while in call
@@ -254,18 +265,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           fullscreenDialog: true,
-          builder: (_) => RandomCallScreen(
+          builder: (_) => DirectCallScreen(
             apiClient: widget.apiClient,
             accessToken: widget.accessToken,
-            userId: userId,
-            initialMatch: <String, dynamic>{
-              'sessionId': sessionId,
-              'appId': rtc.appId,
-              'channelName': rtc.channelName,
-              'uid': rtc.uid,
-              'token': rtc.token,
-              'partnerId': callerId,
-            },
+            sessionId: sessionId,
+            appId: rtc.appId,
+            channelName: rtc.channelName,
+            uid: rtc.uid,
+            token: rtc.token,
+            partnerName: _incomingCallerName ?? 'User',
+            partnerAvatarUrl: _incomingCallerAvatarUrl,
           ),
         ),
       ).then((_) {
@@ -281,6 +290,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _incomingCallerId = null;
         _incomingSessionId = null;
+        _incomingCallerName = null;
+        _incomingCallerAvatarUrl = null;
       });
     }
   }
@@ -307,6 +318,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       _incomingCallerId = null;
       _incomingSessionId = null;
+      _incomingCallerName = null;
+      _incomingCallerAvatarUrl = null;
     });
   }
 
@@ -1075,6 +1088,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Positioned.fill(
               child: IncomingCallOverlay(
                 callerId: _incomingCallerId!,
+                callerName: _incomingCallerName,
                 onAccept: _acceptIncomingCall,
                 onReject: _rejectIncomingCall,
               ),

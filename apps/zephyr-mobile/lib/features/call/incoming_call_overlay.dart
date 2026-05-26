@@ -8,9 +8,11 @@ class IncomingCallOverlay extends StatefulWidget {
     required this.callerId,
     required this.onAccept,
     required this.onReject,
+    this.callerName,
   });
 
   final String callerId;
+  final String? callerName;
   final VoidCallback onAccept;
   final VoidCallback onReject;
 
@@ -73,9 +75,9 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay>
               },
             ),
             const SizedBox(height: 32),
-            const Text(
-              'Incoming Video Call',
-              style: TextStyle(
+            Text(
+              widget.callerName ?? 'Incoming Video Call',
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 22,
                 fontWeight: FontWeight.w700,
@@ -83,7 +85,7 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay>
             ),
             const SizedBox(height: 10),
             const Text(
-              'Someone wants to chat with you',
+              'Incoming video call',
               style: TextStyle(color: Colors.white54, fontSize: 14),
             ),
             const Spacer(flex: 3),

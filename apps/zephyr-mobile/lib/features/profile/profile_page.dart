@@ -10,7 +10,7 @@ import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import '../../widgets/hero_bullet.dart';
 import '../chat/thread_firebase_page.dart';
-import '../call/random_call_screen.dart';
+import '../call/direct_call_screen.dart';
 import '../../flags.dart';
 import '../../widgets/coin_icon.dart';
 import '../../l10n/app_localizations.dart';
@@ -163,6 +163,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
       await ref.set(<String, dynamic>{
         'callerId': userId,
+        'callerName': widget.myDisplayName ?? 'User',
+        'callerAvatarUrl': widget.myAvatarUrl,
         'sessionId': session.id,
         'status': 'ringing',
         'ts': ServerValue.timestamp,
@@ -225,18 +227,16 @@ class _ProfilePageState extends State<ProfilePage> {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
           fullscreenDialog: true,
-          builder: (_) => RandomCallScreen(
+          builder: (_) => DirectCallScreen(
             apiClient: api,
             accessToken: token,
-            userId: userId,
-            initialMatch: <String, dynamic>{
-              'sessionId': sessionId,
-              'appId': rtc.appId,
-              'channelName': rtc.channelName,
-              'uid': rtc.uid,
-              'token': rtc.token,
-              'partnerId': _card.hostUserId,
-            },
+            sessionId: sessionId,
+            appId: rtc.appId,
+            channelName: rtc.channelName,
+            uid: rtc.uid,
+            token: rtc.token,
+            partnerName: _card.hostDisplayName,
+            partnerAvatarUrl: _card.hostAvatarUrl,
           ),
         ),
       );
