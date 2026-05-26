@@ -85,6 +85,7 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
 
   handleConnection(client: Socket) {
     const userId = client.handshake.query['userId'] as string | undefined;
+    console.log(`[Call] connect: userId=${userId ?? '(empty)'} socketId=${client.id} total=${this.socketByUser.size + (userId ? 1 : 0)}`);
     if (userId) {
       this.socketByUser.set(userId, client.id);
     }
@@ -214,6 +215,7 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
 
   /** Direct call: ring a specific user (paid call from profile). */
   private async initiateDirectCall(callerId: string, receiverId: string, callerSocketId: string): Promise<void> {
+    console.log(`[Call] direct: caller=${callerId} receiver=${receiverId} receiverSocket=${this.socketByUser.get(receiverId) ?? 'NOT_FOUND'} knownUsers=[${[...this.socketByUser.keys()].join(',')}]`);
     // Reject banned users
     const user = await this.storeService.getUserById(callerId).catch(() => null) as any;
     if (user?.is_banned) return;
