@@ -176,7 +176,6 @@ interface Session {
   expiresAt: number;
 }
 
-@Injectable()
 export interface CallRateTier {
   label: string;
   minLevel: number;
@@ -184,6 +183,7 @@ export interface CallRateTier {
   sparkPerMinute: number;
 }
 
+@Injectable()
 export class StoreService implements OnModuleInit {
   constructor(@Optional() private readonly databaseService?: DatabaseService) {}
 
