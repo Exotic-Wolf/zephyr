@@ -158,13 +158,18 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
     @ConnectedSocket() client: Socket,
   ): void {
     const { userId } = data;
+    console.log(`[Call] accept: userId=${userId} socketId=${client.id} pendingExists=${this.pendingCalls.has(userId)}`);
     const pending = this.pendingCalls.get(userId);
-    if (!pending) return;
+    if (!pending) {
+      console.log(`[Call] accept: NO pending call found for ${userId}`);
+      return;
+    }
 
     clearTimeout(pending.timeout);
     this.pendingCalls.delete(userId);
     this.socketByUser.set(userId, client.id);
 
+    console.log(`[Call] accept: connecting pair caller=${pending.callerId} receiver=${userId} callerSocket=${pending.callerSocket} receiverSocket=${client.id}`);
     void this.connectPair(pending.callerId, userId, pending.callerSocket, client.id, pending.mode);
   }
 
@@ -310,11 +315,13 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
     receiverSocketId: string | undefined,
     mode: 'random' | 'direct' = 'random',
   ): Promise<void> {
+    console.log(`[Call] connectPair: caller=${callerId} receiver=${receiverId} callerSocket=${callerSocketId} receiverSocket=${receiverSocketId} mode=${mode}`);
     try {
       const session = await this.storeService.startCallSession(callerId, {
         mode,
         receiverUserId: receiverId,
       });
+      console.log(`[Call] connectPair: session created id=${session.id}`);
 
       if (mode === 'random') {
         await this.storeService.recordRandomMatch(callerId, receiverId);
@@ -322,6 +329,7 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
 
       const tokenCaller = this.rtcService.createJoinToken({ sessionId: session.id, userId: callerId, role: 'caller' });
       const tokenReceiver = this.rtcService.createJoinToken({ sessionId: session.id, userId: receiverId, role: 'receiver' });
+      console.log(`[Call] connectPair: tokens generated, emitting call:matched to both`);
 
       this.activeSession.set(callerId, session.id);
       this.activeSession.set(receiverId, session.id);
@@ -348,7 +356,13 @@ export class MatchmakingGateway implements OnGatewayInit, OnGatewayConnection {
       }
     } catch (err) {
       console.error('[MatchmakingGateway] connectPair failed:', err);
-      this.addToQueue(callerId);
+      // Notify both sides so they don't hang
+      if (callerSocketId) {
+        this.server.to(callerSocketId).emit('call:error', { reason: 'connect_failed' });
+      }
+      if (receiverSocketId) {
+        this.server.to(receiverSocketId).emit('call:error', { reason: 'connect_failed' });
+      }
     }
   }
 
