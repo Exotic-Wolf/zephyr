@@ -43,6 +43,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   bool _localVideoReady = false;
   bool _micMuted = false;
   bool _cameraMuted = false;
+  bool _remoteVideoMuted = false;
   int _elapsed = 0;
   Timer? _elapsedTimer;
   Timer? _tickTimer;
@@ -85,6 +86,15 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
         if (state == LocalVideoStreamState.localVideoStreamStateCapturing ||
             state == LocalVideoStreamState.localVideoStreamStateEncoding) {
           if (!_disposed) setState(() => _localVideoReady = true);
+        }
+      },
+      onRemoteVideoStateChanged: (connection, remoteUid, state, reason, elapsed) {
+        if (!_disposed) {
+          if (reason == RemoteVideoStateReason.remoteVideoStateReasonRemoteMuted) {
+            setState(() => _remoteVideoMuted = true);
+          } else if (state == RemoteVideoState.remoteVideoStateDecoding) {
+            setState(() => _remoteVideoMuted = false);
+          }
         }
       },
       onError: (err, msg) {
@@ -210,7 +220,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   }
 
   Widget _buildRemoteVideo() {
-    if (_engine != null && _remoteUid != null) {
+    if (_engine != null && _remoteUid != null && !_remoteVideoMuted) {
       return Positioned.fill(
         child: AgoraVideoView(
           controller: VideoViewController.remote(
@@ -252,9 +262,9 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
                   color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Connecting video…',
-              style: TextStyle(color: Colors.white38, fontSize: 14),
+            Text(
+              _remoteVideoMuted ? 'Camera off' : 'Connecting video…',
+              style: const TextStyle(color: Colors.white38, fontSize: 14),
             ),
           ],
         ),
