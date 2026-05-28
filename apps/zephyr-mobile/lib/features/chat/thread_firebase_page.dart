@@ -456,6 +456,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                         case 'online':
                           label = 'online';
                           color = Colors.green;
+                        case 'busy':
+                          label = 'busy';
+                          color = Colors.orange;
                         default:
                           label = 'offline';
                           color = Colors.grey.shade500;
