@@ -573,6 +573,159 @@ class FirebaseChatService {
       );
     }).toList();
   }
+
+  // ── Live Room (RTDB) ────────────────────────────────────────────────────────
+
+  /// RTDB ref for a live room's real-time data.
+  DatabaseReference _liveRef(String roomId) => _rtdb.ref('live_rooms/$roomId');
+
+  /// Write audience_count and set onDisconnect to decrement.
+  Future<void> joinLiveRoom(String roomId) async {
+    final DatabaseReference countRef = _liveRef(roomId).child('audience_count');
+    await countRef.set(ServerValue.increment(1));
+    await countRef.onDisconnect().set(ServerValue.increment(-1));
+  }
+
+  /// Decrement audience_count and cancel onDisconnect.
+  Future<void> leaveLiveRoom(String roomId) async {
+    final DatabaseReference countRef = _liveRef(roomId).child('audience_count');
+    await countRef.onDisconnect().cancel();
+    await countRef.set(ServerValue.increment(-1));
+  }
+
+  /// Listen to audience_count changes.
+  StreamSubscription<DatabaseEvent> listenAudienceCount(
+    String roomId,
+    void Function(int count) onCount,
+  ) {
+    return _liveRef(roomId).child('audience_count').onValue.listen((event) {
+      final int count = (event.snapshot.value as num?)?.toInt() ?? 0;
+      onCount(count < 0 ? 0 : count);
+    });
+  }
+
+  /// Push a comment to the room.
+  void writeLiveComment(String roomId, String displayName, String text) {
+    _liveRef(roomId).child('comments').push().set(<String, dynamic>{
+      'name': displayName,
+      'text': text,
+      'ts': ServerValue.timestamp,
+    });
+  }
+
+  /// Listen for new comments (child_added).
+  StreamSubscription<DatabaseEvent> listenLiveComments(
+    String roomId,
+    void Function(String name, String text) onComment,
+  ) {
+    return _liveRef(roomId)
+        .child('comments')
+        .orderByChild('ts')
+        .startAt(DateTime.now().millisecondsSinceEpoch)
+        .onChildAdded
+        .listen((event) {
+      final data = event.snapshot.value;
+      if (data is Map) {
+        onComment(
+          (data['name'] as String?) ?? '',
+          (data['text'] as String?) ?? '',
+        );
+      }
+    });
+  }
+
+  /// Push a reaction (ephemeral).
+  void writeLiveReaction(String roomId, String userId, String emoji) {
+    _liveRef(roomId).child('reactions').push().set(<String, dynamic>{
+      'userId': userId,
+      'emoji': emoji,
+      'ts': ServerValue.timestamp,
+    });
+  }
+
+  /// Listen for new reactions.
+  StreamSubscription<DatabaseEvent> listenLiveReactions(
+    String roomId,
+    String myUserId,
+    void Function(String emoji) onReaction,
+  ) {
+    return _liveRef(roomId)
+        .child('reactions')
+        .orderByChild('ts')
+        .startAt(DateTime.now().millisecondsSinceEpoch)
+        .onChildAdded
+        .listen((event) {
+      final data = event.snapshot.value;
+      if (data is Map && data['userId'] != myUserId) {
+        onReaction((data['emoji'] as String?) ?? '❤️');
+      }
+    });
+  }
+
+  /// Push a gift event (called after backend confirms economy).
+  void writeLiveGift(String roomId, String senderName, String giftId, String giftName, int quantity) {
+    _liveRef(roomId).child('gifts').push().set(<String, dynamic>{
+      'senderName': senderName,
+      'giftId': giftId,
+      'giftName': giftName,
+      'quantity': quantity,
+      'ts': ServerValue.timestamp,
+    });
+  }
+
+  /// Listen for new gifts.
+  StreamSubscription<DatabaseEvent> listenLiveGifts(
+    String roomId,
+    void Function(String senderName, String giftName, int quantity) onGift,
+  ) {
+    return _liveRef(roomId)
+        .child('gifts')
+        .orderByChild('ts')
+        .startAt(DateTime.now().millisecondsSinceEpoch)
+        .onChildAdded
+        .listen((event) {
+      final data = event.snapshot.value;
+      if (data is Map) {
+        onGift(
+          (data['senderName'] as String?) ?? '',
+          (data['giftName'] as String?) ?? '',
+          (data['quantity'] as num?)?.toInt() ?? 1,
+        );
+      }
+    });
+  }
+
+  /// Mark room as ended in RTDB (host calls this).
+  void endLiveRoom(String roomId) {
+    _liveRef(roomId).child('status').set('ended');
+    // Clean up after 10 seconds
+    Future<void>.delayed(const Duration(seconds: 10), () {
+      _liveRef(roomId).remove();
+    });
+  }
+
+  /// Listen for room ended.
+  StreamSubscription<DatabaseEvent> listenRoomEnded(
+    String roomId,
+    void Function() onEnded,
+  ) {
+    return _liveRef(roomId).child('status').onValue.listen((event) {
+      if (event.snapshot.value == 'ended') {
+        onEnded();
+      }
+    });
+  }
+
+  /// Initialize a room node when going live.
+  void initLiveRoom(String roomId) {
+    _liveRef(roomId).set(<String, dynamic>{
+      'status': 'live',
+      'audience_count': 0,
+      'started_at': ServerValue.timestamp,
+    });
+    // If host disconnects, mark room ended
+    _liveRef(roomId).child('status').onDisconnect().set('ended');
+  }
 }
 
 // ── Models ────────────────────────────────────────────────────────────────────

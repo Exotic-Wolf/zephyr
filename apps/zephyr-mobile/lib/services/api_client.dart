@@ -582,6 +582,34 @@ class ZephyrApiClient {
     );
   }
 
+  // ── Random call matchmaking (REST) ──────────────────────────────────────────
+
+  Future<void> joinCallQueue(String accessToken) async {
+    await _request(method: 'POST', path: '/v1/calls/queue/join', accessToken: accessToken);
+  }
+
+  Future<void> leaveCallQueue(String accessToken) async {
+    await _request(method: 'POST', path: '/v1/calls/queue/leave', accessToken: accessToken);
+  }
+
+  Future<void> callNext(String accessToken, String sessionId) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/calls/queue/next',
+      accessToken: accessToken,
+      body: <String, dynamic>{'sessionId': sessionId},
+    );
+  }
+
+  Future<void> callEnd(String accessToken, String sessionId) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/calls/queue/end',
+      accessToken: accessToken,
+      body: <String, dynamic>{'sessionId': sessionId},
+    );
+  }
+
   Future<List<WalletTransaction>> getTransactionHistory(String accessToken, {int limit = 50}) async {
     final dynamic data = await _request(
       method: 'GET',

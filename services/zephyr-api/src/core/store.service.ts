@@ -1069,18 +1069,21 @@ export class StoreService implements OnModuleInit {
 
   async leaveRoom(roomId: string, userId: string): Promise<void> {
     if (this.databaseService?.isEnabled()) {
-      await this.databaseService.query(
-        `
-          UPDATE rooms
-          SET audience_count = GREATEST(audience_count - 1, 0)
-          WHERE id = $1 AND status = 'live'
-        `,
-        [roomId],
-      );
-      await this.databaseService.query(
+      // Delete viewer row first — only decrement if row actually existed
+      const { rowCount } = await this.databaseService.query(
         `DELETE FROM room_viewers WHERE room_id = $1 AND user_id = $2`,
         [roomId, userId],
       );
+      if ((rowCount ?? 0) > 0) {
+        await this.databaseService.query(
+          `
+            UPDATE rooms
+            SET audience_count = GREATEST(audience_count - 1, 0)
+            WHERE id = $1 AND status = 'live'
+          `,
+          [roomId],
+        );
+      }
       return;
     }
 

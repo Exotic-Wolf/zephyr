@@ -2,10 +2,9 @@ import 'dart:async';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:socket_io_client/socket_io_client.dart' as sio;
 
-import '../../app_constants.dart';
 import '../../services/api_client.dart';
+import '../../services/firebase_chat_service.dart';
 
 // How often the client reports elapsed seconds for billing
 const int _tickIntervalSeconds = 15;
@@ -37,8 +36,8 @@ class _RandomCallScreenState extends State<RandomCallScreen>
     with TickerProviderStateMixin {
   _Phase _phase = _Phase.searching;
 
-  // Matchmaking socket
-  sio.Socket? _socket;
+  // Firebase RTDB subscription for matchmaking signals
+  StreamSubscription<dynamic>? _callSignalSub;
 
   // Current call state
   String? _sessionId;
@@ -77,44 +76,34 @@ class _RandomCallScreenState extends State<RandomCallScreen>
   Future<void> _requestPermissionsAndJoinMatch(Map<String, dynamic> match) async {
     await Permission.camera.request();
     await Permission.microphone.request();
-    _connectSocket(); // Still connect socket for Next / End / partner_left
+    _listenCallSignal();
     _onMatched(match);
   }
 
   Future<void> _requestPermissionsAndConnect() async {
     await Permission.camera.request();
     await Permission.microphone.request();
-    _connectSocket();
+    _listenCallSignal();
+    _joinQueue();
   }
 
-  // ── Socket ──────────────────────────────────────────────────────────────────
+  // ── Firebase RTDB signaling ─────────────────────────────────────────────────
 
-  void _connectSocket() {
-    _socket = sio.io(
-      '$apiBaseUrl/call',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .enableReconnection()
-          .setReconnectionAttempts(999999)
-          .setReconnectionDelay(2000)
-          .setQuery(<String, dynamic>{'userId': widget.userId})
-          .disableAutoConnect()
-          .build(),
-    );
-
-    _socket!
-      ..on('connect', (_) => _joinQueue())
-      ..on('call:matched', (dynamic data) {
-        final Map<String, dynamic> payload =
-            (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-        _onMatched(payload);
-      })
-      ..on('call:partner_left', (_) => _onPartnerLeft())
-      ..connect();
+  void _listenCallSignal() {
+    final fcs = FirebaseChatService.instance;
+    _callSignalSub = fcs.listenCallSignal(widget.userId, (Map<String, dynamic>? data) {
+      if (!mounted || data == null) return;
+      final String? event = data['event'] as String?;
+      if (event == 'matched') {
+        _onMatched(data);
+      } else if (event == 'partner_left') {
+        _onPartnerLeft();
+      }
+    });
   }
 
   void _joinQueue() {
-    _socket?.emit('call:join_queue', <String, dynamic>{'userId': widget.userId});
+    widget.apiClient.joinCallQueue(widget.accessToken).ignore();
   }
 
   void _onMatched(Map<String, dynamic> payload) async {
@@ -250,10 +239,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
 
     final sid = _sessionId;
     // Notify server — will also trigger partner_left on their end
-    _socket?.emit('call:next', <String, dynamic>{
-      'userId': widget.userId,
-      'sessionId': sid ?? '',
-    });
+    widget.apiClient.callNext(widget.accessToken, sid ?? '').ignore();
 
     // Cleanup Agora but keep engine alive for next call
     _engine?.leaveChannel();
@@ -278,10 +264,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
 
   void _end() {
     final sid = _sessionId;
-    _socket?.emit('call:end', <String, dynamic>{
-      'userId': widget.userId,
-      'sessionId': sid ?? '',
-    });
+    widget.apiClient.callEnd(widget.accessToken, sid ?? '').ignore();
     _cleanupCall();
     if (mounted) {
       setState(() {
@@ -292,7 +275,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
   }
 
   void _cancelSearch() {
-    _socket?.emit('call:leave_queue', <String, dynamic>{'userId': widget.userId});
+    widget.apiClient.leaveCallQueue(widget.accessToken).ignore();
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -321,8 +304,8 @@ class _RandomCallScreenState extends State<RandomCallScreen>
     _tickTimer?.cancel();
     _engine?.leaveChannel();
     _engine?.release();
-    _socket?.emit('call:leave_queue', <String, dynamic>{'userId': widget.userId});
-    _socket?.dispose();
+    _callSignalSub?.cancel();
+    widget.apiClient.leaveCallQueue(widget.accessToken).ignore();
     super.dispose();
   }
 

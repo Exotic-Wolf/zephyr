@@ -2,13 +2,12 @@ import 'dart:async';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import '../../models/models.dart';
 import '../../services/api_client.dart';
+import '../../services/firebase_chat_service.dart';
 import '../../widgets/gift_tray.dart';
 import '../../widgets/shared_live_widgets.dart';
-import '../../app_constants.dart';
 import '../../l10n/app_localizations.dart';
 
 // ── ViewerLiveScreen ──────────────────────────────────────────────────────────
@@ -58,7 +57,8 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   int _elapsedSeconds = 0;
   Timer? _ticker;
   Timer? _tokenRenewalTimer;
-  sio.Socket? _socket;
+
+  final List<StreamSubscription<dynamic>> _rtdbSubs = <StreamSubscription<dynamic>>[];
 
   // Agora
   RtcEngine? _engine;
@@ -67,6 +67,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   bool _engineReady = false;
   bool _welcomeAdded = false;
   bool _liveEnded = false;
+  bool _hasLeft = false;
 
   @override
   void initState() {
@@ -74,7 +75,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     _viewerCount = widget.initialViewerCount ?? widget.feedCard.audienceCount;
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))
       ..repeat(reverse: true);
-    _connectSocket();
+    _listenFirebase();
     if (widget.existingEngine != null) {
       _adoptEngine();
     } else {
@@ -194,103 +195,58 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   void dispose() {
     _ticker?.cancel();
     _tokenRenewalTimer?.cancel();
-    _socket?.dispose();
+    for (final sub in _rtdbSubs) { sub.cancel(); }
     _pulseCtrl.dispose();
     _commentCtrl.dispose();
     _engine?.leaveChannel();
     _engine?.release();
-    if (widget.didJoin && widget.feedCard.roomId != null) {
-      widget.apiClient
-          .leaveRoom(widget.accessToken, widget.feedCard.roomId!)
-          .ignore();
-    }
+    _callLeaveRoom();
     super.dispose();
   }
 
-  void _connectSocket() {
-    _socket = sio.io(
-      '$apiBaseUrl/feed',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .enableReconnection()
-          .setReconnectionAttempts(999999)
-          .setReconnectionDelay(2000)
-          .disableAutoConnect()
-          .build(),
-    );
-    _socket!
-      ..on('feed:room-updated', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          if (payload['roomId'] == widget.feedCard.roomId) {
-            setState(() => _viewerCount = payload['audienceCount'] as int);
-          }
-        } catch (_) {}
-      })
-      ..on('feed:room-ended', (dynamic data) {
-        if (!mounted || _liveEnded) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          if (payload['roomId'] == widget.feedCard.roomId) {
-            _onLiveEnded();
-          }
-        } catch (_) {}
-      })
-      ..on('room:comment', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          if (payload['roomId'] == widget.feedCard.roomId) {
-            setState(() {
-              _comments.add(LiveComment(
-                name: payload['displayName'] as String? ?? '',
-                text: payload['text'] as String? ?? '',
-              ));
-              if (_comments.length > 50) _comments.removeAt(0);
-            });
-          }
-        } catch (_) {}
-      })
-      ..on('room:reaction', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          if (payload['roomId'] == widget.feedCard.roomId &&
-              payload['userId'] != widget.myUserId) {
-            final String emoji = payload['emoji'] as String? ?? '❤️';
-            final String id = DateTime.now().millisecondsSinceEpoch.toString();
-            final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
-            setState(() => _floatingGifts.add(gift));
-            Future<void>.delayed(const Duration(seconds: 3), () {
-              if (mounted) setState(() => _floatingGifts.removeWhere((g) => g.id == id));
-            });
-          }
-        } catch (_) {}
-      })
-      ..on('room:gift', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          if (payload['roomId'] == widget.feedCard.roomId) {
-            final String name = payload['senderDisplayName'] as String? ?? '';
-            final String giftName = payload['giftName'] as String? ?? '';
-            setState(() {
-              _comments.add(LiveComment(
-                name: name,
-                text: '🎁 sent $giftName',
-              ));
-              if (_comments.length > 50) _comments.removeAt(0);
-            });
-          }
-        } catch (_) {}
-      })
-      ..connect();
+  void _listenFirebase() {
+    final String? roomId = widget.feedCard.roomId;
+    if (roomId == null) return;
+    final fcs = FirebaseChatService.instance;
+
+    // Audience count
+    _rtdbSubs.add(fcs.listenAudienceCount(roomId, (int count) {
+      if (mounted) setState(() => _viewerCount = count);
+    }));
+
+    // Room ended
+    _rtdbSubs.add(fcs.listenRoomEnded(roomId, () {
+      if (mounted && !_liveEnded) _onLiveEnded();
+    }));
+
+    // Comments
+    _rtdbSubs.add(fcs.listenLiveComments(roomId, (String name, String text) {
+      if (!mounted) return;
+      setState(() {
+        _comments.add(LiveComment(name: name, text: text));
+        if (_comments.length > 50) _comments.removeAt(0);
+      });
+    }));
+
+    // Reactions (skip own)
+    _rtdbSubs.add(fcs.listenLiveReactions(roomId, widget.myUserId, (String emoji) {
+      if (!mounted) return;
+      final String id = DateTime.now().millisecondsSinceEpoch.toString();
+      final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
+      setState(() => _floatingGifts.add(gift));
+      Future<void>.delayed(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _floatingGifts.removeWhere((g) => g.id == id));
+      });
+    }));
+
+    // Gifts
+    _rtdbSubs.add(fcs.listenLiveGifts(roomId, (String senderName, String giftName, int quantity) {
+      if (!mounted) return;
+      setState(() {
+        _comments.add(LiveComment(name: senderName, text: '🎁 sent $giftName'));
+        if (_comments.length > 50) _comments.removeAt(0);
+      });
+    }));
   }
 
   void _onLiveEnded() {
@@ -299,6 +255,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     _engine?.leaveChannel();
     _engine?.release();
     _engine = null;
+    _callLeaveRoom();
     Future<void>.delayed(const Duration(seconds: 3), () {
       if (mounted) {
         Navigator.of(context).pop();
@@ -307,18 +264,22 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     });
   }
 
+  void _callLeaveRoom() {
+    if (_hasLeft || !widget.didJoin || widget.feedCard.roomId == null) return;
+    _hasLeft = true;
+    widget.apiClient
+        .leaveRoom(widget.accessToken, widget.feedCard.roomId!)
+        .ignore();
+  }
+
   void _sendComment() {
     final String text = _commentCtrl.text.trim();
     if (text.isEmpty || widget.feedCard.roomId == null) return;
     _commentCtrl.clear();
-    // Optimistic local display — server broadcasts to others
-    setState(() {
-      _comments.add(LiveComment(name: widget.myDisplayName, text: text));
-      if (_comments.length > 50) _comments.removeAt(0);
-    });
-    widget.apiClient
-        .postRoomComment(widget.accessToken, widget.feedCard.roomId!, text)
-        .ignore();
+    // Write directly to Firebase RTDB — all listeners (including self) pick it up
+    FirebaseChatService.instance.writeLiveComment(
+      widget.feedCard.roomId!, widget.myDisplayName, text,
+    );
   }
 
   void _sendReaction(String emoji) {
@@ -329,20 +290,26 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
       if (mounted) setState(() => _floatingGifts.removeWhere((g) => g.id == id));
     });
     if (widget.feedCard.roomId != null) {
-      widget.apiClient
-          .postRoomReaction(widget.accessToken, widget.feedCard.roomId!, emoji)
-          .ignore();
+      FirebaseChatService.instance.writeLiveReaction(
+        widget.feedCard.roomId!, widget.myUserId, emoji,
+      );
     }
   }
 
   void _openGiftTray() {
     if (widget.feedCard.roomId == null) return;
     showGiftTray(context, onSend: (String giftId, int quantity) async {
+      // Backend validates economy + deducts coins
       await widget.apiClient.sendGiftInRoom(
         widget.accessToken,
         widget.feedCard.roomId!,
         giftId,
         quantity: quantity,
+      );
+      // On success, write event to RTDB for all viewers
+      final gift = kGiftCatalog.firstWhere((g) => g.id == giftId);
+      FirebaseChatService.instance.writeLiveGift(
+        widget.feedCard.roomId!, widget.myDisplayName, giftId, gift.name, quantity,
       );
     });
   }

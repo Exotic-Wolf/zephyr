@@ -4,7 +4,7 @@ import 'package:country_picker/country_picker.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:socket_io_client/socket_io_client.dart' as sio;
+
 
 import '../../models/models.dart';
 import '../../services/api_client.dart';
@@ -58,8 +58,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Set<String> _followingIds = <String>{};
   int _selectedTabIndex = 0;
   int _homeTopTabIndex = 1;
-  Timer? _feedPollTimer;
-  sio.Socket? _feedSocket;
   Timer? _heartbeatTimer;
   int _activeFeedIndex = 0;
   Country? _filterCountry;
@@ -107,78 +105,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _connectFeedSocket() {
-    _feedSocket = sio.io(
-      '$apiBaseUrl/feed',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .enableReconnection()
-          .setReconnectionAttempts(100)
-          .setReconnectionDelay(2000)
-          .disableAutoConnect()
-          .build(),
-    );
+    // Real-time: presence changes trigger feed refresh (someone goes live / offline)
+    FirebaseChatService.instance.presenceVersion.addListener(_onPresenceChanged);
+  }
 
-    _feedSocket!
-      ..on('connect', (_) {
-        // Socket is healthy — kill the fallback poll
-        _feedPollTimer?.cancel();
-        _feedPollTimer = null;
-        _refreshFeed(); // one sync to catch anything missed
-      })
-      ..on('disconnect', (_) {
-        // Socket dropped — start fallback polling until it reconnects
-        _feedPollTimer ??= Timer.periodic(
-          const Duration(seconds: 30),
-          (_) => _refreshFeed(),
-        );
-      })
-      ..on('feed:room-created', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final LiveFeedCard card = LiveFeedCard.fromJson(
-              (payload['card'] as Map<dynamic, dynamic>)
-                  .cast<String, dynamic>());
-          if (card.hostUserId == _me?.id) return;
-          final bool exists = _feedCards.any((LiveFeedCard c) => c.hostUserId == card.hostUserId);
-          if (exists) {
-            _feedCards = _feedCards.map((LiveFeedCard c) =>
-              c.hostUserId == card.hostUserId ? card : c).toList();
-          } else {
-            _feedCards = <LiveFeedCard>[card, ..._feedCards];
-          }
-          if (_selectedTabIndex == 0) setState(() {});
-        } catch (_) {}
-      })
-      ..on('feed:room-ended', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final String hostUserId = payload['hostUserId'] as String;
-          _feedCards = _feedCards.map((LiveFeedCard c) =>
-            c.hostUserId == hostUserId
-                ? c.copyWith(hostStatus: 'online', roomId: null, audienceCount: 0)
-                : c,
-          ).toList();
-          if (_selectedTabIndex == 0) setState(() {});
-        } catch (_) {}
-      })
-      ..on('feed:room-updated', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          final String roomId = payload['roomId'] as String;
-          final int count = payload['audienceCount'] as int;
-          _feedCards = _feedCards.map((LiveFeedCard c) =>
-            c.roomId == roomId ? c.copyWith(audienceCount: count) : c,
-          ).toList();
-          if (_selectedTabIndex == 0) setState(() {});
-        } catch (_) {}
-      })
-      ..connect();
+  void _onPresenceChanged() {
+    _refreshFeed();
   }
 
   // ── Incoming call detection (RTDB-based) ───────────────────────────────────
@@ -317,9 +249,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _convoDeliverySub?.cancel();
     _fcmSub?.cancel();
     widget.tabNotifier?.removeListener(_onTabNotify);
-    _feedPollTimer?.cancel();
     _heartbeatTimer?.cancel();
-    _feedSocket?.dispose();
+    FirebaseChatService.instance.presenceVersion.removeListener(_onPresenceChanged);
     _incomingCallSub?.cancel();
     _roomTitleController.dispose();
     _feedController.dispose();
@@ -330,10 +261,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // App back to foreground — reconnect socket fresh + sync feed
-      if (_feedSocket?.disconnected == true) {
-        _feedSocket!.connect();
-      }
       _listenForIncomingCalls();
       _refreshFeed();
     }

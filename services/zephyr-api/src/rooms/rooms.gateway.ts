@@ -1,22 +1,31 @@
 import {
   OnGatewayInit,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
+  ConnectedSocket,
+  MessageBody,
 } from '@nestjs/websockets';
-import type { Server } from 'socket.io';
+import type { Server, Socket } from 'socket.io';
 import type { LiveFeedCard } from '../core/store.service';
 
 /**
  * Real-time gateway for live room events.
  *
- * Events emitted to all connected clients:
+ * Clients can join/leave a Socket.IO room for scoped events:
+ *   emit('join-room', { roomId })  → joins socket room `room:<roomId>`
+ *   emit('leave-room', { roomId }) → leaves socket room
+ *
+ * Events broadcast globally (feed screens):
  *   feed:room-created  { card: LiveFeedCard }
  *   feed:room-ended    { roomId: string; hostUserId: string }
  *   feed:room-updated  { roomId: string; audienceCount: number }
  *   feed:user-status   { hostUserId: string; status: string }
- *   room:comment       { roomId: string; userId: string; displayName: string; text: string }
- *   room:reaction      { roomId: string; userId: string; emoji: string }
- *   room:gift          { roomId: string; senderDisplayName: string; giftId: string; giftName: string; quantity: number; coinCost: number }
+ *
+ * Events scoped to socket room (viewers/host in that room):
+ *   room:comment       { roomId; userId; displayName; text }
+ *   room:reaction      { roomId; userId; emoji }
+ *   room:gift          { roomId; senderDisplayName; giftId; giftName; quantity; coinCost }
  */
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -29,6 +38,28 @@ export class RoomsGateway implements OnGatewayInit {
   afterInit() {
     console.log('[RoomsGateway] WebSocket gateway initialised on /feed');
   }
+
+  @SubscribeMessage('join-room')
+  handleJoinRoom(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { roomId: string },
+  ) {
+    if (data?.roomId) {
+      client.join(`room:${data.roomId}`);
+    }
+  }
+
+  @SubscribeMessage('leave-room')
+  handleLeaveRoom(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { roomId: string },
+  ) {
+    if (data?.roomId) {
+      client.leave(`room:${data.roomId}`);
+    }
+  }
+
+  // ── Global events (feed screens) ─────────────────────────────────────────
 
   emitRoomCreated(card: LiveFeedCard): void {
     this.server.emit('feed:room-created', { card });
@@ -46,15 +77,17 @@ export class RoomsGateway implements OnGatewayInit {
     this.server.emit('feed:room-updated', { roomId, audienceCount });
   }
 
+  // ── Room-scoped events (only participants of that room) ───────────────────
+
   emitRoomComment(roomId: string, userId: string, displayName: string, text: string): void {
-    this.server.emit('room:comment', { roomId, userId, displayName, text });
+    this.server.to(`room:${roomId}`).emit('room:comment', { roomId, userId, displayName, text });
   }
 
   emitRoomReaction(roomId: string, userId: string, emoji: string): void {
-    this.server.emit('room:reaction', { roomId, userId, emoji });
+    this.server.to(`room:${roomId}`).emit('room:reaction', { roomId, userId, emoji });
   }
 
   emitRoomGift(roomId: string, senderDisplayName: string, giftId: string, giftName: string, quantity: number, coinCost: number): void {
-    this.server.emit('room:gift', { roomId, senderDisplayName, giftId, giftName, quantity, coinCost });
+    this.server.to(`room:${roomId}`).emit('room:gift', { roomId, senderDisplayName, giftId, giftName, quantity, coinCost });
   }
 }

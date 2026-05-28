@@ -3,14 +3,12 @@ import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:socket_io_client/socket_io_client.dart' as sio;
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import '../../widgets/shared_live_widgets.dart';
-import '../../app_constants.dart';
 import '../../l10n/app_localizations.dart';
 
 // ── HostLiveScreen ────────────────────────────────────────────────────────────
@@ -48,7 +46,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   Timer? _ticker;
   Timer? _heartbeatTimer;
   Timer? _tokenRenewalTimer;
-  sio.Socket? _socket;
+  final List<StreamSubscription<dynamic>> _rtdbSubs = <StreamSubscription<dynamic>>[];
   final ValueNotifier<int> _viewerCountNotifier = ValueNotifier<int>(0);
   final List<LiveComment> _comments = <LiveComment>[];
   final List<FloatingGift> _gifts = <FloatingGift>[];
@@ -78,7 +76,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           .heartbeatRoom(widget.accessToken, widget.room.id)
           .ignore(),
     );
-    _connectSocket();
+    _listenFirebase();
     _initAgora();
   }
 
@@ -150,78 +148,48 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     }
   }
 
-  void _connectSocket() {
-    _socket = sio.io(
-      '$apiBaseUrl/feed',
-      sio.OptionBuilder()
-          .setTransports(<String>['websocket', 'polling'])
-          .enableReconnection()
-          .setReconnectionAttempts(999999)
-          .setReconnectionDelay(2000)
-          .disableAutoConnect()
-          .build(),
-    );
-    _socket!
-      ..on('feed:room-updated', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          if (payload['roomId'] == widget.room.id) {
-            final int count = payload['audienceCount'] as int;
-            setState(() => _viewerCount = count);
-            _viewerCountNotifier.value = count;
-          }
-        } catch (_) {}
-      })
-      ..on('room:comment', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          if (payload['roomId'] == widget.room.id) {
-            setState(() {
-              _comments.add(LiveComment(
-                name: payload['displayName'] as String? ?? '',
-                text: payload['text'] as String? ?? '',
-              ));
-              if (_comments.length > 50) _comments.removeAt(0);
-            });
-          }
-        } catch (_) {}
-      })
-      ..on('room:reaction', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          if (payload['roomId'] == widget.room.id) {
-            final String emoji = payload['emoji'] as String? ?? '❤️';
-            final String id = DateTime.now().millisecondsSinceEpoch.toString();
-            final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
-            setState(() => _gifts.add(gift));
-            Future<void>.delayed(const Duration(seconds: 3), () {
-              if (mounted) setState(() => _gifts.removeWhere((g) => g.id == id));
-            });
-          }
-        } catch (_) {}
-      })
-      ..on('room:gift', (dynamic data) {
-        if (!mounted) return;
-        try {
-          final Map<String, dynamic> payload =
-              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
-          if (payload['roomId'] == widget.room.id) {
-            final String name = payload['senderDisplayName'] as String? ?? '';
-            final String giftName = payload['giftName'] as String? ?? '';
-            setState(() {
-              _comments.add(LiveComment(name: name, text: '🎁 sent $giftName'));
-              if (_comments.length > 50) _comments.removeAt(0);
-            });
-          }
-        } catch (_) {}
-      })
-      ..connect();
+  void _listenFirebase() {
+    final String roomId = widget.room.id;
+    final fcs = FirebaseChatService.instance;
+
+    // Initialize the live room node in RTDB
+    fcs.initLiveRoom(roomId);
+
+    // Audience count
+    _rtdbSubs.add(fcs.listenAudienceCount(roomId, (int count) {
+      if (!mounted) return;
+      setState(() => _viewerCount = count);
+      _viewerCountNotifier.value = count;
+    }));
+
+    // Comments
+    _rtdbSubs.add(fcs.listenLiveComments(roomId, (String name, String text) {
+      if (!mounted) return;
+      setState(() {
+        _comments.add(LiveComment(name: name, text: text));
+        if (_comments.length > 50) _comments.removeAt(0);
+      });
+    }));
+
+    // Reactions
+    _rtdbSubs.add(fcs.listenLiveReactions(roomId, '', (String emoji) {
+      if (!mounted) return;
+      final String id = DateTime.now().millisecondsSinceEpoch.toString();
+      final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
+      setState(() => _gifts.add(gift));
+      Future<void>.delayed(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _gifts.removeWhere((g) => g.id == id));
+      });
+    }));
+
+    // Gifts
+    _rtdbSubs.add(fcs.listenLiveGifts(roomId, (String senderName, String giftName, int quantity) {
+      if (!mounted) return;
+      setState(() {
+        _comments.add(LiveComment(name: senderName, text: '🎁 sent $giftName'));
+        if (_comments.length > 50) _comments.removeAt(0);
+      });
+    }));
   }
 
   @override
@@ -255,11 +223,12 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _ticker?.cancel();
     _heartbeatTimer?.cancel();
     _tokenRenewalTimer?.cancel();
-    _socket?.dispose();
+    for (final sub in _rtdbSubs) { sub.cancel(); }
     _viewerCountNotifier.dispose();
     _pulseCtrl.dispose();
     _engine?.leaveChannel();
     _engine?.release();
+    FirebaseChatService.instance.endLiveRoom(widget.room.id);
     FirebaseChatService.instance.clearLiveStatus();
     widget.apiClient.endRoom(widget.accessToken, widget.room.id)
         .then((_) => debugPrint('[endRoom dispose] success'))
