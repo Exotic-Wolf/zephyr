@@ -192,6 +192,56 @@ class FirebaseChatService {
     });
   }
 
+  // ── Direct Call Signaling (RTDB) ─────────────────────────────────────────────
+
+  /// Reference to a user's call signaling node.
+  DatabaseReference callSignalRef(String userId) =>
+      _rtdb.ref('direct_calls/$userId');
+
+  /// Write a "ringing" signal to the target user's node.
+  Future<void> writeRinging({
+    required String targetUserId,
+    required String callerId,
+    required String callerName,
+    String? callerAvatarUrl,
+    required String sessionId,
+  }) {
+    return callSignalRef(targetUserId).set(<String, dynamic>{
+      'callerId': callerId,
+      'callerName': callerName,
+      'callerAvatarUrl': callerAvatarUrl,
+      'sessionId': sessionId,
+      'status': 'ringing',
+      'ts': ServerValue.timestamp,
+    });
+  }
+
+  /// Update the status field on my own signal node (e.g. 'accepted', 'declined').
+  Future<void> writeCallStatus(String userId, String status) {
+    return callSignalRef(userId).child('status').set(status);
+  }
+
+  /// Remove the call signaling node (cleanup).
+  Future<void> removeCallSignal(String userId) {
+    return callSignalRef(userId).remove();
+  }
+
+  /// Listen for changes on a user's call signal node.
+  /// Returns the subscription so the caller can cancel it.
+  StreamSubscription<DatabaseEvent> listenCallSignal(
+    String userId,
+    void Function(Map<String, dynamic>? data) onData,
+  ) {
+    return callSignalRef(userId).onValue.listen((DatabaseEvent event) {
+      final raw = event.snapshot.value;
+      if (raw == null) {
+        onData(null);
+      } else {
+        onData(Map<String, dynamic>.from(raw as Map));
+      }
+    });
+  }
+
   // ── Chat ID ─────────────────────────────────────────────────────────────────
 
   /// Deterministic chat ID from two user IDs (sorted).

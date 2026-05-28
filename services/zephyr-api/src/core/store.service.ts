@@ -132,6 +132,26 @@ export interface CallSession {
   endedAt: string | null;
 }
 
+interface CallSessionRow {
+  id: string;
+  caller_user_id: string;
+  receiver_user_id: string | null;
+  mode: 'direct' | 'random';
+  rate_coins_per_minute: number;
+  receiver_share_bps: number;
+  coins_per_usd_receiver: number;
+  spark_per_usd: number;
+  total_billed_coins: number;
+  total_receiver_coins: number;
+  total_receiver_usd: string | number;
+  total_receiver_spark: number;
+  status: 'live' | 'ended';
+  end_reason: string | null;
+  started_at: string;
+  updated_at: string;
+  ended_at: string | null;
+}
+
 export interface CallSessionTickResult {
   session: CallSession;
   chargedCoins: number;
@@ -2493,11 +2513,11 @@ export class StoreService implements OnModuleInit {
   }
 
   async endCallSession(
-    callerUserId: string,
+    userId: string,
     sessionId: string,
     reason = 'caller_ended',
   ): Promise<CallSession> {
-    const session = await this.getCallSessionForCaller(sessionId, callerUserId);
+    const session = await this.getCallSessionForParticipant(sessionId, userId);
     if (session.status === 'ended') {
       return session;
     }
@@ -2730,44 +2750,9 @@ export class StoreService implements OnModuleInit {
     callerUserId: string,
   ): Promise<CallSession> {
     if (this.databaseService?.isEnabled()) {
-      const result = await this.databaseService.query<{
-        id: string;
-        caller_user_id: string;
-        receiver_user_id: string | null;
-        mode: 'direct' | 'random';
-        rate_coins_per_minute: number;
-        receiver_share_bps: number;
-        coins_per_usd_receiver: number;
-        spark_per_usd: number;
-        total_billed_coins: number;
-        total_receiver_coins: number;
-        total_receiver_usd: string | number;
-        total_receiver_spark: number;
-        status: 'live' | 'ended';
-        end_reason: string | null;
-        started_at: string;
-        updated_at: string;
-        ended_at: string | null;
-      }>(
+      const result = await this.databaseService.query<CallSessionRow>(
         `
-          SELECT
-            id,
-            caller_user_id,
-            receiver_user_id,
-            mode,
-            rate_coins_per_minute,
-            receiver_share_bps,
-            coins_per_usd_receiver,
-            spark_per_usd,
-            total_billed_coins,
-            total_receiver_coins,
-            total_receiver_usd,
-            total_receiver_spark,
-            status,
-            end_reason,
-            started_at,
-            updated_at,
-            ended_at
+          SELECT *
           FROM call_sessions
           WHERE id = $1 AND caller_user_id = $2
           LIMIT 1
@@ -2779,26 +2764,7 @@ export class StoreService implements OnModuleInit {
         throw new NotFoundException('Call session not found');
       }
 
-      const row = result.rows[0];
-      return {
-        id: row.id,
-        callerUserId: row.caller_user_id,
-        receiverUserId: row.receiver_user_id,
-        mode: row.mode,
-        rateCoinsPerMinute: row.rate_coins_per_minute,
-        receiverShareBps: row.receiver_share_bps,
-        coinsPerUsdReceiver: row.coins_per_usd_receiver,
-        sparkPerUsd: row.spark_per_usd,
-        totalBilledCoins: row.total_billed_coins,
-        totalReceiverCoins: row.total_receiver_coins,
-        totalReceiverUsd: Number.parseFloat(String(row.total_receiver_usd)) || 0,
-        totalReceiverSpark: row.total_receiver_spark,
-        status: row.status,
-        endReason: row.end_reason,
-        startedAt: new Date(row.started_at).toISOString(),
-        updatedAt: new Date(row.updated_at).toISOString(),
-        endedAt: row.ended_at ? new Date(row.ended_at).toISOString() : null,
-      };
+      return this.mapCallSessionRow(result.rows[0]);
     }
 
     const session = this.callSessions.get(sessionId);
@@ -2806,6 +2772,60 @@ export class StoreService implements OnModuleInit {
       throw new NotFoundException('Call session not found');
     }
     return session;
+  }
+
+  private async getCallSessionForParticipant(
+    sessionId: string,
+    userId: string,
+  ): Promise<CallSession> {
+    if (this.databaseService?.isEnabled()) {
+      const result = await this.databaseService.query<CallSessionRow>(
+        `
+          SELECT *
+          FROM call_sessions
+          WHERE id = $1 AND (caller_user_id = $2 OR receiver_user_id = $2)
+          LIMIT 1
+        `,
+        [sessionId, userId],
+      );
+
+      if (result.rowCount === 0) {
+        throw new NotFoundException('Call session not found');
+      }
+
+      return this.mapCallSessionRow(result.rows[0]);
+    }
+
+    const session = this.callSessions.get(sessionId);
+    if (
+      !session ||
+      (session.callerUserId !== userId && session.receiverUserId !== userId)
+    ) {
+      throw new NotFoundException('Call session not found');
+    }
+    return session;
+  }
+
+  private mapCallSessionRow(row: CallSessionRow): CallSession {
+    return {
+      id: row.id,
+      callerUserId: row.caller_user_id,
+      receiverUserId: row.receiver_user_id,
+      mode: row.mode,
+      rateCoinsPerMinute: row.rate_coins_per_minute,
+      receiverShareBps: row.receiver_share_bps,
+      coinsPerUsdReceiver: row.coins_per_usd_receiver,
+      sparkPerUsd: row.spark_per_usd,
+      totalBilledCoins: row.total_billed_coins,
+      totalReceiverCoins: row.total_receiver_coins,
+      totalReceiverUsd: Number.parseFloat(String(row.total_receiver_usd)) || 0,
+      totalReceiverSpark: row.total_receiver_spark,
+      status: row.status,
+      endReason: row.end_reason,
+      startedAt: new Date(row.started_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
+      endedAt: row.ended_at ? new Date(row.ended_at).toISOString() : null,
+    };
   }
 
   private async getCallSessionById(sessionId: string): Promise<CallSession> {
@@ -2897,6 +2917,7 @@ export class StoreService implements OnModuleInit {
           FROM call_sessions
           WHERE status = 'live'
             AND (caller_user_id = $1 OR receiver_user_id = $1)
+            AND updated_at > NOW() - INTERVAL '2 minutes'
           LIMIT 1
         `,
         [userId],
@@ -2905,10 +2926,12 @@ export class StoreService implements OnModuleInit {
       return (result.rowCount ?? 0) > 0;
     }
 
+    const staleThreshold = Date.now() - 2 * 60 * 1000;
     for (const session of this.callSessions.values()) {
       if (
         session.status === 'live' &&
-        (session.callerUserId === userId || session.receiverUserId === userId)
+        (session.callerUserId === userId || session.receiverUserId === userId) &&
+        new Date(session.updatedAt).getTime() > staleThreshold
       ) {
         return true;
       }

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
@@ -143,6 +142,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
     setState(() => _calling = true);
 
+    final svc = FirebaseChatService.instance;
+
     try {
       debugPrint('[DirectCall] startCallSession: receiverUserId=${_card.hostUserId}, rate=$_callRate');
       // 1. Create call session on backend
@@ -156,31 +157,23 @@ class _ProfilePageState extends State<ProfilePage> {
       _callSessionId = session.id;
 
       // 2. Write signaling node to RTDB
-      final ref = FirebaseDatabase.instanceFor(
-        app: Firebase.app(),
-        databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
-      ).ref('direct_calls/${_card.hostUserId}');
-
-      await ref.set(<String, dynamic>{
-        'callerId': userId,
-        'callerName': widget.myDisplayName ?? 'User',
-        'callerAvatarUrl': widget.myAvatarUrl,
-        'sessionId': session.id,
-        'status': 'ringing',
-        'ts': ServerValue.timestamp,
-      });
+      await svc.writeRinging(
+        targetUserId: _card.hostUserId,
+        callerId: userId,
+        callerName: widget.myDisplayName ?? 'User',
+        callerAvatarUrl: widget.myAvatarUrl,
+        sessionId: session.id,
+      );
 
       // 3. Listen for status changes (accepted / declined)
-      _callSub = ref.onValue.listen((DatabaseEvent event) {
+      _callSub = svc.listenCallSignal(_card.hostUserId, (Map<String, dynamic>? data) {
         if (!mounted) return;
-        final data = event.snapshot.value;
         if (data == null) {
           // Node deleted (cancelled from other side)
           _cleanupCall();
           return;
         }
-        final map = Map<String, dynamic>.from(data as Map);
-        final status = map['status'] as String?;
+        final status = data['status'] as String?;
         if (status == 'accepted') {
           _onCallAccepted(session.id);
         } else if (status == 'declined') {
@@ -192,7 +185,7 @@ class _ProfilePageState extends State<ProfilePage> {
       // 4. 30s timeout
       _callTimeout = Timer(const Duration(seconds: 30), () {
         if (!mounted || !_calling) return;
-        ref.remove();
+        svc.removeCallSignal(_card.hostUserId);
         _cleanupCall();
         _showErrorSnack('No answer');
         // End the unused session
@@ -259,11 +252,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final token = widget.accessToken;
 
     // Remove the RTDB signaling node
-    final ref = FirebaseDatabase.instanceFor(
-      app: Firebase.app(),
-      databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
-    ).ref('direct_calls/${_card.hostUserId}');
-    ref.remove();
+    FirebaseChatService.instance.removeCallSignal(_card.hostUserId);
 
     // End the unused session
     if (_callSessionId != null && api != null && token != null) {

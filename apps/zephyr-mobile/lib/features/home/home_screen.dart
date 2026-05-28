@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:country_picker/country_picker.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -188,14 +187,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (userId == null) return;
 
     _incomingCallSub?.cancel();
-    final ref = FirebaseDatabase.instanceFor(
-      app: Firebase.app(),
-      databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
-    ).ref('direct_calls/$userId');
+    final svc = FirebaseChatService.instance;
 
-    _incomingCallSub = ref.onValue.listen((DatabaseEvent event) {
+    _incomingCallSub = svc.listenCallSignal(userId, (Map<String, dynamic>? data) {
       if (!mounted) return;
-      final data = event.snapshot.value;
       if (data == null) {
         // Node deleted — call cancelled or cleaned up
         if (_incomingCallerId != null) {
@@ -208,17 +203,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
         return;
       }
-      final map = Map<String, dynamic>.from(data as Map);
-      final status = map['status'] as String?;
-      final callerId = map['callerId'] as String?;
-      final sessionId = map['sessionId'] as String?;
+      final status = data['status'] as String?;
+      final callerId = data['callerId'] as String?;
+      final sessionId = data['sessionId'] as String?;
 
       if (status == 'ringing' && callerId != null && sessionId != null) {
         setState(() {
           _incomingCallerId = callerId;
           _incomingSessionId = sessionId;
-          _incomingCallerName = map['callerName'] as String?;
-          _incomingCallerAvatarUrl = map['callerAvatarUrl'] as String?;
+          _incomingCallerName = data['callerName'] as String?;
+          _incomingCallerAvatarUrl = data['callerAvatarUrl'] as String?;
         });
       } else if (status == 'cancelled' || status == 'declined') {
         setState(() {
@@ -237,12 +231,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final String? callerId = _incomingCallerId;
     if (userId == null || sessionId == null || callerId == null) return;
 
+    // Capture partner info BEFORE clearing state
+    final String partnerName = _incomingCallerName ?? 'User';
+    final String? partnerAvatarUrl = _incomingCallerAvatarUrl;
+
+    final svc = FirebaseChatService.instance;
+
     // Update RTDB status to 'accepted' so caller knows
-    final ref = FirebaseDatabase.instanceFor(
-      app: Firebase.app(),
-      databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
-    ).ref('direct_calls/$userId/status');
-    await ref.set('accepted');
+    await svc.writeCallStatus(userId, 'accepted');
 
     // Get Agora token from server
     try {
@@ -273,16 +269,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             channelName: rtc.channelName,
             uid: rtc.uid,
             token: rtc.token,
-            partnerName: _incomingCallerName ?? 'User',
-            partnerAvatarUrl: _incomingCallerAvatarUrl,
+            partnerName: partnerName,
+            partnerAvatarUrl: partnerAvatarUrl,
           ),
         ),
       ).then((_) {
         // Clean up the RTDB node and resume listening
-        FirebaseDatabase.instanceFor(
-          app: Firebase.app(),
-          databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
-        ).ref('direct_calls/$userId').remove();
+        svc.removeCallSignal(userId);
         _listenForIncomingCalls();
       });
     } catch (_) {
@@ -300,19 +293,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final String? userId = _me?.id;
     if (userId == null) return;
 
+    final svc = FirebaseChatService.instance;
+
     // Update RTDB status so caller gets notified
-    final ref = FirebaseDatabase.instanceFor(
-      app: Firebase.app(),
-      databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
-    ).ref('direct_calls/$userId/status');
-    ref.set('declined');
+    svc.writeCallStatus(userId, 'declined');
 
     // Then remove the node after a short delay so caller can read it
     Future<void>.delayed(const Duration(seconds: 2), () {
-      FirebaseDatabase.instanceFor(
-        app: Firebase.app(),
-        databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
-      ).ref('direct_calls/$userId').remove();
+      svc.removeCallSignal(userId);
     });
 
     setState(() {

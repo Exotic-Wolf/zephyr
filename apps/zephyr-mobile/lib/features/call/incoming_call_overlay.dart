@@ -23,6 +23,7 @@ class IncomingCallOverlay extends StatefulWidget {
 class _IncomingCallOverlayState extends State<IncomingCallOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulseCtrl;
+  bool _tapped = false;
 
   @override
   void initState() {
@@ -37,6 +38,18 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay>
   void dispose() {
     _pulseCtrl.dispose();
     super.dispose();
+  }
+
+  void _handleAccept() {
+    if (_tapped) return;
+    _tapped = true;
+    widget.onAccept();
+  }
+
+  void _handleReject() {
+    if (_tapped) return;
+    _tapped = true;
+    widget.onReject();
   }
 
   @override
@@ -100,14 +113,14 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay>
                     icon: Icons.call_end_rounded,
                     color: Colors.red,
                     label: 'Decline',
-                    onTap: widget.onReject,
+                    onTap: _handleReject,
                   ),
                   // Accept
                   _CircleButton(
                     icon: Icons.videocam_rounded,
                     color: const Color(0xFF4CAF50),
                     label: 'Accept',
-                    onTap: widget.onAccept,
+                    onTap: _handleAccept,
                   ),
                 ],
               ),

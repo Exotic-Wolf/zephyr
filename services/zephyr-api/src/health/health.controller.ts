@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Post } from '@nestjs/common';
 import { DatabaseService } from '../core/database.service';
 
 @Controller('v1/health')
@@ -30,5 +30,27 @@ export class HealthController {
       storage,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  @Post('end-stale-calls')
+  async endStaleCalls(): Promise<{ ended: number }> {
+    if (!this.databaseService.isEnabled()) {
+      return { ended: 0 };
+    }
+
+    const result = await this.databaseService.query(
+      `
+        UPDATE call_sessions
+        SET status = 'ended',
+            end_reason = 'stale_cleanup',
+            ended_at = NOW(),
+            updated_at = NOW()
+        WHERE status = 'live'
+          AND updated_at < NOW() - INTERVAL '5 minutes'
+      `,
+      [],
+    );
+
+    return { ended: result.rowCount ?? 0 };
   }
 }

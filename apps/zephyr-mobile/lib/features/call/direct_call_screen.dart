@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../services/api_client.dart';
+import '../../services/firebase_chat_service.dart';
 
 /// Billing tick interval in seconds.
 const int _kTickSeconds = 15;
@@ -57,6 +58,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
 
   Future<void> _init() async {
     await [Permission.camera, Permission.microphone].request();
+    FirebaseChatService.instance.setBusyStatus();
     await _initAgora();
     _startTimers();
   }
@@ -106,18 +108,41 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
     await engine.enableAudio();
     await engine.startPreview();
 
-    await engine.joinChannel(
-      token: widget.token,
-      channelId: widget.channelName,
-      uid: widget.uid,
-      options: const ChannelMediaOptions(
-        publishCameraTrack: true,
-        publishMicrophoneTrack: true,
-        clientRoleType: ClientRoleType.clientRoleBroadcaster,
-        autoSubscribeVideo: true,
-        autoSubscribeAudio: true,
-      ),
-    );
+    // Retry joinChannel once if -17 (previous engine not fully released yet)
+    try {
+      await engine.joinChannel(
+        token: widget.token,
+        channelId: widget.channelName,
+        uid: widget.uid,
+        options: const ChannelMediaOptions(
+          publishCameraTrack: true,
+          publishMicrophoneTrack: true,
+          clientRoleType: ClientRoleType.clientRoleBroadcaster,
+          autoSubscribeVideo: true,
+          autoSubscribeAudio: true,
+        ),
+      );
+    } on AgoraRtcException catch (e) {
+      if (e.code == -17 && !_disposed) {
+        debugPrint('[DirectCall] joinChannel rejected (-17), retrying in 500ms');
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (_disposed) return;
+        await engine.joinChannel(
+          token: widget.token,
+          channelId: widget.channelName,
+          uid: widget.uid,
+          options: const ChannelMediaOptions(
+            publishCameraTrack: true,
+            publishMicrophoneTrack: true,
+            clientRoleType: ClientRoleType.clientRoleBroadcaster,
+            autoSubscribeVideo: true,
+            autoSubscribeAudio: true,
+          ),
+        );
+      } else {
+        rethrow;
+      }
+    }
 
     _engine = engine;
     if (!_disposed) setState(() {});
@@ -165,9 +190,12 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
     _disposed = true;
     _elapsedTimer?.cancel();
     _tickTimer?.cancel();
-    _engine?.leaveChannel();
-    _engine?.release();
+    FirebaseChatService.instance.clearBusyStatus();
+    final engine = _engine;
     _engine = null;
+    if (engine != null) {
+      engine.leaveChannel().then((_) => engine.release());
+    }
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -180,12 +208,16 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
         sessionId: widget.sessionId,
         reason: 'disposed',
       ).ignore();
+      FirebaseChatService.instance.clearBusyStatus();
     }
     _disposed = true;
     _elapsedTimer?.cancel();
     _tickTimer?.cancel();
-    _engine?.leaveChannel();
-    _engine?.release();
+    final engine = _engine;
+    _engine = null;
+    if (engine != null) {
+      engine.leaveChannel().then((_) => engine.release());
+    }
     super.dispose();
   }
 
