@@ -58,7 +58,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Set<String> _followingIds = <String>{};
   int _selectedTabIndex = 0;
   int _homeTopTabIndex = 1;
-  Timer? _heartbeatTimer;
   int _activeFeedIndex = 0;
   Country? _filterCountry;
   String _searchQuery = '';
@@ -98,10 +97,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (mounted) {
       setState(() => _selectedTabIndex = tab);
     }
-  }
-
-  void _sendHeartbeat() {
-    widget.apiClient.heartbeat(widget.accessToken).catchError((_) {});
   }
 
   void _connectFeedSocket() {
@@ -249,7 +244,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _convoDeliverySub?.cancel();
     _fcmSub?.cancel();
     widget.tabNotifier?.removeListener(_onTabNotify);
-    _heartbeatTimer?.cancel();
     FirebaseChatService.instance.presenceVersion.removeListener(_onPresenceChanged);
     _incomingCallSub?.cancel();
     _roomTitleController.dispose();
@@ -261,8 +255,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      FirebaseChatService.instance.restoreOnlineStatus();
       _listenForIncomingCalls();
       _refreshFeed();
+    } else if (state == AppLifecycleState.paused) {
+      FirebaseChatService.instance.setInactiveStatus();
     }
   }
 
@@ -300,12 +297,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       // Start listening for incoming calls now that we have userId
       _listenForIncomingCalls();
-      // Start HTTP heartbeat for presence (runs regardless of socket state)
-      _heartbeatTimer ??= Timer.periodic(
-        const Duration(seconds: 20),
-        (_) => _sendHeartbeat(),
-      );
-      _sendHeartbeat(); // immediate first beat
       // Initialize Firebase with custom token for secure auth
       _initFirebaseChat(me.id);
     } catch (error) {

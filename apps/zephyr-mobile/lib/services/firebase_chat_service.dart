@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'presence_bus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -32,25 +31,29 @@ class FirebaseChatService {
   // ── Presence cache ──────────────────────────────────────────────────────────
   /// Whether THIS user is currently live-streaming.
   bool _isLive = false;
+  /// Whether THIS user is currently in a call.
+  bool _isBusy = false;
 
-  /// Cached state per user: 'online', 'offline', or 'live'.
+  /// Cached state per user: 'online', 'inactive', 'offline', 'busy', or 'live'.
   final Map<String, String> _presenceCache = {};
   /// Cached roomId per user (only set when state == 'live').
   final Map<String, String> _presenceRoomCache = {};
   final Map<String, StreamSubscription<DatabaseEvent>> _presenceSubs = {};
+  final Map<String, DateTime> _presenceLastAccess = {};
   StreamSubscription<DatabaseEvent>? _connectedSub;
 
   /// Notifies listeners whenever any user's presence changes.
   final ValueNotifier<int> presenceVersion = ValueNotifier<int>(0);
 
-  /// Whether a user is known to be online (from cache). Returns null if unknown.
+  /// Whether a user is known to be reachable (from cache). Returns null if unknown.
+  /// Treats 'inactive' as reachable (push can wake them).
   bool? isOnlineCached(String userId) {
     final s = _presenceCache[userId];
     if (s == null) return null;
-    return s == 'online' || s == 'live';
+    return s == 'online' || s == 'live' || s == 'inactive';
   }
 
-  /// Returns the raw presence state: 'online', 'offline', or 'live'. Null if unknown.
+  /// Returns the raw presence state: 'online', 'inactive', 'offline', 'busy', or 'live'. Null if unknown.
   String? presenceStateCached(String userId) => _presenceCache[userId];
 
   /// Returns the roomId for a user who is currently live. Null otherwise.
@@ -62,14 +65,28 @@ class FirebaseChatService {
 
   void warmPresence(List<String> userIds) {
     for (final String uid in userIds) {
-      if (_presenceSubs.containsKey(uid)) continue;
-
-      // Evict oldest subscriptions if at capacity
-      while (_presenceSubs.length >= _maxPresenceSubs) {
-        final String oldest = _presenceSubs.keys.first;
-        _presenceSubs.remove(oldest)?.cancel();
+      if (_presenceSubs.containsKey(uid)) {
+        _presenceLastAccess[uid] = DateTime.now();
+        continue;
       }
 
+      // Evict least-recently-accessed subscription if at capacity
+      while (_presenceSubs.length >= _maxPresenceSubs) {
+        String? lruKey;
+        DateTime? lruTime;
+        for (final entry in _presenceLastAccess.entries) {
+          if (!_presenceSubs.containsKey(entry.key)) continue;
+          if (lruTime == null || entry.value.isBefore(lruTime)) {
+            lruKey = entry.key;
+            lruTime = entry.value;
+          }
+        }
+        final evict = lruKey ?? _presenceSubs.keys.first;
+        _presenceSubs.remove(evict)?.cancel();
+        _presenceLastAccess.remove(evict);
+      }
+
+      _presenceLastAccess[uid] = DateTime.now();
       _presenceSubs[uid] = _rtdb.ref('presence/$uid').onValue.listen((event) {
         final data = event.snapshot.value;
         final String state =
@@ -89,8 +106,6 @@ class FirebaseChatService {
 
         if (changed) {
           presenceVersion.value++;
-          // Keep PresenceBus in sync so StatusDot (inbox) reflects the same state.
-          PresenceBus.instance.update(uid, state);
         }
       });
     }
@@ -174,9 +189,30 @@ class FirebaseChatService {
     });
   }
 
+  /// Mark current user as "inactive" (app backgrounded but reachable via push).
+  void setInactiveStatus() {
+    if (_myUserId == null || _isLive || _isBusy) return;
+    _rtdb.ref('presence/$_myUserId').set({
+      'state': 'inactive',
+      'lastSeen': ServerValue.timestamp,
+    });
+  }
+
+  /// Restore current user to "online" from inactive/background.
+  void restoreOnlineStatus() {
+    if (_myUserId == null) return;
+    // Respect current overrides
+    if (_isLive || _isBusy) return;
+    _rtdb.ref('presence/$_myUserId').set({
+      'state': 'online',
+      'lastSeen': ServerValue.timestamp,
+    });
+  }
+
   /// Mark current user as "busy" in Firebase RTDB presence.
   void setBusyStatus() {
     if (_myUserId == null) return;
+    _isBusy = true;
     _rtdb.ref('presence/$_myUserId').set({
       'state': 'busy',
       'lastSeen': ServerValue.timestamp,
@@ -186,6 +222,7 @@ class FirebaseChatService {
   /// Clear busy and restore to "online".
   void clearBusyStatus() {
     if (_myUserId == null) return;
+    _isBusy = false;
     _rtdb.ref('presence/$_myUserId').set({
       'state': _isLive ? 'live' : 'online',
       'lastSeen': ServerValue.timestamp,

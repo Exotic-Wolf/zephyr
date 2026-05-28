@@ -2185,19 +2185,19 @@ export class StoreService implements OnModuleInit {
    * Priority: longest online (last_seen_at most recent = actively using the app).
    * Excludes: the caller, blocked users, users already in a call, 4h cooldown.
    * Fallback: ignores cooldown if all exhausted.
+   * Presence synced by Cloud Function (no client heartbeat).
    */
   async findBestOnlineMatch(callerId: string): Promise<string | null> {
     if (!this.databaseService?.isEnabled()) return null;
     const blockedIds = await this.getBlockedIds(callerId);
     const blockedArr = [...blockedIds];
 
-    // Step 1: online user with recent heartbeat, respect 4h cooldown
+    // Step 1: online/inactive user, respect 4h cooldown
     const withCooldown = await this.databaseService.query<{ id: string }>(
       `SELECT u.id FROM users u
-       WHERE u.status = 'online'
+       WHERE u.status IN ('online', 'inactive')
          AND u.id != $1
          AND u.is_banned = FALSE
-         AND u.last_seen_at > NOW() - INTERVAL '60 seconds'
          ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}
          AND NOT EXISTS (
            SELECT 1 FROM random_call_matches m
@@ -2226,10 +2226,9 @@ export class StoreService implements OnModuleInit {
     // Step 2: fallback — ignore cooldown
     const fallback = await this.databaseService.query<{ id: string }>(
       `SELECT u.id FROM users u
-       WHERE u.status = 'online'
+       WHERE u.status IN ('online', 'inactive')
          AND u.id != $1
          AND u.is_banned = FALSE
-         AND u.last_seen_at > NOW() - INTERVAL '60 seconds'
          ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}
          AND NOT EXISTS (
            SELECT 1 FROM call_sessions cs
@@ -2272,6 +2271,13 @@ export class StoreService implements OnModuleInit {
       const receiverBusy = await this.hasLiveCallSessionForUser(receiverUserId);
       if (receiverBusy) {
         throw new BadRequestException('Receiver is busy in another live call');
+      }
+
+      // Block check: either direction
+      const callerBlocked = await this.isBlocked(receiverUserId, callerUserId);
+      const receiverBlocked = await this.isBlocked(callerUserId, receiverUserId);
+      if (callerBlocked || receiverBlocked) {
+        throw new BadRequestException('Cannot call this user');
       }
     }
 
@@ -3342,6 +3348,15 @@ export class StoreService implements OnModuleInit {
       await this.databaseService.query(
         `UPDATE users SET last_seen_at = NOW() WHERE id = $1`,
         [userId],
+      );
+    }
+  }
+
+  async syncPresence(userId: string, status: string): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.query(
+        `UPDATE users SET status = $1, last_seen_at = NOW() WHERE id = $2`,
+        [status, userId],
       );
     }
   }

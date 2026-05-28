@@ -68,7 +68,7 @@ export const onCallSignalDeleted = onValueDeleted(
   },
 );
 
-// ── Cloud Function: Auto-end live room when host presence leaves 'live' ──────
+// ── Cloud Function: Sync presence to PG + auto-end live room ─────────────────
 export const onPresenceChanged = onValueUpdated(
   {
     ref: "presence/{userId}",
@@ -80,47 +80,62 @@ export const onPresenceChanged = onValueUpdated(
     const after = event.data.after.val();
 
     const prevState = before?.state as string | undefined;
-    const newState = after?.state as string | undefined;
-    const roomId = before?.roomId as string | undefined;
+    const newState = (after?.state as string | undefined) ?? "offline";
 
-    // Only fire when transitioning FROM 'live' to something else
-    if (prevState !== "live" || newState === "live") {
-      return;
-    }
-
-    if (!roomId) {
-      logger.info(`presence/${userId} left 'live' but had no roomId`);
-      return;
-    }
-
-    logger.info(
-      `presence/${userId} went from 'live' to '${newState}' — ending room ${roomId}`,
-    );
-
-    try {
-      const res = await fetch(
-        `${apiBaseUrl.value()}/v1/internal/end-room`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Service-Key": serviceKey.value(),
+    // Sync presence state to PostgreSQL (for matchmaking queries)
+    if (newState !== prevState) {
+      try {
+        const res = await fetch(
+          `${apiBaseUrl.value()}/v1/internal/sync-presence`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Service-Key": serviceKey.value(),
+            },
+            body: JSON.stringify({ userId, status: newState }),
           },
-          body: JSON.stringify({
-            roomId,
-            hostUserId: userId,
-          }),
-        },
+        );
+        if (!res.ok) {
+          logger.error(`sync-presence returned ${res.status}`);
+        }
+      } catch (err) {
+        logger.error("Failed to sync presence:", err);
+      }
+    }
+
+    // Auto-end live room when host leaves 'live' state
+    const roomId = before?.roomId as string | undefined;
+    if (prevState === "live" && newState !== "live" && roomId) {
+      logger.info(
+        `presence/${userId} went from 'live' to '${newState}' — ending room ${roomId}`,
       );
 
-      if (!res.ok) {
-        const body = await res.text();
-        logger.error(`API returned ${res.status}: ${body}`);
-      } else {
-        logger.info(`Room ${roomId} ended successfully`);
+      try {
+        const res = await fetch(
+          `${apiBaseUrl.value()}/v1/internal/end-room`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Service-Key": serviceKey.value(),
+            },
+            body: JSON.stringify({
+              roomId,
+              hostUserId: userId,
+            }),
+          },
+        );
+
+        if (!res.ok) {
+          const body = await res.text();
+          logger.error(`API returned ${res.status}: ${body}`);
+        } else {
+          logger.info(`Room ${roomId} ended successfully`);
+        }
+      } catch (err) {
+        logger.error("Failed to call API:", err);
       }
-    } catch (err) {
-      logger.error("Failed to call API:", err);
     }
   },
 );

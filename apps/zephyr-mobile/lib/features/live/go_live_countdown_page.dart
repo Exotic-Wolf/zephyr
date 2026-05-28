@@ -82,8 +82,11 @@ class _GoLiveCountdownPageState extends State<GoLiveCountdownPage>
           onEnd: widget.onEnd,
         ),
       ));
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to go live: $e'), backgroundColor: Colors.red.shade700),
+        );
         Navigator.of(context).pop();
         widget.onCancel();
       }

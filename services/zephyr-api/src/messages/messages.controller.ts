@@ -18,13 +18,11 @@ import { StoreService } from '../core/store.service';
 import { FcmService } from '../core/fcm.service';
 import type { Conversation, Message } from '../core/store.service';
 import { SendMessageDto } from './dto/send-message.dto';
-import { MessagesGateway } from './messages.gateway';
 
 @Controller('v1/messages')
 export class MessagesController {
   constructor(
     private readonly storeService: StoreService,
-    private readonly messagesGateway: MessagesGateway,
     private readonly fcmService: FcmService,
   ) {}
 
@@ -73,8 +71,6 @@ export class MessagesController {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     const { message, isNew } = await this.storeService.sendMessage(me.id, body.receiverId, body.body, idempotencyKey);
     if (isNew) {
-      // Push to both sender and receiver in real time
-      this.messagesGateway.emitNewMessage(message);
       // Send FCM push to receiver
       this.storeService.getDeviceTokens(body.receiverId).then((tokens) => {
         if (tokens.length > 0) {
@@ -120,7 +116,6 @@ export class MessagesController {
   ): Promise<Message> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     const message = await this.storeService.markMessageDelivered(messageId, me.id);
-    this.messagesGateway.emitDeliveryReceipt(message);
     return message;
   }
 
@@ -132,8 +127,6 @@ export class MessagesController {
   ): Promise<Message> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     const message = await this.storeService.markMessageRead(messageId, me.id);
-    // Socket: instant when sender is connected
-    this.messagesGateway.emitReadReceipt(message);
     // FCM: reliable fallback — reaches sender even if socket dropped
     this.storeService.getDeviceTokens(message.senderId).then((tokens) => {
       if (tokens.length > 0 && message.readAt) {

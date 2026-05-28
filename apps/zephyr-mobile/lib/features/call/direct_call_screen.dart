@@ -45,6 +45,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   bool _micMuted = false;
   bool _cameraMuted = false;
   bool _remoteVideoMuted = false;
+  bool _reconnecting = false;
   int _elapsed = 0;
   Timer? _elapsedTimer;
   Timer? _tickTimer;
@@ -75,7 +76,10 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
         debugPrint('[DirectCall] joined channel: ${connection.channelId}');
       },
       onUserJoined: (connection, remoteUid, elapsed) {
-        if (!_disposed) setState(() => _remoteUid = remoteUid);
+        if (!_disposed) {
+          setState(() => _remoteUid = remoteUid);
+          _startBillingTimer();
+        }
       },
       onUserOffline: (connection, remoteUid, reason) {
         if (!_disposed) {
@@ -98,6 +102,12 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
             setState(() => _remoteVideoMuted = false);
           }
         }
+      },
+      onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
+      onConnectionStateChanged: (connection, state, reason) {
+        if (_disposed) return;
+        final bool lost = state == ConnectionStateType.connectionStateReconnecting;
+        if (lost != _reconnecting) setState(() => _reconnecting = lost);
       },
       onError: (err, msg) {
         debugPrint('[DirectCall] Agora error: $err $msg');
@@ -149,16 +159,45 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   }
 
   void _startTimers() {
+    // Elapsed counter starts immediately (shows user wait time)
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!_disposed) setState(() => _elapsed++);
     });
+    // Billing timer starts only when partner joins (see onUserJoined)
+  }
+
+  void _startBillingTimer() {
+    if (_tickTimer != null) return; // already started
     _tickTimer = Timer.periodic(Duration(seconds: _kTickSeconds), (_) {
-      widget.apiClient.tickCallSession(
+      _tick();
+    });
+  }
+
+  Future<void> _tick() async {
+    try {
+      final result = await widget.apiClient.tickCallSession(
         accessToken: widget.accessToken,
         sessionId: widget.sessionId,
         elapsedSeconds: _kTickSeconds,
-      ).ignore();
-    });
+      );
+      if (result.stoppedForInsufficientBalance && !_disposed) {
+        _leave();
+      }
+    } catch (_) {
+      // Network error during tick — don't kill the call, next tick will retry
+    }
+  }
+
+  Future<void> _renewToken() async {
+    try {
+      final rtc = await widget.apiClient.requestCallRtcToken(
+        accessToken: widget.accessToken,
+        sessionId: widget.sessionId,
+      );
+      await _engine?.renewToken(rtc.token);
+    } catch (e) {
+      debugPrint('[DirectCall] token renewal error: $e');
+    }
   }
 
   void _toggleMic() {
@@ -246,6 +285,24 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
 
           // Bottom controls
           _buildControls(),
+
+          // Reconnecting overlay
+          if (_reconnecting)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                      SizedBox(height: 12),
+                      Text('Reconnecting...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -116,6 +116,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
     final String token = payload['token'] as String;
     final String partnerId = payload['partnerId'] as String;
 
+    FirebaseChatService.instance.setBusyStatus();
     setState(() {
       _sessionId = sessionId;
       _partnerId = partnerId;
@@ -140,6 +141,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
   void _onPartnerLeft() {
     if (!mounted || _phase != _Phase.connected) return;
     // Partner pressed Next or disconnected → show searching again
+    FirebaseChatService.instance.clearBusyStatus();
     _cleanupCall();
     if (mounted) {
       setState(() => _phase = _Phase.searching);
@@ -265,6 +267,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
   void _end() {
     final sid = _sessionId;
     widget.apiClient.callEnd(widget.accessToken, sid ?? '').ignore();
+    FirebaseChatService.instance.clearBusyStatus();
     _cleanupCall();
     if (mounted) {
       setState(() {
@@ -305,6 +308,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
     _engine?.leaveChannel();
     _engine?.release();
     _callSignalSub?.cancel();
+    FirebaseChatService.instance.clearBusyStatus();
     widget.apiClient.leaveCallQueue(widget.accessToken).ignore();
     super.dispose();
   }

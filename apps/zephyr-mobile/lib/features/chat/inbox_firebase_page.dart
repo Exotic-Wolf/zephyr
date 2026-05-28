@@ -4,6 +4,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../models/models.dart';
+import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import 'thread_firebase_page.dart';
 
@@ -82,28 +84,11 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
       backgroundColor: const Color(0xFFFF8F00),
       child: const Icon(Icons.add, color: Colors.white),
       onPressed: () async {
-        final controller = TextEditingController();
-        final userId = await showDialog<String>(
+        final result = await showDialog<UserProfile>(
           context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('New Firebase Chat'),
-            content: TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: 'Paste the other user ID',
-              ),
-              autofocus: true,
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-                child: const Text('Start'),
-              ),
-            ],
-          ),
+          builder: (ctx) => _UserSearchDialog(myUserId: widget.myUserId),
         );
-        if (userId == null || userId.isEmpty) return;
+        if (result == null) return;
         if (!context.mounted) return;
         Navigator.of(context).push(
             MaterialPageRoute<void>(
@@ -111,9 +96,9 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
                 myUserId: widget.myUserId,
                 myDisplayName: widget.myDisplayName,
                 myAvatarUrl: widget.myAvatarUrl,
-                otherUserId: userId,
-                otherDisplayName: 'User',
-                otherAvatarUrl: null,
+                otherUserId: result.id,
+                otherDisplayName: result.displayName,
+                otherAvatarUrl: result.avatarUrl,
               ),
             ),
           );
@@ -324,6 +309,9 @@ class _PresenceDot extends StatelessWidget {
           case 'busy':
             color = const Color(0xFFFF9500);
             opacity = 1.0;
+          case 'inactive':
+            color = const Color(0xFFFFCC00);
+            opacity = 1.0;
           case 'online':
             color = const Color(0xFF34C759);
             opacity = 1.0;
@@ -348,6 +336,122 @@ class _PresenceDot extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ── User Search Dialog ───────────────────────────────────────────────────────
+
+class _UserSearchDialog extends StatefulWidget {
+  const _UserSearchDialog({required this.myUserId});
+  final String myUserId;
+
+  @override
+  State<_UserSearchDialog> createState() => _UserSearchDialogState();
+}
+
+class _UserSearchDialogState extends State<_UserSearchDialog> {
+  final TextEditingController _ctrl = TextEditingController();
+  Timer? _debounce;
+  List<UserProfile> _results = [];
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _onQueryChanged(String q) {
+    _debounce?.cancel();
+    if (q.trim().length < 2) {
+      setState(() => _results = []);
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 400), () => _search(q.trim()));
+  }
+
+  Future<void> _search(String q) async {
+    final api = ZephyrApiClient.instance;
+    if (api == null) return;
+    setState(() => _loading = true);
+    try {
+      final users = await api.searchUsers(q);
+      if (mounted) {
+        setState(() {
+          _results = users.where((u) => u.id != widget.myUserId).toList();
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New Chat'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 350,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _ctrl,
+              decoration: const InputDecoration(
+                hintText: 'Search by name...',
+                prefixIcon: Icon(Icons.search),
+              ),
+              autofocus: true,
+              onChanged: _onQueryChanged,
+            ),
+            const SizedBox(height: 12),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(),
+              )
+            else
+              Expanded(
+                child: _results.isEmpty
+                    ? Center(
+                        child: Text(
+                          _ctrl.text.length < 2 ? 'Type to search' : 'No results',
+                          style: TextStyle(color: Colors.grey.shade500),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _results.length,
+                        itemBuilder: (ctx, i) {
+                          final user = _results[i];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundImage: user.avatarUrl != null
+                                  ? CachedNetworkImageProvider(user.avatarUrl!)
+                                  : null,
+                              child: user.avatarUrl == null
+                                  ? Text(user.displayName.isNotEmpty
+                                      ? user.displayName[0].toUpperCase()
+                                      : '?')
+                                  : null,
+                            ),
+                            title: Text(user.displayName),
+                            subtitle: Text('#${user.publicId}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                            onTap: () => Navigator.pop(ctx, user),
+                          );
+                        },
+                      ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      ],
     );
   }
 }

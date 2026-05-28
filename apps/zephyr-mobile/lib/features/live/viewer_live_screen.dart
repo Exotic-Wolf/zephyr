@@ -50,13 +50,16 @@ class ViewerLiveScreen extends StatefulWidget {
 class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     with TickerProviderStateMixin {
   int _viewerCount = 0;
-  final List<LiveComment> _comments = <LiveComment>[];
+  final ValueNotifier<List<LiveComment>> _commentsNotifier =
+      ValueNotifier<List<LiveComment>>(<LiveComment>[]);
   final List<FloatingGift> _floatingGifts = <FloatingGift>[];
   final TextEditingController _commentCtrl = TextEditingController();
   late final AnimationController _pulseCtrl;
   int _elapsedSeconds = 0;
   Timer? _ticker;
   Timer? _tokenRenewalTimer;
+  DateTime _lastReactionTime = DateTime(2000);
+  DateTime _lastCommentTime = DateTime(2000);
 
   final List<StreamSubscription<dynamic>> _rtdbSubs = <StreamSubscription<dynamic>>[];
 
@@ -68,6 +71,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   bool _welcomeAdded = false;
   bool _liveEnded = false;
   bool _hasLeft = false;
+  bool _reconnecting = false;
 
   @override
   void initState() {
@@ -88,10 +92,12 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     super.didChangeDependencies();
     if (!_welcomeAdded) {
       _welcomeAdded = true;
-      _comments.add(LiveComment(
-        name: widget.feedCard.hostDisplayName,
-        text: AppLocalizations.of(context)!.welcomeToLive,
-      ));
+      _commentsNotifier.value = <LiveComment>[
+        LiveComment(
+          name: widget.feedCard.hostDisplayName,
+          text: AppLocalizations.of(context)!.welcomeToLive,
+        ),
+      ];
     }
   }
 
@@ -105,6 +111,12 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
       },
       onUserOffline: (connection, remoteUid, reason) {
         if (mounted && !_liveEnded) _onLiveEnded();
+      },
+      onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
+      onConnectionStateChanged: (connection, state, reason) {
+        if (!mounted) return;
+        final bool lost = state == ConnectionStateType.connectionStateReconnecting;
+        if (lost != _reconnecting) setState(() => _reconnecting = lost);
       },
     ));
     // Unmute audio (preview was silent)
@@ -141,6 +153,12 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
         },
         onUserOffline: (connection, remoteUid, reason) {
           if (mounted && !_liveEnded) _onLiveEnded();
+        },
+        onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
+        onConnectionStateChanged: (connection, state, reason) {
+          if (!mounted) return;
+          final bool lost = state == ConnectionStateType.connectionStateReconnecting;
+          if (lost != _reconnecting) setState(() => _reconnecting = lost);
         },
       ));
 
@@ -198,6 +216,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     for (final sub in _rtdbSubs) { sub.cancel(); }
     _pulseCtrl.dispose();
     _commentCtrl.dispose();
+    _commentsNotifier.dispose();
     _engine?.leaveChannel();
     _engine?.release();
     _callLeaveRoom();
@@ -208,6 +227,9 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     final String? roomId = widget.feedCard.roomId;
     if (roomId == null) return;
     final fcs = FirebaseChatService.instance;
+
+    // Increment audience_count in RTDB (with onDisconnect safety)
+    fcs.joinLiveRoom(roomId);
 
     // Audience count
     _rtdbSubs.add(fcs.listenAudienceCount(roomId, (int count) {
@@ -222,10 +244,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     // Comments
     _rtdbSubs.add(fcs.listenLiveComments(roomId, (String name, String text) {
       if (!mounted) return;
-      setState(() {
-        _comments.add(LiveComment(name: name, text: text));
-        if (_comments.length > 50) _comments.removeAt(0);
-      });
+      _addComment(LiveComment(name: name, text: text));
     }));
 
     // Reactions (skip own)
@@ -242,10 +261,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     // Gifts
     _rtdbSubs.add(fcs.listenLiveGifts(roomId, (String senderName, String giftName, int quantity) {
       if (!mounted) return;
-      setState(() {
-        _comments.add(LiveComment(name: senderName, text: '🎁 sent $giftName'));
-        if (_comments.length > 50) _comments.removeAt(0);
-      });
+      _addComment(LiveComment(name: senderName, text: '🎁 sent $giftName'));
     }));
   }
 
@@ -265,16 +281,30 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   }
 
   void _callLeaveRoom() {
-    if (_hasLeft || !widget.didJoin || widget.feedCard.roomId == null) return;
+    if (_hasLeft || widget.feedCard.roomId == null) return;
     _hasLeft = true;
-    widget.apiClient
-        .leaveRoom(widget.accessToken, widget.feedCard.roomId!)
-        .ignore();
+    // Decrement RTDB audience_count
+    FirebaseChatService.instance.leaveLiveRoom(widget.feedCard.roomId!);
+    // Notify backend
+    if (widget.didJoin) {
+      widget.apiClient
+          .leaveRoom(widget.accessToken, widget.feedCard.roomId!)
+          .ignore();
+    }
+  }
+
+  void _addComment(LiveComment comment) {
+    final list = List<LiveComment>.from(_commentsNotifier.value)..add(comment);
+    if (list.length > 50) list.removeAt(0);
+    _commentsNotifier.value = list;
   }
 
   void _sendComment() {
     final String text = _commentCtrl.text.trim();
     if (text.isEmpty || widget.feedCard.roomId == null) return;
+    final now = DateTime.now();
+    if (now.difference(_lastCommentTime).inMilliseconds < 500) return;
+    _lastCommentTime = now;
     _commentCtrl.clear();
     // Write directly to Firebase RTDB — all listeners (including self) pick it up
     FirebaseChatService.instance.writeLiveComment(
@@ -283,7 +313,10 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   }
 
   void _sendReaction(String emoji) {
-    final String id = DateTime.now().millisecondsSinceEpoch.toString();
+    final now = DateTime.now();
+    if (now.difference(_lastReactionTime).inMilliseconds < 500) return;
+    _lastReactionTime = now;
+    final String id = now.millisecondsSinceEpoch.toString();
     final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
     setState(() => _floatingGifts.add(gift));
     Future<void>.delayed(const Duration(seconds: 3), () {
@@ -463,24 +496,27 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
             left: 12,
             right: 120,
             bottom: 80,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: _comments.reversed.take(6).toList().reversed.map((c) =>
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
-                    child: RichText(
-                      text: TextSpan(children: <TextSpan>[
-                        TextSpan(text: '${c.name}  ', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
-                        TextSpan(text: c.text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                      ]),
+            child: ValueListenableBuilder<List<LiveComment>>(
+              valueListenable: _commentsNotifier,
+              builder: (_, comments, __) => Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: comments.reversed.take(6).toList().reversed.map((c) =>
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
+                      child: RichText(
+                        text: TextSpan(children: <TextSpan>[
+                          TextSpan(text: '${c.name}  ', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+                          TextSpan(text: c.text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                        ]),
+                      ),
                     ),
                   ),
-                ),
-              ).toList(),
+                ).toList(),
+              ),
             ),
           ),
 
@@ -565,6 +601,24 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
               ),
             ),
           ),
+
+          // ── Reconnecting overlay ────────────────────────────────────────
+          if (_reconnecting && !_liveEnded)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                      SizedBox(height: 12),
+                      Text('Reconnecting...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           // ── Live ended overlay ───────────────────────────────────────────
           if (_liveEnded)

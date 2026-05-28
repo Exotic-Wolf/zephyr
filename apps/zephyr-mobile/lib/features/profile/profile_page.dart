@@ -323,78 +323,97 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             Expanded(
               flex: 3,
-              child: FilledButton(
-                onPressed: (_card.hostStatus == 'offline' || _card.hostStatus == 'busy')
-                    ? null
-                    : _calling ? _cancelDirectCall : _initiateDirectCall,
-                style: FilledButton.styleFrom(
-                  backgroundColor: switch (_card.hostStatus) {
-                    'offline' => Colors.grey.shade400,
-                    'busy'    => Colors.orange.shade300,
-                    _ => _calling ? Colors.red.shade400 : const Color(0xFF00A651),
-                  },
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.only(
-                      topRight: Radius.circular(14),
-                      bottomRight: Radius.circular(14),
-                    ),
-                  ),
-                ),
-                child: switch (_card.hostStatus) {
-                  'offline' => Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        const Icon(Icons.phone_disabled_rounded, size: 18),
-                        const SizedBox(width: 6),
-                        Text(AppLocalizations.of(context)!.notAvailable),
-                      ],
-                    ),
-                  'busy' => Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        const Icon(Icons.phone_locked_rounded, size: 18),
-                        const SizedBox(width: 6),
-                        Text(AppLocalizations.of(context)!.currentlyBusy),
-                      ],
-                    ),
-                  _ => _calling
-                    ? Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: <Widget>[
-                          const SizedBox(
-                            width: 16, height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                          ),
-                          const SizedBox(width: 8),
-                          const Text('Calling...',
-                              style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600)),
-                        ],
-                      )
-                    : Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: <Widget>[
-                          const Icon(Icons.call_rounded, size: 18),
-                          const SizedBox(width: 6),
-                          const Text('Video call',
-                              style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600)),
-                          if (_callRate != null) ...<Widget>[
-                            const SizedBox(width: 8),
-                            Text('$_callRate',
-                                style: const TextStyle(fontSize: 12)),
-                            const SizedBox(width: 3),
-                            const CoinIcon(size: 13),
-                            const Text('/min',
-                                style: TextStyle(fontSize: 12)),
-                          ],
-                        ],
+              child: ValueListenableBuilder<int>(
+                valueListenable: FirebaseChatService.instance.presenceVersion,
+                builder: (context, _, __) {
+                  final String status = FirebaseChatService.instance
+                      .presenceStateCached(_card.hostUserId) ?? _card.hostStatus;
+                  final bool disabled = status == 'busy';
+                  return FilledButton(
+                    onPressed: disabled
+                        ? null
+                        : _calling ? _cancelDirectCall : _initiateDirectCall,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: switch (status) {
+                        'offline' => Colors.grey.shade400,
+                        'inactive' => const Color(0xFFB8860B),
+                        'busy' => Colors.orange.shade300,
+                        _ => _calling ? Colors.red.shade400 : const Color(0xFF00A651),
+                      },
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.only(
+                          topRight: Radius.circular(14),
+                          bottomRight: Radius.circular(14),
+                        ),
                       ),
+                    ),
+                    child: switch (status) {
+                      'offline' => Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            const Icon(Icons.call_rounded, size: 18),
+                            const SizedBox(width: 6),
+                            Text(AppLocalizations.of(context)!.notAvailable,
+                                style: const TextStyle(fontSize: 13)),
+                          ],
+                        ),
+                      'inactive' => Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            const Icon(Icons.call_rounded, size: 18),
+                            const SizedBox(width: 6),
+                            const Text('May not answer',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      'busy' => Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            const Icon(Icons.phone_locked_rounded, size: 18),
+                            const SizedBox(width: 6),
+                            Text(AppLocalizations.of(context)!.currentlyBusy),
+                          ],
+                        ),
+                      _ => _calling
+                        ? Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              const SizedBox(
+                                width: 16, height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text('Calling...',
+                                  style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600)),
+                            ],
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              const Icon(Icons.call_rounded, size: 18),
+                              const SizedBox(width: 6),
+                              const Text('Video call',
+                                  style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600)),
+                              if (_callRate != null) ...<Widget>[
+                                const SizedBox(width: 8),
+                                Text('$_callRate',
+                                    style: const TextStyle(fontSize: 12)),
+                                const SizedBox(width: 3),
+                                const CoinIcon(size: 13),
+                                const Text('/min',
+                                    style: TextStyle(fontSize: 12)),
+                              ],
+                            ],
+                          ),
+                    },
+                  );
                 },
               ),
             ),

@@ -48,9 +48,11 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   Timer? _tokenRenewalTimer;
   final List<StreamSubscription<dynamic>> _rtdbSubs = <StreamSubscription<dynamic>>[];
   final ValueNotifier<int> _viewerCountNotifier = ValueNotifier<int>(0);
-  final List<LiveComment> _comments = <LiveComment>[];
+  final ValueNotifier<List<LiveComment>> _commentsNotifier =
+      ValueNotifier<List<LiveComment>>(<LiveComment>[]);
   final List<FloatingGift> _gifts = <FloatingGift>[];
   late final AnimationController _pulseCtrl;
+  bool _reconnecting = false;
 
   // Agora
   RtcEngine? _engine;
@@ -102,6 +104,15 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       await engine.enableVideo();
       await engine.enableAudio();
       await engine.startPreview();
+
+      engine.registerEventHandler(RtcEngineEventHandler(
+        onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
+        onConnectionStateChanged: (connection, state, reason) {
+          if (!mounted) return;
+          final bool lost = state == ConnectionStateType.connectionStateReconnecting;
+          if (lost != _reconnecting) setState(() => _reconnecting = lost);
+        },
+      ));
 
       await engine.joinChannel(
         token: info.token,
@@ -165,10 +176,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     // Comments
     _rtdbSubs.add(fcs.listenLiveComments(roomId, (String name, String text) {
       if (!mounted) return;
-      setState(() {
-        _comments.add(LiveComment(name: name, text: text));
-        if (_comments.length > 50) _comments.removeAt(0);
-      });
+      _addComment(LiveComment(name: name, text: text));
     }));
 
     // Reactions
@@ -185,11 +193,14 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     // Gifts
     _rtdbSubs.add(fcs.listenLiveGifts(roomId, (String senderName, String giftName, int quantity) {
       if (!mounted) return;
-      setState(() {
-        _comments.add(LiveComment(name: senderName, text: '🎁 sent $giftName'));
-        if (_comments.length > 50) _comments.removeAt(0);
-      });
+      _addComment(LiveComment(name: senderName, text: '🎁 sent $giftName'));
     }));
+  }
+
+  void _addComment(LiveComment comment) {
+    final list = List<LiveComment>.from(_commentsNotifier.value)..add(comment);
+    if (list.length > 50) list.removeAt(0);
+    _commentsNotifier.value = list;
   }
 
   @override
@@ -225,14 +236,18 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _tokenRenewalTimer?.cancel();
     for (final sub in _rtdbSubs) { sub.cancel(); }
     _viewerCountNotifier.dispose();
+    _commentsNotifier.dispose();
     _pulseCtrl.dispose();
     _engine?.leaveChannel();
     _engine?.release();
     FirebaseChatService.instance.endLiveRoom(widget.room.id);
     FirebaseChatService.instance.clearLiveStatus();
-    widget.apiClient.endRoom(widget.accessToken, widget.room.id)
-        .then((_) => debugPrint('[endRoom dispose] success'))
-        .catchError((Object e) { debugPrint('[endRoom dispose] error: $e'); });
+    // Only call endRoom if not already ended by _end() or _forceEnd()
+    if (!_ending) {
+      widget.apiClient.endRoom(widget.accessToken, widget.room.id)
+          .then((_) => debugPrint('[endRoom dispose] success'))
+          .catchError((Object e) { debugPrint('[endRoom dispose] error: $e'); });
+    }
     super.dispose();
   }
 
@@ -353,6 +368,24 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           // ── Floating gift animations ────────────────────────────────────────
           ..._gifts.map((g) => FloatingGiftWidget(gift: g)),
 
+          // ── Reconnecting overlay ────────────────────────────────────────
+          if (_reconnecting)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                      SizedBox(height: 12),
+                      Text('Reconnecting...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
           // ── Top bar ────────────────────────────────────────────────────────
           SafeArea(
             child: Padding(
@@ -446,29 +479,32 @@ class _HostLiveScreenState extends State<HostLiveScreen>
             left: 12,
             right: 120,
             bottom: 110,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: _comments.reversed.take(6).toList().reversed.map((c) =>
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.black45,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: RichText(
-                      text: TextSpan(
-                        children: <TextSpan>[
-                          TextSpan(text: '${c.name}  ', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
-                          TextSpan(text: c.text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                        ],
+            child: ValueListenableBuilder<List<LiveComment>>(
+              valueListenable: _commentsNotifier,
+              builder: (_, comments, __) => Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: comments.reversed.take(6).toList().reversed.map((c) =>
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: RichText(
+                        text: TextSpan(
+                          children: <TextSpan>[
+                            TextSpan(text: '${c.name}  ', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+                            TextSpan(text: c.text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ).toList(),
+                ).toList(),
+              ),
             ),
           ),
 
@@ -558,7 +594,6 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
   List<dynamic> _viewers = <dynamic>[];
   int _total = 0;
   bool _fetching = false;
-  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -566,12 +601,10 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
     _total = widget.viewerCountNotifier.value;
     widget.viewerCountNotifier.addListener(_onCountChanged);
     _load();
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _load());
   }
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
     widget.viewerCountNotifier.removeListener(_onCountChanged);
     super.dispose();
   }

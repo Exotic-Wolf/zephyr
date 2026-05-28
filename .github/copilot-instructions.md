@@ -1,22 +1,42 @@
 # Zephyr — Hard Rules
 
-## NEVER use:
-- **Socket.IO** — removed. All real-time is Firebase RTDB.
-- **Polling** — use Firebase RTDB listeners or ValueNotifier.
-- **New RTDB instances** — ONE source of truth: `FirebaseChatService.instance`.
+**Top-tier. Built to serve 100,000+ users from day one. Every decision optimizes for performance at scale — we foresee, not react. Steve Jobs' vision and perfectionism. Toyota's reliability. Zero defects. Direct rival to Chamet — we're taking the majority market share in live social.**
+
+## NEVER:
+- Socket.IO — dead. Firebase RTDB only.
+- Polling — listen, don't ask.
+- New RTDB instances — `FirebaseChatService.instance` or nothing.
 
 ## Real-time stack:
 | Layer | Tool |
 |-------|------|
 | Presence / signaling / live events | Firebase RTDB via `FirebaseChatService` |
+| Presence → PG sync | Firebase Cloud Function (trigger on `presence/{userId}`) |
 | Media (video/audio) | Agora RTC |
 | Persistent data / validation | PostgreSQL via REST (`ZephyrApiClient`) |
 | Push notifications | FCM (`FcmService` on backend) |
 
+## Presence sync architecture:
+- **Single source of truth**: Firebase RTDB `presence/{userId}`
+- **PG sync**: Cloud Function triggers on RTDB presence change → writes `status` + `last_seen_at` to PostgreSQL
+- **Matchmaking** queries PG: `WHERE status IN ('online', 'inactive')`
+- **Client shows** presence via RTDB listeners (no PG involvement)
+- **NEVER** use client-side HTTP heartbeats to sync presence to PG — that's polling in disguise
+- **NEVER** duplicate presence state across systems with periodic timers
+
 ## Firebase RTDB paths:
-- `presence/{userId}` — state, lastSeen, roomId
+- `presence/{userId}` — state (online/inactive/offline/busy/live), lastSeen, roomId
 - `direct_calls/{userId}` — call signaling
 - `live_rooms/{roomId}/` — comments, reactions, gifts, audience_count, status
+
+## Presence states:
+| State | Color | Meaning |
+|-------|-------|---------|
+| `online` | Green | App in foreground |
+| `inactive` | Yellow | Backgrounded, reachable via FCM push |
+| `busy` | Orange | In an active call |
+| `live` | Red | Hosting a stream |
+| `offline` | Gray (hidden) | Connection lost / app killed |
 
 ## Before writing code:
 1. Real-time? → `FirebaseChatService.instance` (RTDB)
@@ -35,3 +55,58 @@
 - Build the minimum that does the job perfectly.
 - Don't add abstractions unless clearly needed.
 - Find the real root cause — don't layer fixes on symptoms.
+- Everything is an encapsulated, reusable module. Bulletproof and self-contained.
+- Features are composed of modules. e.g the live feature is built from many smaller robust modules.
+- Core features — Messaging, Call, Live — must be flawless and performant. Zero compromises.
+- Every module is top-tier — works alone, composes cleanly, fails gracefully.
+- Modules are Lego. If one isn't good, throw it out and snap in a replacement. No module death-grips another.
+- **Jidoka** — Stop the moment something breaks. Fix it now, never pass a defect forward.
+- **Genchi Genbutsu** — Go to the source. Read the actual code, check the actual logs, reproduce it yourself.
+- **Kaizen** — Every commit leaves the codebase better than you found it.
+- **Muda** — Eliminate waste. Dead code, unused abstractions, unnecessary complexity — cut it all.
+- **Mura** — Eliminate inconsistency. Same patterns, same conventions, everywhere.
+- **Muri** — Don't overburden. If a class does too much, it will break.
+- **Poka-yoke** — Mistake-proof the design. Types, null safety, API contracts that can't be misused.
+- **Andon** — Make problems visible. Errors surface loud and clear, never swallowed silently.
+- **Hansei** — Reflect after every failure. Not just fix — understand what the system should have prevented.
+- **Heijunka** — Level the load. Don't let complexity pile up in one place.
+- **Just-in-Time** — Build only what you need now. Not what you might need later.
+- **Nemawashi** — Think thoroughly, then act fast. Design before code, then ship.
+- **5 Whys** — When it breaks, ask "why" five times until you hit the true root cause.
+
+## Audit log:
+When auditing a feature, always grade each aspect (A+ to F) and record results here. This is our history of quality.
+
+### Live Streaming — 29 May 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | A | Agora RTC + RTDB signaling, Cloud Function auto-ends on disconnect |
+| Reconnection | A | `onConnectionStateChanged` with overlay, token refresh handler |
+| Rate limiting | A | 500ms throttle on reactions/comments |
+| Error handling | A | User-facing snackbars, graceful fallback |
+| Resource cleanup | A | `_ending` guard prevents double-end, proper dispose |
+| Code quality | A | ValueNotifier for comments, isolated state, no leaks |
+
+### Messaging / Inbox — 29 May 2026 — Overall: A-
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | A | Firestore messages, RTDB presence, Cloud Function PG sync. Zero polling. |
+| Presence | A- | LRU cache (50 cap), 5 states, correct colors |
+| Security | A | Block check both directions, anti-spam (5msg/10s + duplicate cooldown) |
+| Calling | A- | Full signaling from thread, 30s timeout. Missing: rate preview in thread |
+| Performance | A | No polling, debounced search, proper listener cleanup |
+| Code quality | A | Dead code gone, clean modules, proper dispose |
+| UX | A- | Search for new chat, live preview, inline translation, read receipts. Missing: typing indicator, message reactions |
+
+### Call (Direct + Random) — 29 May 2026 — Overall: A-
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | B+ | Agora RTC + RTDB signaling + backend session management. Clean flow. |
+| Signaling | A- | writeRinging → listen accept/decline → 30s timeout → Agora. Block check added. |
+| Economy/Billing | A- | Tick every 15s, billing starts only when partner joins, insufficient balance auto-ends call |
+| Reconnection | A | `onConnectionStateChanged` with overlay, `onTokenPrivilegeWillExpire` with renewal |
+| Error handling | B+ | Tick failures tolerated (retry next tick), balance=0 ends call, reconnecting overlay |
+| Resource cleanup | B+ | `_disposed` guard, engine release in dispose, timers cancelled. Good but double-dispose path duplicates code. |
+| Security | A | Block check both directions, backend validates all billing, service key on internals |
+| Code quality | A- | Matches Live patterns (reconnection, token refresh). Clean. |
+

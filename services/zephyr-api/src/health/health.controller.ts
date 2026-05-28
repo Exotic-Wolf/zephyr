@@ -113,4 +113,23 @@ export class HealthController {
     this.roomsGateway.emitRoomEnded(body.roomId, body.hostUserId);
     return { status: 'ended', roomId: body.roomId };
   }
+
+  // ── Internal endpoint for Cloud Functions: sync presence to PG ─────────────
+  @Post('internal/sync-presence')
+  async internalSyncPresence(
+    @Headers('x-service-key') serviceKey: string | undefined,
+    @Body() body: { userId: string; status: string },
+  ): Promise<{ status: string }> {
+    const expectedKey = process.env.SERVICE_KEY;
+    if (!expectedKey || serviceKey !== expectedKey) {
+      throw new UnauthorizedException('Invalid service key');
+    }
+
+    if (!body.userId || !body.status) {
+      return { status: 'missing_params' };
+    }
+
+    await this.storeService.syncPresence(body.userId, body.status);
+    return { status: 'synced' };
+  }
 }

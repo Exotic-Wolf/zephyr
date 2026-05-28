@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -11,6 +12,7 @@ import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import '../../services/translation_service.dart';
+import '../call/direct_call_screen.dart';
 import '../live/viewer_live_screen.dart';
 import 'live_preview_widget.dart';
 
@@ -61,6 +63,11 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   static const Duration _rateWindow = Duration(seconds: 10);
   static const Duration _duplicateCooldown = Duration(seconds: 30);
 
+  // Direct call
+  bool _calling = false;
+  StreamSubscription<DatabaseEvent>? _callSub;
+  Timer? _callTimeout;
+
   String _generateKey() =>
       '${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(999999)}';
 
@@ -106,8 +113,11 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   }
 
   @override
+  @override
   void dispose() {
     _sub?.cancel();
+    _callSub?.cancel();
+    _callTimeout?.cancel();
     _inputCtrl.dispose();
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
@@ -273,6 +283,115 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           ],
         ),
       ),
+    );
+  }
+
+  void _initiateCall() async {
+    final api = ZephyrApiClient.instance;
+    final token = ZephyrApiClient.accessToken;
+    if (api == null || token == null || _calling) return;
+
+    setState(() => _calling = true);
+    final svc = FirebaseChatService.instance;
+
+    try {
+      final session = await api.startCallSession(
+        accessToken: token,
+        mode: 'direct',
+        receiverUserId: widget.otherUserId,
+      );
+
+      await svc.writeRinging(
+        targetUserId: widget.otherUserId,
+        callerId: widget.myUserId,
+        callerName: widget.myDisplayName,
+        callerAvatarUrl: widget.myAvatarUrl,
+        sessionId: session.id,
+      );
+
+      _callSub = svc.listenCallSignal(widget.otherUserId, (Map<String, dynamic>? data) {
+        if (!mounted) return;
+        if (data == null) {
+          _cleanupCall();
+          return;
+        }
+        final s = data['status'] as String?;
+        if (s == 'accepted') {
+          _onCallAccepted(session.id);
+        } else if (s == 'declined') {
+          _cleanupCall();
+          _showSnack('Call declined');
+        }
+      });
+
+      _callTimeout = Timer(const Duration(seconds: 30), () {
+        if (!mounted || !_calling) return;
+        svc.removeCallSignal(widget.otherUserId);
+        _cleanupCall();
+        _showSnack('No answer');
+        api.endCallSession(accessToken: token, sessionId: session.id, reason: 'no_answer').ignore();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _calling = false);
+      final msg = e.toString();
+      if (msg.contains('busy')) {
+        _showSnack('They are on another call');
+      } else if (msg.contains('Cannot call')) {
+        _showSnack('Cannot call this user');
+      } else {
+        _showSnack('Call failed');
+      }
+    }
+  }
+
+  void _onCallAccepted(String sessionId) async {
+    final api = ZephyrApiClient.instance;
+    final token = ZephyrApiClient.accessToken;
+    if (api == null || token == null || !mounted) return;
+
+    _callSub?.cancel();
+    _callTimeout?.cancel();
+    FirebaseChatService.instance.cancelOnDisconnect(widget.otherUserId);
+
+    try {
+      final rtc = await api.requestCallRtcToken(accessToken: token, sessionId: sessionId);
+      if (!mounted) return;
+      setState(() => _calling = false);
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => DirectCallScreen(
+            apiClient: api,
+            accessToken: token,
+            sessionId: sessionId,
+            appId: rtc.appId,
+            channelName: rtc.channelName,
+            uid: rtc.uid,
+            token: rtc.token,
+            partnerName: widget.otherDisplayName,
+            partnerAvatarUrl: widget.otherAvatarUrl,
+          ),
+        ),
+      );
+    } catch (_) {
+      _cleanupCall();
+      _showSnack('Failed to connect call');
+    }
+  }
+
+  void _cleanupCall() {
+    _callSub?.cancel();
+    _callTimeout?.cancel();
+    _callSub = null;
+    _callTimeout = null;
+    if (mounted) setState(() => _calling = false);
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
     );
   }
 
@@ -475,6 +594,12 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: _calling
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.videocam_outlined),
+            onPressed: _calling ? null : _initiateCall,
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) => _handleMenuAction(value),
