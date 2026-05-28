@@ -985,6 +985,19 @@ export class StoreService implements OnModuleInit {
 
   async joinRoom(roomId: string, userId: string): Promise<Room> {
     if (this.databaseService?.isEnabled()) {
+      // Only increment audience_count if this viewer is new (not a re-join)
+      const inserted = await this.databaseService.query<{ room_id: string }>(
+        `INSERT INTO room_viewers (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING room_id`,
+        [roomId, userId],
+      );
+
+      if (inserted.rowCount && inserted.rowCount > 0) {
+        await this.databaseService.query(
+          `UPDATE rooms SET audience_count = audience_count + 1 WHERE id = $1 AND status = 'live'`,
+          [roomId],
+        );
+      }
+
       const result = await this.databaseService.query<{
         id: string;
         host_user_id: string;
@@ -993,24 +1006,13 @@ export class StoreService implements OnModuleInit {
         status: 'live';
         created_at: string;
       }>(
-        `
-          UPDATE rooms
-          SET audience_count = audience_count + 1
-          WHERE id = $1 AND status = 'live'
-          RETURNING id, host_user_id, title, audience_count, status, created_at
-        `,
+        `SELECT id, host_user_id, title, audience_count, status, created_at FROM rooms WHERE id = $1 AND status = 'live'`,
         [roomId],
       );
 
       if (result.rowCount === 0) {
         throw new NotFoundException('Room not found');
       }
-
-      // Track viewer (upsert — safe if they rejoin)
-      await this.databaseService.query(
-        `INSERT INTO room_viewers (room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [roomId, userId],
-      );
 
       return this.toRoom(result.rows[0]);
     }
@@ -2693,6 +2695,123 @@ export class StoreService implements OnModuleInit {
 
     return {
       sessionId: session.id,
+      giftId: gift.id,
+      giftName: gift.name,
+      quantity,
+      totalGiftCoins,
+      receiverCoins,
+      receiverUsd,
+      receiverSpark,
+      platformCoins,
+      senderCoinBalanceAfter: senderWalletAfter.coinBalance,
+    };
+  }
+
+  async sendGiftInRoom(
+    senderUserId: string,
+    input: {
+      roomId: string;
+      giftId: string;
+      quantity?: number;
+    },
+  ): Promise<GiftSendResult> {
+    const hostUserId = await this.getRoomHostUserId(input.roomId);
+    if (!hostUserId) {
+      throw new NotFoundException('Room not found');
+    }
+    if (hostUserId === senderUserId) {
+      throw new BadRequestException('Host cannot send gifts to themselves');
+    }
+
+    const gift = this.listGiftCatalog().find((item) => item.id === input.giftId);
+    if (!gift) {
+      throw new BadRequestException('Unknown gift id');
+    }
+
+    const quantity = Number.isFinite(input.quantity)
+      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
+      : 1;
+    const totalGiftCoins = gift.coinCost * quantity;
+
+    const senderWalletBefore = await this.getWalletSummary(senderUserId);
+    if (senderWalletBefore.coinBalance < totalGiftCoins) {
+      throw new BadRequestException('Insufficient coin balance for gift');
+    }
+
+    // 60/40 split — same as calls
+    const receiverShareBps = 6000;
+    const coinsPerUsdReceiver = 5500;
+    const sparkPerUsd = 1;
+
+    const receiverCoins = Math.floor((totalGiftCoins * receiverShareBps) / 10000);
+    const platformCoins = totalGiftCoins - receiverCoins;
+    const receiverUsd = receiverCoins / coinsPerUsdReceiver;
+    const receiverSpark = Math.floor(receiverUsd * sparkPerUsd);
+    const now = new Date().toISOString();
+
+    if (this.databaseService?.isEnabled()) {
+      await this.ensureWalletAndRevenueRows(senderUserId);
+      await this.ensureWalletAndRevenueRows(hostUserId);
+
+      await this.databaseService.query(
+        `UPDATE wallets SET coin_balance = coin_balance - $2, updated_at = NOW() WHERE user_id = $1`,
+        [senderUserId, totalGiftCoins],
+      );
+
+      await this.databaseService.query(
+        `UPDATE user_revenue SET revenue_usd = revenue_usd + $2, spark_balance = spark_balance + $3, updated_at = NOW() WHERE user_id = $1`,
+        [hostUserId, receiverUsd, receiverSpark],
+      );
+    } else {
+      const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
+      this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
+
+      const receiverRevenue = this.userRevenueUsd.get(hostUserId) ?? 0;
+      const receiverSparkBalance = this.userSparkBalances.get(hostUserId) ?? 0;
+      this.userRevenueUsd.set(hostUserId, receiverRevenue + receiverUsd);
+      this.userSparkBalances.set(hostUserId, receiverSparkBalance + receiverSpark);
+    }
+
+    await this.writeWalletTransaction({
+      userId: senderUserId,
+      type: 'gift_spend',
+      coinsDelta: -totalGiftCoins,
+      amountUsd: null,
+      metadata: {
+        roomId: input.roomId,
+        mode: 'live_room',
+        giftId: gift.id,
+        giftName: gift.name,
+        quantity,
+        receiverUserId: hostUserId,
+        receiverCoins,
+        platformCoins,
+      },
+      createdAt: now,
+    });
+
+    await this.writeWalletTransaction({
+      userId: hostUserId,
+      type: 'gift_earning_spark',
+      coinsDelta: 0,
+      amountUsd: receiverUsd,
+      metadata: {
+        roomId: input.roomId,
+        mode: 'live_room',
+        giftId: gift.id,
+        giftName: gift.name,
+        quantity,
+        senderUserId,
+        receiverCoinsEquivalent: receiverCoins,
+        sparkEarned: receiverSpark,
+      },
+      createdAt: now,
+    });
+
+    const senderWalletAfter = await this.getWalletSummary(senderUserId);
+
+    return {
+      sessionId: input.roomId,
       giftId: gift.id,
       giftName: gift.name,
       quantity,

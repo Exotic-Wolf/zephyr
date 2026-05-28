@@ -387,6 +387,34 @@ class ZephyrApiClient {
     );
   }
 
+  Future<void> postRoomComment(String accessToken, String roomId, String text) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/rooms/$roomId/comment',
+      accessToken: accessToken,
+      body: <String, dynamic>{'text': text},
+    );
+  }
+
+  Future<void> postRoomReaction(String accessToken, String roomId, String emoji) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/rooms/$roomId/reaction',
+      accessToken: accessToken,
+      body: <String, dynamic>{'emoji': emoji},
+    );
+  }
+
+  Future<Map<String, dynamic>> sendGiftInRoom(String accessToken, String roomId, String giftId, {int quantity = 1}) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'POST',
+      path: '/v1/rooms/$roomId/gift',
+      accessToken: accessToken,
+      body: <String, dynamic>{'giftId': giftId, 'quantity': quantity},
+    );
+    return data;
+  }
+
   Future<void> blockUser(String accessToken, String userId) async {
     await _request(
       method: 'POST',

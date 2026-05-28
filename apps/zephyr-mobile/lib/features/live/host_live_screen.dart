@@ -47,6 +47,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   int _elapsedSeconds = 0;
   Timer? _ticker;
   Timer? _heartbeatTimer;
+  Timer? _tokenRenewalTimer;
   sio.Socket? _socket;
   final ValueNotifier<int> _viewerCountNotifier = ValueNotifier<int>(0);
   final List<LiveComment> _comments = <LiveComment>[];
@@ -126,10 +127,26 @@ class _HostLiveScreenState extends State<HostLiveScreen>
             const Duration(seconds: 1), (_) {
           if (mounted) setState(() => _elapsedSeconds++);
         });
+        // Renew token at 50 minutes (token expires at 60 min)
+        final int renewInSeconds = (info.expiresInSeconds - 600).clamp(60, info.expiresInSeconds);
+        _tokenRenewalTimer = Timer(Duration(seconds: renewInSeconds), _renewToken);
       }
     } catch (e) {
       debugPrint('[Agora host] init error: $e');
       if (mounted) setState(() => _cameraLoading = false);
+    }
+  }
+
+  Future<void> _renewToken() async {
+    try {
+      final info = await widget.apiClient.getRoomRtcToken(
+          widget.accessToken, widget.room.id);
+      await _engine?.renewToken(info.token);
+      // Schedule next renewal
+      final int renewInSeconds = (info.expiresInSeconds - 600).clamp(60, info.expiresInSeconds);
+      _tokenRenewalTimer = Timer(Duration(seconds: renewInSeconds), _renewToken);
+    } catch (e) {
+      debugPrint('[Agora host] token renewal error: $e');
     }
   }
 
@@ -154,6 +171,53 @@ class _HostLiveScreenState extends State<HostLiveScreen>
             final int count = payload['audienceCount'] as int;
             setState(() => _viewerCount = count);
             _viewerCountNotifier.value = count;
+          }
+        } catch (_) {}
+      })
+      ..on('room:comment', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          if (payload['roomId'] == widget.room.id) {
+            setState(() {
+              _comments.add(LiveComment(
+                name: payload['displayName'] as String? ?? '',
+                text: payload['text'] as String? ?? '',
+              ));
+              if (_comments.length > 50) _comments.removeAt(0);
+            });
+          }
+        } catch (_) {}
+      })
+      ..on('room:reaction', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          if (payload['roomId'] == widget.room.id) {
+            final String emoji = payload['emoji'] as String? ?? '❤️';
+            final String id = DateTime.now().millisecondsSinceEpoch.toString();
+            final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
+            setState(() => _gifts.add(gift));
+            Future<void>.delayed(const Duration(seconds: 3), () {
+              if (mounted) setState(() => _gifts.removeWhere((g) => g.id == id));
+            });
+          }
+        } catch (_) {}
+      })
+      ..on('room:gift', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          if (payload['roomId'] == widget.room.id) {
+            final String name = payload['senderDisplayName'] as String? ?? '';
+            final String giftName = payload['giftName'] as String? ?? '';
+            setState(() {
+              _comments.add(LiveComment(name: name, text: '🎁 sent $giftName'));
+              if (_comments.length > 50) _comments.removeAt(0);
+            });
           }
         } catch (_) {}
       })
@@ -190,6 +254,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     WakelockPlus.disable();
     _ticker?.cancel();
     _heartbeatTimer?.cancel();
+    _tokenRenewalTimer?.cancel();
     _socket?.dispose();
     _viewerCountNotifier.dispose();
     _pulseCtrl.dispose();

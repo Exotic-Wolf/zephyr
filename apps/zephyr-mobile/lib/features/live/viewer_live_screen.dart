@@ -6,6 +6,7 @@ import 'package:socket_io_client/socket_io_client.dart' as sio;
 
 import '../../models/models.dart';
 import '../../services/api_client.dart';
+import '../../widgets/gift_tray.dart';
 import '../../widgets/shared_live_widgets.dart';
 import '../../app_constants.dart';
 import '../../l10n/app_localizations.dart';
@@ -56,6 +57,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   late final AnimationController _pulseCtrl;
   int _elapsedSeconds = 0;
   Timer? _ticker;
+  Timer? _tokenRenewalTimer;
   sio.Socket? _socket;
 
   // Agora
@@ -166,15 +168,32 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
         _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
           if (mounted) setState(() => _elapsedSeconds++);
         });
+        // Renew token at 50 minutes
+        final int renewInSeconds = (info.expiresInSeconds - 600).clamp(60, info.expiresInSeconds);
+        _tokenRenewalTimer = Timer(Duration(seconds: renewInSeconds), _renewToken);
       }
     } catch (e) {
       debugPrint('[Agora viewer] init error: $e');
     }
   }
 
+  Future<void> _renewToken() async {
+    if (widget.feedCard.roomId == null) return;
+    try {
+      final info = await widget.apiClient.getRoomRtcToken(
+          widget.accessToken, widget.feedCard.roomId!);
+      await _engine?.renewToken(info.token);
+      final int renewInSeconds = (info.expiresInSeconds - 600).clamp(60, info.expiresInSeconds);
+      _tokenRenewalTimer = Timer(Duration(seconds: renewInSeconds), _renewToken);
+    } catch (e) {
+      debugPrint('[Agora viewer] token renewal error: $e');
+    }
+  }
+
   @override
   void dispose() {
     _ticker?.cancel();
+    _tokenRenewalTimer?.cancel();
     _socket?.dispose();
     _pulseCtrl.dispose();
     _commentCtrl.dispose();
@@ -220,6 +239,57 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
           }
         } catch (_) {}
       })
+      ..on('room:comment', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          if (payload['roomId'] == widget.feedCard.roomId) {
+            setState(() {
+              _comments.add(LiveComment(
+                name: payload['displayName'] as String? ?? '',
+                text: payload['text'] as String? ?? '',
+              ));
+              if (_comments.length > 50) _comments.removeAt(0);
+            });
+          }
+        } catch (_) {}
+      })
+      ..on('room:reaction', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          if (payload['roomId'] == widget.feedCard.roomId &&
+              payload['userId'] != widget.myUserId) {
+            final String emoji = payload['emoji'] as String? ?? '❤️';
+            final String id = DateTime.now().millisecondsSinceEpoch.toString();
+            final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
+            setState(() => _floatingGifts.add(gift));
+            Future<void>.delayed(const Duration(seconds: 3), () {
+              if (mounted) setState(() => _floatingGifts.removeWhere((g) => g.id == id));
+            });
+          }
+        } catch (_) {}
+      })
+      ..on('room:gift', (dynamic data) {
+        if (!mounted) return;
+        try {
+          final Map<String, dynamic> payload =
+              (data as Map<dynamic, dynamic>).cast<String, dynamic>();
+          if (payload['roomId'] == widget.feedCard.roomId) {
+            final String name = payload['senderDisplayName'] as String? ?? '';
+            final String giftName = payload['giftName'] as String? ?? '';
+            setState(() {
+              _comments.add(LiveComment(
+                name: name,
+                text: '🎁 sent $giftName',
+              ));
+              if (_comments.length > 50) _comments.removeAt(0);
+            });
+          }
+        } catch (_) {}
+      })
       ..connect();
   }
 
@@ -239,12 +309,16 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
 
   void _sendComment() {
     final String text = _commentCtrl.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || widget.feedCard.roomId == null) return;
     _commentCtrl.clear();
+    // Optimistic local display — server broadcasts to others
     setState(() {
       _comments.add(LiveComment(name: widget.myDisplayName, text: text));
-      if (_comments.length > 30) _comments.removeAt(0);
+      if (_comments.length > 50) _comments.removeAt(0);
     });
+    widget.apiClient
+        .postRoomComment(widget.accessToken, widget.feedCard.roomId!, text)
+        .ignore();
   }
 
   void _sendReaction(String emoji) {
@@ -253,6 +327,23 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     setState(() => _floatingGifts.add(gift));
     Future<void>.delayed(const Duration(seconds: 3), () {
       if (mounted) setState(() => _floatingGifts.removeWhere((g) => g.id == id));
+    });
+    if (widget.feedCard.roomId != null) {
+      widget.apiClient
+          .postRoomReaction(widget.accessToken, widget.feedCard.roomId!, emoji)
+          .ignore();
+    }
+  }
+
+  void _openGiftTray() {
+    if (widget.feedCard.roomId == null) return;
+    showGiftTray(context, onSend: (String giftId, int quantity) async {
+      await widget.apiClient.sendGiftInRoom(
+        widget.accessToken,
+        widget.feedCard.roomId!,
+        giftId,
+        quantity: quantity,
+      );
     });
   }
 
@@ -433,6 +524,19 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
+                // Gift button
+                GestureDetector(
+                  onTap: _openGiftTray,
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    width: 44, height: 44,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFFD700),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Center(child: Text('🎁', style: TextStyle(fontSize: 20))),
+                  ),
+                ),
                 for (final String e in <String>['❤️', '😂', '🔥', '👏', '😍'])
                   GestureDetector(
                     onTap: () => _sendReaction(e),

@@ -14,6 +14,9 @@ import type { LiveFeedCard } from '../core/store.service';
  *   feed:room-ended    { roomId: string; hostUserId: string }
  *   feed:room-updated  { roomId: string; audienceCount: number }
  *   feed:user-status   { hostUserId: string; status: string }
+ *   room:comment       { roomId: string; userId: string; displayName: string; text: string }
+ *   room:reaction      { roomId: string; userId: string; emoji: string }
+ *   room:gift          { roomId: string; senderDisplayName: string; giftId: string; giftName: string; quantity: number; coinCost: number }
  */
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -41,5 +44,17 @@ export class RoomsGateway implements OnGatewayInit {
 
   emitRoomUpdated(roomId: string, audienceCount: number): void {
     this.server.emit('feed:room-updated', { roomId, audienceCount });
+  }
+
+  emitRoomComment(roomId: string, userId: string, displayName: string, text: string): void {
+    this.server.emit('room:comment', { roomId, userId, displayName, text });
+  }
+
+  emitRoomReaction(roomId: string, userId: string, emoji: string): void {
+    this.server.emit('room:reaction', { roomId, userId, emoji });
+  }
+
+  emitRoomGift(roomId: string, senderDisplayName: string, giftId: string, giftName: string, quantity: number, coinCost: number): void {
+    this.server.emit('room:gift', { roomId, senderDisplayName, giftId, giftName, quantity, coinCost });
   }
 }

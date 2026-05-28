@@ -11,7 +11,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { StoreService } from '../core/store.service';
-import type { Room } from '../core/store.service';
+import type { Room, GiftSendResult } from '../core/store.service';
 import { RtcService } from '../core/rtc.service';
 import type { RtcJoinTokenResult } from '../core/rtc.service';
 import { CreateRoomDto } from './dto/create-room.dto';
@@ -36,6 +36,14 @@ export class RoomsController {
     @Body() body: CreateRoomDto,
   ): Promise<Room> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
+    // Emit room-ended for any existing live room by this host (so viewers get notified)
+    const existingRooms = await this.storeService.listRooms();
+    const oldRoom = existingRooms.find(
+      (r) => r.hostUserId === user.id && r.status === 'live',
+    );
+    if (oldRoom) {
+      this.roomsGateway.emitRoomEnded(oldRoom.id, user.id);
+    }
     const room = await this.storeService.createRoom(user.id, body?.title);
     // Push real-time event to all connected clients
     this.roomsGateway.emitRoomCreated({
@@ -127,5 +135,54 @@ export class RoomsController {
     const hostUserId = await this.storeService.getRoomHostUserId(roomId);
     const role = hostUserId === user.id ? 'host' : 'viewer';
     return this.rtcService.createLiveRoomToken({ roomId, userId: user.id, role });
+  }
+
+  @Post(':roomId/comment')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async postComment(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomId', new ParseUUIDPipe()) roomId: string,
+    @Body() body: { text?: string },
+  ): Promise<void> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    const text = (body?.text ?? '').trim();
+    if (!text || text.length > 200) return;
+    this.roomsGateway.emitRoomComment(roomId, user.id, user.displayName, text);
+  }
+
+  @Post(':roomId/reaction')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async postReaction(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomId', new ParseUUIDPipe()) roomId: string,
+    @Body() body: { emoji?: string },
+  ): Promise<void> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    const emoji = (body?.emoji ?? '').trim();
+    if (!emoji || emoji.length > 8) return;
+    this.roomsGateway.emitRoomReaction(roomId, user.id, emoji);
+  }
+
+  @Post(':roomId/gift')
+  async postGift(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomId', new ParseUUIDPipe()) roomId: string,
+    @Body() body: { giftId?: string; quantity?: number },
+  ): Promise<GiftSendResult> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    const result = await this.storeService.sendGiftInRoom(user.id, {
+      roomId,
+      giftId: body?.giftId ?? '',
+      quantity: body?.quantity,
+    });
+    this.roomsGateway.emitRoomGift(
+      roomId,
+      user.displayName,
+      result.giftId,
+      result.giftName,
+      result.quantity,
+      result.totalGiftCoins,
+    );
+    return result;
   }
 }
