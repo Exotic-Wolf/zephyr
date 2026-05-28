@@ -1,6 +1,11 @@
 import { onValueDeleted, onValueUpdated } from "firebase-functions/v2/database";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineString } from "firebase-functions/params";
 import { logger } from "firebase-functions";
+import { initializeApp } from "firebase-admin/app";
+import { getDatabase } from "firebase-admin/database";
+
+initializeApp();
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const apiBaseUrl = defineString("API_BASE_URL", {
@@ -117,5 +122,72 @@ export const onPresenceChanged = onValueUpdated(
     } catch (err) {
       logger.error("Failed to call API:", err);
     }
+  },
+);
+
+// ── Scheduled: Reap stale presence entries every 5 minutes ───────────────────
+export const reapStalePresence = onSchedule(
+  {
+    schedule: "every 5 minutes",
+    region: "asia-southeast1",
+  },
+  async () => {
+    const db = getDatabase();
+    const snapshot = await db.ref("presence").get();
+
+    if (!snapshot.exists()) {
+      logger.info("No presence entries to check");
+      return;
+    }
+
+    const now = Date.now();
+    const staleThreshold = 5 * 60 * 1000; // 5 minutes
+    const entries = snapshot.val() as Record<
+      string,
+      { state?: string; lastSeen?: number; roomId?: string }
+    >;
+
+    let reaped = 0;
+
+    for (const [userId, data] of Object.entries(entries)) {
+      if (!data || data.state === "offline") continue;
+
+      const lastSeen = data.lastSeen ?? 0;
+      if (now - lastSeen < staleThreshold) continue;
+
+      // Stale entry — force offline
+      logger.info(
+        `Reaping stale presence: ${userId} (state=${data.state}, lastSeen=${lastSeen})`,
+      );
+
+      // If they were live with a roomId, end the room
+      if (data.state === "live" && data.roomId) {
+        try {
+          await fetch(`${apiBaseUrl.value()}/v1/internal/end-room`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Service-Key": serviceKey.value(),
+            },
+            body: JSON.stringify({
+              roomId: data.roomId,
+              hostUserId: userId,
+            }),
+          });
+        } catch (err) {
+          logger.error(`Failed to end room for ${userId}:`, err);
+        }
+      }
+
+      // Set presence to offline
+      await db.ref(`presence/${userId}`).set({
+        state: "offline",
+        lastSeen: now,
+      });
+
+      reaped++;
+    }
+
+    logger.info(`Reap complete: ${reaped} stale entries cleaned`);
   },
 );
