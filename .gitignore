@@ -1,6 +1,7 @@
 node_modules/
 **/node_modules/
 services/zephyr-api/dist/
+functions/lib/
 *.log
 .DS_Store
 .env

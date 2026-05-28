@@ -2535,6 +2535,29 @@ export class StoreService implements OnModuleInit {
     return endedSession;
   }
 
+  /** Internal: end a session without user auth (for Cloud Functions). */
+  async endCallSessionInternal(
+    sessionId: string,
+    reason = 'signal_deleted',
+  ): Promise<CallSession> {
+    const session = await this.getCallSessionById(sessionId);
+    if (session.status === 'ended') {
+      return session;
+    }
+
+    const now = new Date().toISOString();
+    const endedSession: CallSession = {
+      ...session,
+      status: 'ended',
+      endReason: reason,
+      endedAt: now,
+      updatedAt: now,
+    };
+
+    await this.persistCallSession(endedSession);
+    return endedSession;
+  }
+
   listGiftCatalog(): GiftCatalogItem[] {
     return [
       { id: 'rose', name: 'Rose', coinCost: 10 },

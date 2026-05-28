@@ -213,6 +213,9 @@ class _ProfilePageState extends State<ProfilePage> {
     _callSub?.cancel();
     _callTimeout?.cancel();
 
+    // Cancel onDisconnect — call is now on Agora, RTDB blips shouldn't kill it
+    FirebaseChatService.instance.cancelOnDisconnect(_card.hostUserId);
+
     try {
       final rtc = await api.requestCallRtcToken(accessToken: token, sessionId: sessionId);
       if (!mounted) return;

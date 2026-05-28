@@ -1,11 +1,22 @@
-import { Controller, Get, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Post,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { DatabaseService } from '../core/database.service';
+import { StoreService } from '../core/store.service';
 
-@Controller('v1/health')
+@Controller('v1')
 export class HealthController {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly storeService: StoreService,
+  ) {}
 
-  @Get('live')
+  @Get('health/live')
   live(): { status: 'ok'; timestamp: string } {
     return {
       status: 'ok',
@@ -13,7 +24,7 @@ export class HealthController {
     };
   }
 
-  @Get('ready')
+  @Get('health/ready')
   async ready(): Promise<{
     status: 'ok';
     storage: 'postgres' | 'in-memory';
@@ -32,7 +43,7 @@ export class HealthController {
     };
   }
 
-  @Post('end-stale-calls')
+  @Post('health/end-stale-calls')
   async endStaleCalls(): Promise<{ ended: number }> {
     if (!this.databaseService.isEnabled()) {
       return { ended: 0 };
@@ -52,5 +63,32 @@ export class HealthController {
     );
 
     return { ended: result.rowCount ?? 0 };
+  }
+
+  // ── Internal endpoint for Cloud Functions ──────────────────────────────────
+  @Post('internal/end-call-session')
+  async internalEndCallSession(
+    @Headers('x-service-key') serviceKey: string | undefined,
+    @Body() body: { sessionId: string; reason?: string },
+  ): Promise<{ status: string; sessionId: string }> {
+    const expectedKey = process.env.SERVICE_KEY;
+    if (!expectedKey || serviceKey !== expectedKey) {
+      throw new UnauthorizedException('Invalid service key');
+    }
+
+    if (!body.sessionId) {
+      return { status: 'no_session_id', sessionId: '' };
+    }
+
+    try {
+      await this.storeService.endCallSessionInternal(
+        body.sessionId,
+        body.reason ?? 'signal_deleted',
+      );
+      return { status: 'ended', sessionId: body.sessionId };
+    } catch (e: any) {
+      // Session already ended or not found — that's fine (idempotent)
+      return { status: 'already_ended', sessionId: body.sessionId };
+    }
   }
 }

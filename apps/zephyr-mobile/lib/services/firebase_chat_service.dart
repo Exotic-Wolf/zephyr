@@ -199,14 +199,17 @@ class FirebaseChatService {
       _rtdb.ref('direct_calls/$userId');
 
   /// Write a "ringing" signal to the target user's node.
+  /// Also sets onDisconnect to auto-remove the node if the caller crashes.
   Future<void> writeRinging({
     required String targetUserId,
     required String callerId,
     required String callerName,
     String? callerAvatarUrl,
     required String sessionId,
-  }) {
-    return callSignalRef(targetUserId).set(<String, dynamic>{
+  }) async {
+    final ref = callSignalRef(targetUserId);
+    await ref.onDisconnect().remove();
+    await ref.set(<String, dynamic>{
       'callerId': callerId,
       'callerName': callerName,
       'callerAvatarUrl': callerAvatarUrl,
@@ -214,6 +217,12 @@ class FirebaseChatService {
       'status': 'ringing',
       'ts': ServerValue.timestamp,
     });
+  }
+
+  /// Cancel the onDisconnect handler (call this when the call connects to Agora,
+  /// so a brief RTDB disconnect doesn't kill the active call).
+  Future<void> cancelOnDisconnect(String targetUserId) {
+    return callSignalRef(targetUserId).onDisconnect().cancel();
   }
 
   /// Update the status field on my own signal node (e.g. 'accepted', 'declined').
