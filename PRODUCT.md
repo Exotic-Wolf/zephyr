@@ -165,7 +165,12 @@ Firebase Chat:
 ## Architecture Decisions (Locked)
 
 - **Firebase Chat** — Firestore for messages/conversations, RTDB for real-time presence (onDisconnect), Storage for image uploads. Backend generates custom Firebase tokens.
-- **Firebase RTDB is the single source of truth for real-time status** — Presence (online/offline), call status (in-call, busy, available), and live status all live in RTDB under `status/{userId}`. RTDB's `onDisconnect` guarantees cleanup even on app kill/crash. All clients listen to RTDB for user availability before initiating calls or showing status badges. This is the backbone of the call system — without RTDB, we cannot reliably know if a user is available, busy, or offline.
+- **Firebase RTDB is the single source of truth for real-time status** — Presence (online/offline), call status (in-call, busy, available), and live status all live in RTDB under `presence/{userId}`. RTDB's `onDisconnect` guarantees cleanup even on app kill/crash. All clients listen to RTDB for user availability before initiating calls or showing status badges. This is the backbone of the call system — without RTDB, we cannot reliably know if a user is available, busy, or offline.
+- **Firebase Cloud Functions (asia-southeast1)** — 3 deployed functions provide server-side safety nets:
+  - `onCallSignalDeleted`: RTDB trigger on `direct_calls/{userId}` deletion → ends Postgres call session via internal API
+  - `onPresenceChanged`: RTDB trigger on `presence/{userId}` update → if state leaves 'live', ends the room in Postgres + emits Socket.IO `feed:room-ended`
+  - `reapStalePresence`: Scheduled every 5 min → scans all presence nodes, resets stale entries (>5min) to 'offline', ends orphaned live rooms
+  - Internal endpoints: `POST /v1/internal/end-call-session`, `POST /v1/internal/end-room` (validated via `X-Service-Key` header)
 - **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
 - **Socket.IO** — foreground real-time for feed events and call matchmaking only (not messaging)
 - **FCM/APNs** — push notifications for chat messages (backend relays via `POST /v1/messages/push`)
@@ -208,7 +213,8 @@ Firebase Chat:
 | Wallet / coins UI | ❌ Partial | 30% |
 | Gifts during live | ❌ Not started | 0% |
 | Report system (calls) | ❌ Not started | 0% |
-| Direct call (signaling + video) | ✅ Done | 90% |
+| Direct call (signaling + video) | ✅ Done | 95% |
+| Cloud Functions (call + live + reaper) | ✅ Done | 100% |
 | App icon + splash | ✅ Done | 100% |
 | Onboarding flow | ❌ Missing | 0% |
 
@@ -223,6 +229,7 @@ Firebase Chat:
 | Render API sleeps | Upgrade to Standard plan ($25/mo) |
 | No report system | `POST /v1/calls/:sessionId/report` endpoint + in-call button |
 | ~~No direct call ringing~~ | ✅ Done — RTDB signaling + Agora video + accept/decline overlay |
+| ~~Stale call/live sessions~~ | ✅ Done — Cloud Functions (onCallSignalDeleted + onPresenceChanged + reapStalePresence) |
 
 ---
 
