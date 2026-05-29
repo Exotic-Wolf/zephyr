@@ -576,29 +576,39 @@ class ZephyrApiClient {
 
   // ── Random call matchmaking (REST) ──────────────────────────────────────────
 
-  Future<void> joinCallQueue(String accessToken) async {
-    await _request(method: 'POST', path: '/v1/calls/queue/join', accessToken: accessToken);
-  }
-
-  Future<void> leaveCallQueue(String accessToken) async {
-    await _request(method: 'POST', path: '/v1/calls/queue/leave', accessToken: accessToken);
-  }
-
-  Future<void> callNext(String accessToken, String sessionId) async {
-    await _request(
+  /// Seek a random call match. Returns match data or { matched: false }.
+  Future<Map<String, dynamic>> seekRandomCall(String accessToken) async {
+    final dynamic data = await _request(
       method: 'POST',
-      path: '/v1/calls/queue/next',
+      path: '/v1/calls/random/seek',
       accessToken: accessToken,
-      body: <String, dynamic>{'sessionId': sessionId},
     );
+    return Map<String, dynamic>.from(data as Map);
   }
 
-  Future<void> callEnd(String accessToken, String sessionId) async {
+  /// Cancel seeking a random call.
+  Future<void> cancelSeekRandomCall(String accessToken) async {
+    await _request(method: 'DELETE', path: '/v1/calls/random/seek', accessToken: accessToken);
+  }
+
+  /// End current random call and seek next match.
+  Future<Map<String, dynamic>> nextRandomCall(String accessToken, {required String sessionId, required String partnerId}) async {
+    final dynamic data = await _request(
+      method: 'POST',
+      path: '/v1/calls/random/next',
+      accessToken: accessToken,
+      body: <String, dynamic>{'sessionId': sessionId, 'partnerId': partnerId},
+    );
+    return Map<String, dynamic>.from(data as Map);
+  }
+
+  /// End current random call without seeking again.
+  Future<void> endRandomCall(String accessToken, {required String sessionId, required String partnerId}) async {
     await _request(
       method: 'POST',
-      path: '/v1/calls/queue/end',
+      path: '/v1/calls/random/end',
       accessToken: accessToken,
-      body: <String, dynamic>{'sessionId': sessionId},
+      body: <String, dynamic>{'sessionId': sessionId, 'partnerId': partnerId},
     );
   }
 

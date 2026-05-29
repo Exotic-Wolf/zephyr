@@ -369,6 +369,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
             channelName: rtc.channelName,
             uid: rtc.uid,
             token: rtc.token,
+            partnerId: widget.otherUserId,
             partnerName: widget.otherDisplayName,
             partnerAvatarUrl: widget.otherAvatarUrl,
           ),

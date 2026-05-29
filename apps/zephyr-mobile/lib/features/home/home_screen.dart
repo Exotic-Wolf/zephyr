@@ -196,6 +196,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             channelName: rtc.channelName,
             uid: rtc.uid,
             token: rtc.token,
+            partnerId: callerId,
             partnerName: partnerName,
             partnerAvatarUrl: partnerAvatarUrl,
           ),

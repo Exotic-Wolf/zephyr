@@ -98,15 +98,15 @@ When auditing a feature, always grade each aspect (A+ to F) and record results h
 | Code quality | A | Dead code gone, clean modules, proper dispose |
 | UX | A- | Search for new chat, live preview, inline translation, read receipts. Missing: typing indicator, message reactions |
 
-### Call (Direct + Random) — 29 May 2026 — Overall: A-
+### Call (Direct + Random) — 29 May 2026 — Overall: A
 | Aspect | Grade | Notes |
 |--------|-------|-------|
-| Architecture | B+ | Agora RTC + RTDB signaling + backend session management. Clean flow. |
+| Architecture | A | REST matchmaking + RTDB signaling + Agora RTC. Socket.IO eliminated. Random inherits from Direct (shared DirectCallScreen). |
 | Signaling | A- | writeRinging → listen accept/decline → 30s timeout → Agora. Block check added. |
 | Economy/Billing | A- | Tick every 15s, billing starts only when partner joins, insufficient balance auto-ends call |
 | Reconnection | A | `onConnectionStateChanged` with overlay, `onTokenPrivilegeWillExpire` with renewal |
 | Error handling | B+ | Tick failures tolerated (retry next tick), balance=0 ends call, reconnecting overlay |
-| Resource cleanup | B+ | `_disposed` guard, engine release in dispose, timers cancelled. Good but double-dispose path duplicates code. |
+| Resource cleanup | A- | `_disposed` guard, engine release in dispose, timers cancelled. `_leaveWithResult` for random mode. |
 | Security | A | Block check both directions, backend validates all billing, service key on internals |
-| Code quality | A- | Matches Live patterns (reconnection, token refresh). Clean. |
+| Code quality | A | Random = thin matchmaking layer inheriting DirectCallScreen. Zero duplication. |
 

@@ -14,7 +14,13 @@ export class FcmService implements OnModuleInit {
     }
     try {
       const serviceAccount = JSON.parse(serviceAccountJson);
-      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+      const databaseURL =
+        process.env.FIREBASE_DATABASE_URL ||
+        `https://${serviceAccount.project_id}-default-rtdb.asia-southeast1.firebasedatabase.app`;
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL,
+      });
       this.initialized = true;
       this.logger.log('Firebase Admin SDK initialized');
     } catch (err) {
@@ -69,5 +75,17 @@ export class FcmService implements OnModuleInit {
   async createCustomToken(userId: string): Promise<string | null> {
     if (!this.initialized) return null;
     return admin.auth().createCustomToken(userId);
+  }
+
+  /** Write a call signal to RTDB at direct_calls/{userId}. */
+  async writeCallSignal(userId: string, data: Record<string, unknown>): Promise<void> {
+    if (!this.initialized) return;
+    await admin.database().ref(`direct_calls/${userId}`).set(data);
+  }
+
+  /** Remove a user's call signal node from RTDB. */
+  async removeCallSignal(userId: string): Promise<void> {
+    if (!this.initialized) return;
+    await admin.database().ref(`direct_calls/${userId}`).remove();
   }
 }

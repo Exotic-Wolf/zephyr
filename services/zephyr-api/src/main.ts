@@ -7,7 +7,6 @@ Sentry.init({
 });
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
-import { RedisIoAdapter } from './redis-io.adapter';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
@@ -82,10 +81,6 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
-
-  const redisAdapter = new RedisIoAdapter(app);
-  await redisAdapter.connectToRedis();
-  app.useWebSocketAdapter(redisAdapter);
 
   await app.listen(process.env.PORT ?? 3000);
 }

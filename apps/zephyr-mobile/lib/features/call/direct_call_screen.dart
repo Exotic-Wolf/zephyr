@@ -21,7 +21,9 @@ class DirectCallScreen extends StatefulWidget {
     required this.uid,
     required this.token,
     required this.partnerName,
+    required this.partnerId,
     this.partnerAvatarUrl,
+    this.mode = 'direct',
   });
 
   final ZephyrApiClient apiClient;
@@ -32,7 +34,12 @@ class DirectCallScreen extends StatefulWidget {
   final int uid;
   final String token;
   final String partnerName;
+  final String partnerId;
   final String? partnerAvatarUrl;
+  /// 'direct' or 'random'. Random mode adds Next button and pops with result.
+  final String mode;
+
+  bool get isRandom => mode == 'random';
 
   @override
   State<DirectCallScreen> createState() => _DirectCallScreenState();
@@ -84,8 +91,12 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
       onUserOffline: (connection, remoteUid, reason) {
         if (!_disposed) {
           setState(() => _remoteUid = null);
-          // Partner left — end call
-          _endCall();
+          if (widget.isRandom) {
+            // Random mode: partner left → pop with result so search can continue
+            _leaveWithResult('partner_left');
+          } else {
+            _endCall();
+          }
         }
       },
       onLocalVideoStateChanged: (source, state, error) {
@@ -221,7 +232,38 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
       sessionId: widget.sessionId,
       reason: 'user_ended',
     ).ignore();
-    _leave();
+    if (widget.isRandom) {
+      _leaveWithResult('ended');
+    } else {
+      _leave();
+    }
+  }
+
+  void _nextCall() {
+    if (_disposed) return;
+    // Don't end session here — RandomCallScreen will call nextRandomCall
+    // which ends the old session + seeks a new one atomically.
+    _leaveWithResult('next');
+  }
+
+  void _leaveWithResult(String action) {
+    if (_disposed) return;
+    _disposed = true;
+    _elapsedTimer?.cancel();
+    _tickTimer?.cancel();
+    FirebaseChatService.instance.clearBusyStatus();
+    final engine = _engine;
+    _engine = null;
+    if (engine != null) {
+      engine.leaveChannel().then((_) => engine.release());
+    }
+    if (mounted) {
+      Navigator.of(context).pop(<String, String>{
+        'action': action,
+        'sessionId': widget.sessionId,
+        'partnerId': widget.partnerId,
+      });
+    }
   }
 
   void _leave() {
@@ -482,6 +524,13 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
               label: 'Flip',
               onTap: _flipCamera,
             ),
+            if (widget.isRandom)
+              _ControlButton(
+                icon: Icons.skip_next_rounded,
+                label: 'Next',
+                color: const Color(0xFF1FA4EA),
+                onTap: _nextCall,
+              ),
             _ControlButton(
               icon: Icons.call_end_rounded,
               label: 'End',

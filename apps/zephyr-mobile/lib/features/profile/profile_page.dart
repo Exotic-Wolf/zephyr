@@ -231,6 +231,7 @@ class _ProfilePageState extends State<ProfilePage> {
             channelName: rtc.channelName,
             uid: rtc.uid,
             token: rtc.token,
+            partnerId: _card.hostUserId,
             partnerName: _card.hostDisplayName,
             partnerAvatarUrl: _card.hostAvatarUrl,
           ),
