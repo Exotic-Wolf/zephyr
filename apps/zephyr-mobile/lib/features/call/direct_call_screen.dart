@@ -122,6 +122,9 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
       },
       onError: (err, msg) {
         debugPrint('[DirectCall] Agora error: $err $msg');
+        if (!_disposed && mounted) {
+          _showSnack('Call error — please try again');
+        }
       },
     ));
 
@@ -192,6 +195,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
         elapsedSeconds: _kTickSeconds,
       );
       if (result.stoppedForInsufficientBalance && !_disposed) {
+        _showSnack('Insufficient balance — call ended');
         _leave();
       }
     } catch (_) {
@@ -208,7 +212,19 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
       await _engine?.renewToken(rtc.token);
     } catch (e) {
       debugPrint('[DirectCall] token renewal error: $e');
+      _showSnack('Connection issue — reconnecting…');
     }
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   void _toggleMic() {

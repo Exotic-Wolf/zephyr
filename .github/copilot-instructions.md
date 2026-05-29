@@ -105,7 +105,7 @@ When auditing a feature, always grade each aspect (A+ to F) and record results h
 | Signaling | A- | writeRinging → listen accept/decline → 30s timeout → Agora. Block check added. |
 | Economy/Billing | A- | Tick every 15s, billing starts only when partner joins, insufficient balance auto-ends call |
 | Reconnection | A | `onConnectionStateChanged` with overlay, `onTokenPrivilegeWillExpire` with renewal |
-| Error handling | B+ | Tick failures tolerated (retry next tick), balance=0 ends call, reconnecting overlay |
+| Error handling | A | User-facing snackbars (balance, connection, Agora errors), graceful fallback, tick retries silently |
 | Resource cleanup | A- | `_disposed` guard, engine release in dispose, timers cancelled. `_leaveWithResult` for random mode. |
 | Security | A | Block check both directions, backend validates all billing, service key on internals |
 | Code quality | A | Random = thin matchmaking layer inheriting DirectCallScreen. Zero duplication. |
