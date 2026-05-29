@@ -15,13 +15,11 @@ import type { Room, GiftSendResult } from '../core/store.service';
 import { RtcService } from '../core/rtc.service';
 import type { RtcJoinTokenResult } from '../core/rtc.service';
 import { CreateRoomDto } from './dto/create-room.dto';
-import { RoomsGateway } from './rooms.gateway';
 
 @Controller('v1/rooms')
 export class RoomsController {
   constructor(
     private readonly storeService: StoreService,
-    private readonly roomsGateway: RoomsGateway,
     private readonly rtcService: RtcService,
   ) {}
 
@@ -36,29 +34,15 @@ export class RoomsController {
     @Body() body: CreateRoomDto,
   ): Promise<Room> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
-    // Emit room-ended for any existing live room by this host (so viewers get notified)
+    // End any existing live room by this host
     const existingRooms = await this.storeService.listRooms();
     const oldRoom = existingRooms.find(
       (r) => r.hostUserId === user.id && r.status === 'live',
     );
     if (oldRoom) {
-      this.roomsGateway.emitRoomEnded(oldRoom.id, user.id);
+      await this.storeService.endRoom(user.id, oldRoom.id);
     }
     const room = await this.storeService.createRoom(user.id, body?.title);
-    // Push real-time event to all connected clients
-    this.roomsGateway.emitRoomCreated({
-      roomId: room.id,
-      title: room.title,
-      audienceCount: room.audienceCount,
-      hostUserId: room.hostUserId,
-      hostDisplayName: user.displayName,
-      hostAvatarUrl: user.avatarUrl,
-      hostCountryCode: user.countryCode ?? 'PH',
-      hostLanguage: user.language ?? 'English',
-      hostStatus: 'live',
-      hostCallRateCoinsPerMinute: user.callRateCoinsPerMinute ?? null,
-      startedAt: room.createdAt,
-    });
     return room;
   }
 
@@ -68,9 +52,7 @@ export class RoomsController {
     @Param('roomId', new ParseUUIDPipe()) roomId: string,
   ): Promise<Room> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
-    const room = await this.storeService.joinRoom(roomId, user.id);
-    this.roomsGateway.emitRoomUpdated(room.id, room.audienceCount);
-    return room;
+    return this.storeService.joinRoom(roomId, user.id);
   }
 
   @Post(':roomId/leave')
@@ -81,14 +63,6 @@ export class RoomsController {
   ): Promise<void> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     await this.storeService.leaveRoom(roomId, user.id);
-    // Fetch updated count and broadcast
-    try {
-      const rooms = await this.storeService.listRooms();
-      const room = rooms.find((r) => r.id === roomId);
-      if (room) this.roomsGateway.emitRoomUpdated(roomId, room.audienceCount);
-    } catch {
-      // best-effort
-    }
   }
 
   @Get(':roomId/viewers')
@@ -121,8 +95,6 @@ export class RoomsController {
   ): Promise<{ ok: true }> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     await this.storeService.endRoom(user.id, roomId);
-    // Card stays in feed — just update status back to online
-    this.roomsGateway.emitRoomEnded(roomId, user.id);
     return { ok: true };
   }
 
@@ -137,32 +109,6 @@ export class RoomsController {
     return this.rtcService.createLiveRoomToken({ roomId, userId: user.id, role });
   }
 
-  @Post(':roomId/comment')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async postComment(
-    @Headers('authorization') authorization: string | undefined,
-    @Param('roomId', new ParseUUIDPipe()) roomId: string,
-    @Body() body: { text?: string },
-  ): Promise<void> {
-    const user = await this.storeService.getUserFromAuthHeader(authorization);
-    const text = (body?.text ?? '').trim();
-    if (!text || text.length > 200) return;
-    this.roomsGateway.emitRoomComment(roomId, user.id, user.displayName, text);
-  }
-
-  @Post(':roomId/reaction')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async postReaction(
-    @Headers('authorization') authorization: string | undefined,
-    @Param('roomId', new ParseUUIDPipe()) roomId: string,
-    @Body() body: { emoji?: string },
-  ): Promise<void> {
-    const user = await this.storeService.getUserFromAuthHeader(authorization);
-    const emoji = (body?.emoji ?? '').trim();
-    if (!emoji || emoji.length > 8) return;
-    this.roomsGateway.emitRoomReaction(roomId, user.id, emoji);
-  }
-
   @Post(':roomId/gift')
   async postGift(
     @Headers('authorization') authorization: string | undefined,
@@ -170,19 +116,10 @@ export class RoomsController {
     @Body() body: { giftId?: string; quantity?: number },
   ): Promise<GiftSendResult> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
-    const result = await this.storeService.sendGiftInRoom(user.id, {
+    return this.storeService.sendGiftInRoom(user.id, {
       roomId,
       giftId: body?.giftId ?? '',
       quantity: body?.quantity,
     });
-    this.roomsGateway.emitRoomGift(
-      roomId,
-      user.displayName,
-      result.giftId,
-      result.giftName,
-      result.quantity,
-      result.totalGiftCoins,
-    );
-    return result;
   }
 }

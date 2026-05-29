@@ -8,14 +8,12 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../core/database.service';
 import { StoreService } from '../core/store.service';
-import { RoomsGateway } from '../rooms/rooms.gateway';
 
 @Controller('v1')
 export class HealthController {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly storeService: StoreService,
-    private readonly roomsGateway: RoomsGateway,
   ) {}
 
   @Get('health/live')
@@ -110,7 +108,6 @@ export class HealthController {
     }
 
     await this.storeService.endRoom(body.hostUserId, body.roomId);
-    this.roomsGateway.emitRoomEnded(body.roomId, body.hostUserId);
     return { status: 'ended', roomId: body.roomId };
   }
 

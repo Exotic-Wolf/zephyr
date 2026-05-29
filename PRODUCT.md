@@ -20,9 +20,9 @@
 | Mobile | Flutter (Dart) | `apps/zephyr-mobile` |
 | Backend API | NestJS (TypeScript) | `services/zephyr-api` |
 | Database | PostgreSQL (Render) | Singapore region |
-| Real-time | Socket.IO (`/feed`, `/call` namespaces) — feed events + matchmaking only | Backend |
 | Messaging | Firebase Firestore + Storage + FCM | `firebase_chat_service.dart` |
 | Status & Presence | Firebase RTDB (asia-southeast1) | Online/inactive/offline/busy/live, call signaling, live state — **source of truth for availability** |
+| Live Rooms | Firebase RTDB | Comments, reactions, gifts, audience_count, room status — all via `live_rooms/{roomId}/` |
 | Video | Agora (calls + live streaming) | SDK in mobile |
 | Deploy | Render (auto-deploy from `main`) | `https://zephyr-api-wr1s.onrender.com` |
 
@@ -77,15 +77,16 @@ pnpm --filter zephyr-api start:dev
 
 | File | Notes |
 |------|-------|
-| `main.ts` | Bootstrap — uses `RedisIoAdapter` (falls back to in-memory if no `REDIS_URL`) |
-| `redis-io.adapter.ts` | Custom Socket.IO adapter for horizontal scaling |
+| `main.ts` | Bootstrap — standard NestJS HTTP server |
 | `core/store.service.ts` | All DB logic — messages, rooms, economy, wallets |
 | `core/database.service.ts` | Schema init, migrations, periodic cleanup |
 | `core/rtc.service.ts` | Agora token generation |
+| `core/fcm.service.ts` | Firebase Admin — push notifications + RTDB writes (call signaling, match signals) |
 | `auth/auth.controller.ts` | `GET /v1/auth/firebase-token` — custom Firebase token for client auth |
 | `messages/messages.controller.ts` | `POST /v1/messages/push` — FCM push relay, device tokens, delivery/read receipts |
-| `rooms/rooms.gateway.ts` | Socket.IO `/feed` namespace — room created/ended/updated |
+| `rooms/rooms.controller.ts` | Live room management — create/join/leave/end/gift/rtc-token |
 | `economy/economy.controller.ts` | All economy endpoints |
+| `economy/matchmaking.controller.ts` | Random call matchmaking — seek/cancel/next/end (REST + RTDB signals) |
 
 ---
 
@@ -168,14 +169,13 @@ Firebase Chat:
 - **Firebase RTDB is the single source of truth for real-time status** — Presence (online/inactive/offline/busy/live), call status, and live status all live in RTDB under `presence/{userId}`. RTDB's `onDisconnect` guarantees cleanup even on app kill/crash. `setInactiveStatus()` is written on app background so users appear as "away but reachable" (yellow dot) rather than offline. All clients listen to RTDB for user availability before initiating calls or showing status badges.
 - **Firebase Cloud Functions (asia-southeast1)** — 3 deployed functions provide server-side safety nets:
   - `onCallSignalDeleted`: RTDB trigger on `direct_calls/{userId}` deletion → ends Postgres call session via internal API
-  - `onPresenceChanged`: RTDB trigger on `presence/{userId}` update → if state leaves 'live', ends the room in Postgres + emits Socket.IO `feed:room-ended`
+  - `onPresenceChanged`: RTDB trigger on `presence/{userId}` update → if state leaves 'live', ends the room in Postgres via internal API
   - `reapStalePresence`: Scheduled every 5 min → scans all presence nodes, resets stale entries (>5min) to 'offline', ends orphaned live rooms
   - Internal endpoints: `POST /v1/internal/end-call-session`, `POST /v1/internal/end-room` (validated via `X-Service-Key` header)
 - **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
-- **Socket.IO** — foreground real-time for feed events (`/feed`) and call matchmaking (`/call`) only. NOT used for messaging or presence. `MessagesGateway` was deleted — FCM is the delivery path for chat notifications.
+- **Zero Socket.IO** — All real-time is Firebase RTDB. Live room events (comments, reactions, gifts, audience) are written directly to RTDB by clients. Random call matchmaking uses REST + RTDB signals. No WebSocket libraries exist in the codebase.
 - **FCM/APNs** — push notifications for chat messages (backend relays via `POST /v1/messages/push`)
-- **Redis Socket.IO adapter** — wired, falls back to in-memory. Enable by setting `REDIS_URL` on Render. Required at 5K+ users.
-- **Firebase is truth** — Firestore is source of truth for messages/conversations. RTDB is source of truth for real-time status (presence + call state). Backend only issues tokens + relays push.
+- **Firebase is truth** — Firestore is source of truth for messages/conversations. RTDB is source of truth for real-time status (presence + call state + live room events). Backend validates economy and issues tokens.
 
 ---
 
@@ -481,7 +481,7 @@ Centered screen with:
 > Store compliance: 17+ age rating. ToS prohibits explicit content. Report button = safety net. Reactive bans only at v1.
 
 **Backend** ✅
-- [x] Matchmaking queue — `call:join_queue` / `call:leave_queue` / `call:next` / `call:end` Socket.IO events on `/call` namespace; block-aware pairing
+- [x] Matchmaking queue — REST endpoints (`seek/cancel/next/end`) + RTDB match signals; block-aware pairing
 - [x] Call session table — `call_sessions` (id, user_a_id, user_b_id, agora_channel, started_at, ended_at, ended_by)
 - [x] Agora token generation — `rtc.service.ts` generates per-user tokens via `agora-token` npm package
 - [x] Coin billing — `tickCallSession` every 15s; 600 coins/min
@@ -574,7 +574,7 @@ Centered screen with:
 ### ✅ Done
 
 - [x] Agora integration — replaces LiveKit entirely for all video (random calls + live streaming)
-- [x] Random call matchmaking — Socket.IO `/call` namespace, Agora token per-user, block-aware queue
+- [x] Random call matchmaking — REST + RTDB signals, Agora token per-user, block-aware queue
 - [x] Block system — `user_blocks` DB table, REST endpoints, profile UI, matchmaking guard
 - [x] Host live screen — Agora broadcaster role, flip camera, mute, heartbeat
 - [x] Viewer live screen — Agora audience role, remote video, reactions
@@ -607,7 +607,7 @@ Centered screen with:
 - [x] Avatar upload — Cloudinary, camera/gallery picker
 - [x] Profile editing — nickname, gender, birthday, country, language
 - [x] Settings — logout at Me → ⚙ Settings → Sign Out
-- [x] Redis Socket.IO adapter — wired, no-op without `REDIS_URL`
+- [x] Socket.IO fully removed — all real-time via Firebase RTDB, zero WebSocket libraries in codebase
 - [x] Mock data removed — mock feed cards, mock followingIds, debug logs gone
 - [x] Direct call — RTDB signaling (`/direct_calls/{receiverUserId}`), incoming call overlay (accept/decline), Agora video screen with remote mute detection, camera-off PIP placeholder, dispose cleanup
 - [x] Direct call camera-off handling — remote mute detected via `onRemoteVideoStateChanged` (reason-based, not state-based), camera flip no longer triggers false "camera off" on remote side

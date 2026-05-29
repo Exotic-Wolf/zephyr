@@ -29,9 +29,7 @@
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
-    "@nestjs/platform-socket.io": "^11.1.19",
     "@nestjs/throttler": "^6.4.0",
-    "@nestjs/websockets": "^11.1.19",
     "@sentry/nestjs": "^10.53.1",
     "agora-token": "^2.0.5",
     "class-transformer": "^0.5.1",
@@ -40,14 +38,12 @@
     "firebase-admin": "^13.10.0",
     "google-auth-library": "^9.15.1",
     "helmet": "^8.1.0",
-    "ioredis": "^5.10.1",
     "jose": "^5.9.6",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.1.1",
     "pg": "^8.16.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1",
-    "socket.io": "^4.8.3"
+    "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

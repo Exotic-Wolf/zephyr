@@ -77,15 +77,15 @@
 ## Audit log:
 When auditing a feature, always grade each aspect (A+ to F) and record results here. This is our history of quality.
 
-### Live Streaming — 29 May 2026 — Overall: A
+### Live Streaming — 29 May 2026 — Overall: A+
 | Aspect | Grade | Notes |
 |--------|-------|-------|
-| Architecture | A | Agora RTC + RTDB signaling, Cloud Function auto-ends on disconnect |
+| Architecture | A+ | Agora RTC + RTDB signaling, Cloud Function auto-ends on disconnect. Zero dead code — backend is pure REST (create/join/leave/end/gift/token), all real-time flows through RTDB directly. |
 | Reconnection | A | `onConnectionStateChanged` with overlay, token refresh handler |
 | Rate limiting | A | 500ms throttle on reactions/comments |
 | Error handling | A | User-facing snackbars, graceful fallback |
 | Resource cleanup | A | `_ending` guard prevents double-end, proper dispose |
-| Code quality | A | ValueNotifier for comments, isolated state, no leaks |
+| Code quality | A+ | ValueNotifier for comments, isolated state, no leaks, zero dead endpoints or unused dependencies |
 
 ### Messaging / Inbox — 29 May 2026 — Overall: A-
 | Aspect | Grade | Notes |
@@ -101,12 +101,12 @@ When auditing a feature, always grade each aspect (A+ to F) and record results h
 ### Call (Direct + Random) — 29 May 2026 — Overall: A
 | Aspect | Grade | Notes |
 |--------|-------|-------|
-| Architecture | A | REST matchmaking + RTDB signaling + Agora RTC. Socket.IO eliminated. Random inherits from Direct (shared DirectCallScreen). |
-| Signaling | A- | writeRinging → listen accept/decline → 30s timeout → Agora. Block check added. |
+| Architecture | A+ | REST matchmaking + RTDB signaling + Agora RTC. Socket.IO fully purged from codebase (packages removed). Random inherits from Direct (shared DirectCallScreen). |
+| Signaling | A | writeRinging → listen accept/decline → 30s timeout → Agora. Block check both directions. Cloud Function safety net on signal deletion. |
 | Economy/Billing | A- | Tick every 15s, billing starts only when partner joins, insufficient balance auto-ends call |
 | Reconnection | A | `onConnectionStateChanged` with overlay, `onTokenPrivilegeWillExpire` with renewal |
 | Error handling | A | User-facing snackbars (balance, connection, Agora errors), graceful fallback, tick retries silently |
 | Resource cleanup | A- | `_disposed` guard, engine release in dispose, timers cancelled. `_leaveWithResult` for random mode. |
 | Security | A | Block check both directions, backend validates all billing, service key on internals |
-| Code quality | A | Random = thin matchmaking layer inheriting DirectCallScreen. Zero duplication. |
+| Code quality | A+ | Random = thin matchmaking layer inheriting DirectCallScreen. Zero duplication. Zero dead code. |
 
