@@ -33,8 +33,10 @@ class FirebaseChatService {
   bool _isLive = false;
   /// Whether THIS user is currently in a call.
   bool _isBusy = false;
+  /// Whether the app is currently in the background.
+  bool _isBackground = false;
 
-  /// Cached state per user: 'online', 'inactive', 'offline', 'busy', or 'live'.
+  /// Cached state per user: 'online', 'away', 'offline', 'busy', or 'live'.
   final Map<String, String> _presenceCache = {};
   /// Cached roomId per user (only set when state == 'live').
   final Map<String, String> _presenceRoomCache = {};
@@ -46,14 +48,14 @@ class FirebaseChatService {
   final ValueNotifier<int> presenceVersion = ValueNotifier<int>(0);
 
   /// Whether a user is known to be reachable (from cache). Returns null if unknown.
-  /// Treats 'inactive' as reachable (push can wake them).
+  /// Treats 'away' as reachable (push can wake them).
   bool? isOnlineCached(String userId) {
     final s = _presenceCache[userId];
     if (s == null) return null;
-    return s == 'online' || s == 'live' || s == 'inactive';
+    return s == 'online' || s == 'live' || s == 'away';
   }
 
-  /// Returns the raw presence state: 'online', 'inactive', 'offline', 'busy', or 'live'. Null if unknown.
+  /// Returns the raw presence state: 'online', 'away', 'offline', 'busy', or 'live'. Null if unknown.
   String? presenceStateCached(String userId) => _presenceCache[userId];
 
   /// Returns the roomId for a user who is currently live. Null otherwise.
@@ -128,8 +130,9 @@ class FirebaseChatService {
     }
 
     // Always write presence directly (handles cold start + reconnection)
+    final String initState = _isBackground ? 'offline' : (_isLive ? 'live' : 'online');
     _rtdb.ref('presence/$zephyrUserId').set({
-      'state': _isLive ? 'live' : 'online',
+      'state': initState,
       'lastSeen': ServerValue.timestamp,
     });
   }
@@ -145,15 +148,24 @@ class FirebaseChatService {
       final bool connected = event.snapshot.value as bool? ?? false;
       if (!connected) return;
 
-      // When we disconnect, mark offline with server timestamp
       presenceRef.onDisconnect().set({
         'state': 'offline',
         'lastSeen': ServerValue.timestamp,
       });
 
-      // Write current state now
+      // Write current state — respect background/busy/live overrides
+      final String state;
+      if (_isBackground) {
+        state = 'offline';
+      } else if (_isLive) {
+        state = 'live';
+      } else if (_isBusy) {
+        state = 'busy';
+      } else {
+        state = 'online';
+      }
       presenceRef.set({
-        'state': _isLive ? 'live' : 'online',
+        'state': state,
         'lastSeen': ServerValue.timestamp,
       });
     });
@@ -189,18 +201,29 @@ class FirebaseChatService {
     });
   }
 
-  /// Mark current user as "inactive" (app backgrounded but reachable via push).
-  void setInactiveStatus() {
-    if (_myUserId == null || _isLive || _isBusy) return;
+  /// Mark current user as "away" (idle in foreground for 60s, no touches).
+  void setAwayStatus() {
+    if (_myUserId == null || _isLive || _isBusy || _isBackground) return;
     _rtdb.ref('presence/$_myUserId').set({
-      'state': 'inactive',
+      'state': 'away',
       'lastSeen': ServerValue.timestamp,
     });
   }
 
-  /// Restore current user to "online" from inactive/background.
+  /// Mark current user as offline (app backgrounded / screen locked).
+  void setBackgroundOffline() {
+    if (_myUserId == null) return;
+    _isBackground = true;
+    _rtdb.ref('presence/$_myUserId').set({
+      'state': 'offline',
+      'lastSeen': ServerValue.timestamp,
+    });
+  }
+
+  /// Restore current user to "online" (app foregrounded / user active).
   void restoreOnlineStatus() {
     if (_myUserId == null) return;
+    _isBackground = false;
     // Respect current overrides
     if (_isLive || _isBusy) return;
     _rtdb.ref('presence/$_myUserId').set({
@@ -227,6 +250,20 @@ class FirebaseChatService {
       'state': _isLive ? 'live' : 'online',
       'lastSeen': ServerValue.timestamp,
     });
+  }
+
+  /// Explicitly go offline (logout). Cancels onDisconnect and clears presence.
+  Future<void> setOfflineStatus() async {
+    final uid = _myUserId;
+    if (uid == null) return;
+    final ref = _rtdb.ref('presence/$uid');
+    await ref.onDisconnect().cancel();
+    await ref.set({
+      'state': 'offline',
+      'lastSeen': ServerValue.timestamp,
+    });
+    _connectedSub?.cancel();
+    _connectedSub = null;
   }
 
   // ── Direct Call Signaling (RTDB) ─────────────────────────────────────────────

@@ -167,6 +167,10 @@ export const reapStalePresence = onSchedule(
     for (const [userId, data] of Object.entries(entries)) {
       if (!data || data.state === "offline") continue;
 
+      // 'away' = idle in foreground (RTDB connection still alive).
+      // Will become 'offline' via onDisconnect naturally — don't reap.
+      if (data.state === "away") continue;
+
       const lastSeen = data.lastSeen ?? 0;
       if (now - lastSeen < staleThreshold) continue;
 

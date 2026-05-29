@@ -12,6 +12,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
 import 'services/api_client.dart';
+import 'services/firebase_chat_service.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/home/home_screen.dart';
 import 'splash_screen.dart';
@@ -166,6 +167,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _onLogout() {
+    FirebaseChatService.instance.setOfflineStatus();
     final token = _accessToken;
     _storage.delete(key: _tokenKey);
     ZephyrApiClient.accessToken = null;

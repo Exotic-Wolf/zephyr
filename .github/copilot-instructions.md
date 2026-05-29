@@ -19,7 +19,7 @@
 ## Presence sync architecture:
 - **Single source of truth**: Firebase RTDB `presence/{userId}`
 - **PG sync**: Cloud Function triggers on RTDB presence change → writes `status` + `last_seen_at` to PostgreSQL
-- **Matchmaking** queries PG: `WHERE status IN ('online', 'inactive')`
+- **Matchmaking** queries PG: `WHERE status IN ('online', 'away')`
 - **Client shows** presence via RTDB listeners (no PG involvement)
 - **NEVER** use client-side HTTP heartbeats to sync presence to PG — that's polling in disguise
 - **NEVER** duplicate presence state across systems with periodic timers
@@ -32,11 +32,11 @@
 ## Presence states:
 | State | Color | Meaning |
 |-------|-------|---------|
-| `online` | Green | App in foreground |
-| `inactive` | Yellow | Backgrounded, reachable via FCM push |
+| `online` | Green | App in foreground, user active (touched in last 60s) |
+| `away` | Yellow | App in foreground, user idle 60s+ (no touches) |
 | `busy` | Orange | In an active call |
 | `live` | Red | Hosting a stream |
-| `offline` | Gray (hidden) | Connection lost / app killed |
+| `offline` | Gray (hidden) | Backgrounded / screen locked / killed / logged out |
 
 ## Before writing code:
 1. Real-time? → `FirebaseChatService.instance` (RTDB)

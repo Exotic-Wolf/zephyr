@@ -337,7 +337,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     style: FilledButton.styleFrom(
                       backgroundColor: switch (status) {
                         'offline' => Colors.grey.shade400,
-                        'inactive' => const Color(0xFFB8860B),
+                        'away' => const Color(0xFFB8860B),
                         'busy' => Colors.orange.shade300,
                         _ => _calling ? Colors.red.shade400 : const Color(0xFF00A651),
                       },
@@ -360,7 +360,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                 style: const TextStyle(fontSize: 13)),
                           ],
                         ),
-                      'inactive' => Row(
+                      'away' => Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: <Widget>[
                             const Icon(Icons.call_rounded, size: 18),

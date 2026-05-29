@@ -2192,10 +2192,10 @@ export class StoreService implements OnModuleInit {
     const blockedIds = await this.getBlockedIds(callerId);
     const blockedArr = [...blockedIds];
 
-    // Step 1: online/inactive user, respect 4h cooldown
+    // Step 1: online/away user, respect 4h cooldown
     const withCooldown = await this.databaseService.query<{ id: string }>(
       `SELECT u.id FROM users u
-       WHERE u.status IN ('online', 'inactive')
+       WHERE u.status IN ('online', 'away')
          AND u.id != $1
          AND u.is_banned = FALSE
          ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}
@@ -2226,7 +2226,7 @@ export class StoreService implements OnModuleInit {
     // Step 2: fallback — ignore cooldown
     const fallback = await this.databaseService.query<{ id: string }>(
       `SELECT u.id FROM users u
-       WHERE u.status IN ('online', 'inactive')
+       WHERE u.status IN ('online', 'away')
          AND u.id != $1
          AND u.is_banned = FALSE
          ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}

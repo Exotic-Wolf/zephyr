@@ -300,6 +300,13 @@ class _PresenceDot extends StatelessWidget {
       builder: (context, _, __) {
         final String state =
             FirebaseChatService.instance.presenceStateCached(userId) ?? 'offline';
+        if (state == 'away') {
+          return Icon(
+            Icons.nightlight_round,
+            size: 12,
+            color: const Color(0xFFFFCC00),
+          );
+        }
         final Color color;
         final double opacity;
         switch (state) {
@@ -308,9 +315,6 @@ class _PresenceDot extends StatelessWidget {
             opacity = 1.0;
           case 'busy':
             color = const Color(0xFFFF9500);
-            opacity = 1.0;
-          case 'inactive':
-            color = const Color(0xFFFFCC00);
             opacity = 1.0;
           case 'online':
             color = const Color(0xFF34C759);

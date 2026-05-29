@@ -44,15 +44,18 @@ class LiveFeedCardWidget extends StatelessWidget {
         final Color statusDot = switch (status) {
           'live' => const Color(0xFFFF3B30),
           'busy' => const Color(0xFFFF9500),
+          'away' => const Color(0xFFFFCC00),
           'offline' => const Color(0xFF8E8E93),
           _ => const Color(0xFF34C759),
         };
         final String statusLabel = switch (status) {
           'live' => 'Live',
           'busy' => 'Busy',
+          'away' => 'Away',
           'offline' => 'Offline',
           _ => 'Online',
         };
+        final bool isAway = status == 'away';
 
         return ClipRRect(
           borderRadius: BorderRadius.circular(borderRadius),
@@ -96,14 +99,21 @@ class LiveFeedCardWidget extends StatelessWidget {
                               ),
                               const SizedBox(width: 4),
                             ],
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
+                            if (isAway)
+                              Icon(
+                                Icons.nightlight_round,
                                 color: statusDot,
-                                shape: BoxShape.circle,
+                                size: 10,
+                              )
+                            else
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: statusDot,
+                                  shape: BoxShape.circle,
+                                ),
                               ),
-                            ),
                             const SizedBox(width: 4),
                             Text(
                               statusLabel,

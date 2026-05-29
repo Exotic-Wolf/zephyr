@@ -79,6 +79,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _incomingCallerAvatarUrl;
   String? _incomingSessionId;
 
+  // ── Idle detection (away after 60s no touch) ──────────────────────────────
+  Timer? _idleTimer;
+  bool _isIdle = false;
+
   @override
   void initState() {
     super.initState();
@@ -90,6 +94,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _refreshApiStatus();
     _connectFeedSocket();
     _fcmSub = FirebaseMessaging.onMessage.listen((_) {});
+    _resetIdleTimer();
   }
 
   void _onTabNotify() {
@@ -97,6 +102,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (mounted) {
       setState(() => _selectedTabIndex = tab);
     }
+  }
+
+  void _resetIdleTimer() {
+    _idleTimer?.cancel();
+    if (_isIdle) {
+      _isIdle = false;
+      FirebaseChatService.instance.restoreOnlineStatus();
+    }
+    _idleTimer = Timer(const Duration(seconds: 60), _onIdleTimeout);
+  }
+
+  void _onIdleTimeout() {
+    _isIdle = true;
+    FirebaseChatService.instance.setAwayStatus();
   }
 
   void _connectFeedSocket() {
@@ -241,6 +260,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _idleTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _convoDeliverySub?.cancel();
     _fcmSub?.cancel();
@@ -257,10 +277,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       FirebaseChatService.instance.restoreOnlineStatus();
+      _resetIdleTimer();
       _listenForIncomingCalls();
       _refreshFeed();
     } else if (state == AppLifecycleState.paused) {
-      FirebaseChatService.instance.setInactiveStatus();
+      _idleTimer?.cancel();
+      FirebaseChatService.instance.setBackgroundOffline();
     }
   }
 
@@ -820,7 +842,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return PopScope(
+    return Listener(
+      onPointerDown: (_) => _resetIdleTimer(),
+      child: PopScope(
       canPop: false,
       child: Stack(
         children: <Widget>[
@@ -1002,6 +1026,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
         ],
       ),
+    ),
     );
   }
 }
