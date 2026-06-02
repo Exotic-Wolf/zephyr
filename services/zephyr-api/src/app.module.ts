@@ -11,6 +11,7 @@ import { HealthModule } from './health/health.module';
 import { FeedModule } from './feed/feed.module';
 import { EconomyModule } from './economy/economy.module';
 import { MessagesModule } from './messages/messages.module';
+import { LegalModule } from './legal/legal.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { MessagesModule } from './messages/messages.module';
     EconomyModule,
     MessagesModule,
     HealthModule,
+    LegalModule,
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
   ],
   controllers: [AppController],
