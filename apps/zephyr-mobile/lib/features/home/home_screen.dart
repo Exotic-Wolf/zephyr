@@ -496,7 +496,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         apiClient: widget.apiClient,
         accessToken: widget.accessToken,
         myUserId: _me?.id ?? '',
-        myDisplayName: _me?.displayName ?? 'Guest',
+        myDisplayName: _me?.displayName ?? 'User',
         onLeave: () {},
         initialViewerCount: updatedCount,
         didJoin: didJoin,

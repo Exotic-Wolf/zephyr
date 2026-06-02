@@ -30,19 +30,6 @@ class ZephyrApiClient {
     }
   }
 
-  Future<AuthSession> guestLogin(String displayName) async {
-    final Map<String, dynamic> data = await _request(
-      method: 'POST',
-      path: '/v1/auth/guest-login',
-      body: <String, dynamic>{'displayName': displayName},
-    );
-
-    return AuthSession(
-      accessToken: data['accessToken'] as String,
-      user: UserProfile.fromJson(data['user'] as Map<String, dynamic>),
-    );
-  }
-
   Future<AuthSession> googleLogin(String idToken) async {
     final Map<String, dynamic> data = await _request(
       method: 'POST',

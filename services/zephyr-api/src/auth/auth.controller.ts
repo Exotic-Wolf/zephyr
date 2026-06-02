@@ -2,7 +2,6 @@ import { Body, Controller, Headers, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { StoreService } from '../core/store.service';
 import { FcmService } from '../core/fcm.service';
-import { GuestLoginDto } from './dto/guest-login.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { AppleLoginDto } from './dto/apple-login.dto';
 
@@ -12,14 +11,6 @@ export class AuthController {
     private readonly storeService: StoreService,
     private readonly fcmService: FcmService,
   ) {}
-
-  @Post('guest-login')
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  async guestLogin(
-    @Body() body: GuestLoginDto,
-  ): Promise<{ accessToken: string; user: unknown }> {
-    return this.storeService.issueGuestSession(body?.displayName);
-  }
 
   @Post('google-login')
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
