@@ -116,11 +116,16 @@ class _MyAppState extends State<MyApp> {
       final String? saved = await _storage.read(key: _tokenKey);
       if (saved != null && saved.isNotEmpty) {
         try {
-          await _apiClient.getMe(saved);
-          if (mounted) {
+          final profile = await _apiClient.getMe(saved);
+          // Only restore session if profile setup is complete
+          final isComplete = profile.onboardedAt != null;
+          if (mounted && isComplete) {
             ZephyrApiClient.accessToken = saved;
             setState(() => _accessToken = saved);
             _registerFcmToken(saved);
+          } else if (!isComplete) {
+            // Profile incomplete — send through onboarding again
+            await _storage.delete(key: _tokenKey);
           }
         } catch (_) {
           await _storage.delete(key: _tokenKey);

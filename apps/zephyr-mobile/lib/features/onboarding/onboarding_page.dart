@@ -9,6 +9,7 @@ import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../app_constants.dart';
 import '../../l10n/app_localizations.dart';
+import 'profile_setup_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
@@ -61,7 +62,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       }
       final AuthSession session = await widget.apiClient.googleLogin(idToken);
       if (!mounted) return;
-      widget.onLoginSuccess(session.accessToken);
+      _handleLoginResult(session);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -90,12 +91,37 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         familyName: credential.familyName,
       );
       if (!mounted) return;
-      widget.onLoginSuccess(session.accessToken);
+      _handleLoginResult(session);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _appleLoading = false);
     }
+  }
+
+  void _handleLoginResult(AuthSession session) {
+    final user = session.user;
+    final needsSetup = user.onboardedAt == null;
+
+    if (!needsSetup) {
+      widget.onLoginSuccess(session.accessToken);
+      return;
+    }
+
+    // User needs profile setup — navigate within the module
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ProfileSetupScreen(
+          apiClient: widget.apiClient,
+          accessToken: session.accessToken,
+          initialDisplayName: user.displayName,
+          onComplete: () {
+            Navigator.of(context).pop(); // pop setup screen
+            widget.onLoginSuccess(session.accessToken);
+          },
+        ),
+      ),
+    );
   }
 
   @override

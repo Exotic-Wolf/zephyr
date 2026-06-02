@@ -316,6 +316,7 @@ class UserProfile {
     this.countryCode,
     this.language,
     this.callRateCoinsPerMinute,
+    this.onboardedAt,
   }) : publicId = publicId ?? derivePublicId(id);
 
   final String id;
@@ -330,6 +331,7 @@ class UserProfile {
   final String? countryCode;
   final String? language;
   final int? callRateCoinsPerMinute;
+  final DateTime? onboardedAt;
   final DateTime createdAt;
 
   /// Derives a stable 8-digit numeric code from the DB UUID using a djb2 hash.
@@ -350,6 +352,7 @@ class UserProfile {
       countryCode: json['countryCode'] as String?,
       language: json['language'] as String?,
       callRateCoinsPerMinute: (json['callRateCoinsPerMinute'] as num?)?.toInt(),
+      onboardedAt: json['onboardedAt'] != null ? DateTime.parse(json['onboardedAt'] as String) : null,
       createdAt: DateTime.parse(json['createdAt'] as String),
     );
   }

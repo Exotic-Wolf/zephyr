@@ -340,6 +340,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     await this.pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMPTZ
+    `);
+
+    await this.pool.query(`
       CREATE TABLE IF NOT EXISTS call_reports (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         session_id UUID NOT NULL REFERENCES call_sessions(id) ON DELETE CASCADE,

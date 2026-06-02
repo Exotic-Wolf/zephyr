@@ -34,6 +34,7 @@ export interface UserProfile {
   language: string | null;
   isAdmin: boolean;
   callRateCoinsPerMinute: number | null;
+  onboardedAt: string | null;
   createdAt: string;
 }
 
@@ -295,6 +296,7 @@ export class StoreService implements OnModuleInit {
       language: null,
       isAdmin: false,
       callRateCoinsPerMinute: null,
+      onboardedAt: null,
       createdAt: now,
     };
 
@@ -428,7 +430,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -471,6 +473,7 @@ export class StoreService implements OnModuleInit {
       language: null,
       isAdmin: false,
       callRateCoinsPerMinute: null,
+      onboardedAt: null,
       createdAt: this.users.get(userId)?.createdAt ?? new Date().toISOString(),
     };
 
@@ -583,7 +586,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -626,6 +629,7 @@ export class StoreService implements OnModuleInit {
       language: null,
       isAdmin: false,
       callRateCoinsPerMinute: null,
+      onboardedAt: null,
       createdAt: this.users.get(userId)?.createdAt ?? new Date().toISOString(),
     };
 
@@ -664,7 +668,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.bio, u.gender, u.birthday,
-                 u.country_code, u.language, u.is_admin, u.call_rate_coins_per_minute, u.created_at
+                 u.country_code, u.language, u.is_admin, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at
           FROM sessions s
           INNER JOIN users u ON u.id = s.user_id
           WHERE s.token = $1 AND s.user_id = $2 AND s.expires_at > NOW()
@@ -733,7 +737,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -768,16 +772,18 @@ export class StoreService implements OnModuleInit {
         language: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         created_at: string;
       }>(
         `
           UPDATE users
           SET display_name = $2, avatar_url = $3, bio = $4,
               gender = $5, birthday = $6, country_code = $7, language = $8,
-              call_rate_coins_per_minute = $9, public_id = $10
+              call_rate_coins_per_minute = $9, public_id = $10,
+              onboarded_at = COALESCE(onboarded_at, NOW())
           WHERE id = $1
           RETURNING id, public_id, display_name, avatar_url, bio, gender, birthday,
-                    country_code, language, is_admin, call_rate_coins_per_minute, created_at
+                    country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
         `,
         [userId, nextDisplayName, nextAvatarUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate, nextPublicId],
       );
@@ -801,6 +807,7 @@ export class StoreService implements OnModuleInit {
       language: updates.language !== undefined ? updates.language : user.language,
       callRateCoinsPerMinute: updates.callRateCoinsPerMinute !== undefined ? updates.callRateCoinsPerMinute : user.callRateCoinsPerMinute,
       publicId: updates.publicId !== undefined ? updates.publicId : user.publicId,
+      onboardedAt: user.onboardedAt ?? new Date().toISOString(),
     };
 
     this.users.set(userId, nextUser);
@@ -1141,7 +1148,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users WHERE id = $1 LIMIT 1
         `,
         [userId],
@@ -1178,7 +1185,7 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
-                country_code, language, is_admin, call_rate_coins_per_minute, created_at
+                country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
          FROM users WHERE id IN (${placeholders})`,
         userIds,
       );
@@ -1207,7 +1214,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users WHERE public_id = $1 LIMIT 1
         `,
         [publicId],
@@ -1245,7 +1252,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, created_at
+                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE display_name ILIKE $1
              OR public_id = $2
@@ -3173,6 +3180,7 @@ export class StoreService implements OnModuleInit {
     language?: string | null;
     is_admin?: boolean | null;
     call_rate_coins_per_minute?: number | null;
+    onboarded_at?: string | Date | null;
     created_at: string;
   }): UserProfile {
     return {
@@ -3187,6 +3195,7 @@ export class StoreService implements OnModuleInit {
       language: row.language ?? null,
       isAdmin: row.is_admin ?? false,
       callRateCoinsPerMinute: row.call_rate_coins_per_minute ?? null,
+      onboardedAt: row.onboarded_at ? new Date(row.onboarded_at).toISOString() : null,
       createdAt: new Date(row.created_at).toISOString(),
     };
   }
