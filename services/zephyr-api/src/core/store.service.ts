@@ -357,6 +357,7 @@ export class StoreService implements OnModuleInit {
     const avatarUrl = payload.picture ?? null;
 
     if (this.databaseService?.isEnabled()) {
+      try {
       const existingUserResult = await this.databaseService.query<{
         id: string;
       }>(
@@ -370,6 +371,7 @@ export class StoreService implements OnModuleInit {
       );
 
       let userId = existingUserResult.rows[0]?.id;
+      this.logger.log(`[google-login] existingUser=${!!existingUserResult.rows[0]?.id}, googleSubject=${googleSubject}, email=${email}`);
       if (!userId) {
         userId = randomUUID();
         await this.databaseService.query(
@@ -439,6 +441,8 @@ export class StoreService implements OnModuleInit {
         [userId],
       );
 
+      this.logger.log(`[google-login] userResult rows=${userResult.rows.length}, row=${JSON.stringify(userResult.rows[0])}`);
+
       await this.databaseService.query(
         `
           INSERT INTO sessions (token, user_id, expires_at)
@@ -451,6 +455,10 @@ export class StoreService implements OnModuleInit {
         accessToken,
         user: this.toUserProfile(userResult.rows[0]),
       };
+      } catch (err) {
+        this.logger.error(`[google-login] CRASH after token verify: ${err?.message ?? err}`, err?.stack);
+        throw err;
+      }
     }
 
     let userId = this.googleSubjectToUserId.get(googleSubject);
