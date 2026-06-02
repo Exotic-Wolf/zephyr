@@ -532,6 +532,26 @@ class FirebaseChatService {
     onSendPush?.call(otherUserId, myDisplayName, preview);
   }
 
+  /// Update the current user's display name and avatar across all their chat documents.
+  /// Call this after a profile edit so inbox shows the new name for all conversation partners.
+  Future<void> updateMyNameInChats({
+    required String displayName,
+    String? avatarUrl,
+  }) async {
+    final snap = await _fs
+        .collection('chats')
+        .where('participants', arrayContains: _myUserId)
+        .get();
+    final batch = _fs.batch();
+    for (final doc in snap.docs) {
+      batch.update(doc.reference, {
+        'name_$_myUserId': displayName,
+        if (avatarUrl != null) 'avatar_$_myUserId': avatarUrl,
+      });
+    }
+    await batch.commit();
+  }
+
   /// Upload an image and send it as a message.
   /// Validates file size (max 5MB) and format before uploading.
   Future<void> sendImage({

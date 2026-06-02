@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../models/models.dart';
 import '../../services/api_client.dart';
+import '../../services/firebase_chat_service.dart';
 import '../../widgets/language_picker_sheet.dart';
 import 'profile_page.dart';
 import '../../l10n/app_localizations.dart';
@@ -185,6 +186,12 @@ class _MyProfilePageState extends State<MyProfilePage> {
         birthday: birthdayStr,
         countryCode: _country?.countryCode,
         language: _language.isEmpty ? null : _language,
+      );
+
+      // Propagate name/avatar change to all Firestore chat docs so other users see it immediately
+      FirebaseChatService.instance.updateMyNameInChats(
+        displayName: updated.displayName,
+        avatarUrl: updated.avatarUrl,
       );
 
       if (!mounted) return;
