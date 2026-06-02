@@ -29,13 +29,19 @@ class LiveFeedCardWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final double borderRadius = isTablet ? 44 : 34;
-    final String localeLine = showPreview
-        ? '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode} ${feedCard.hostLanguage}'
-        : '${CountryFlags.flagEmoji(feedCard.hostCountryCode)} ${feedCard.hostCountryCode}';
 
     return ValueListenableBuilder<int>(
       valueListenable: FirebaseChatService.instance.presenceVersion,
-      builder: (context, _, __) {
+      builder: (context, _, __) => ValueListenableBuilder<int>(
+        valueListenable: FirebaseChatService.instance.profileVersion,
+        builder: (context, _, __) {
+        final profile = FirebaseChatService.instance.profileCached(feedCard.hostUserId);
+        final String displayName = profile?.displayName ?? feedCard.hostDisplayName;
+        final String countryCode = profile?.countryCode.isNotEmpty == true ? profile!.countryCode : feedCard.hostCountryCode;
+        final String language = profile?.language.isNotEmpty == true ? profile!.language : feedCard.hostLanguage;
+        final String localeLine = showPreview
+            ? '${CountryFlags.flagEmoji(countryCode)} $countryCode $language'
+            : '${CountryFlags.flagEmoji(countryCode)} $countryCode';
         final String status =
             FirebaseChatService.instance.presenceStateCached(feedCard.hostUserId) ??
                 feedCard.hostStatus;
@@ -171,7 +177,7 @@ class LiveFeedCardWidget extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: <Widget>[
                                 Text(
-                                  feedCard.hostDisplayName,
+                                  displayName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -206,6 +212,7 @@ class LiveFeedCardWidget extends StatelessWidget {
           ),
         );
       },
+      ),
     );
   }
 }

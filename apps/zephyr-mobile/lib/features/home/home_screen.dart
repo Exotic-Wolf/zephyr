@@ -313,10 +313,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ...feedCards.where((LiveFeedCard c) => c.hostUserId != me.id),
         ];
         _rankFeed(incoming);
-        // Warm Firebase RTDB presence for feed card hosts
-        FirebaseChatService.instance.warmPresence(
-          _feedCards.map((c) => c.hostUserId).toList(),
-        );
+        // Warm Firebase RTDB presence and profiles for feed card hosts
+        final hostIds = _feedCards.map((c) => c.hostUserId).toList();
+        FirebaseChatService.instance.warmPresence(hostIds);
+        FirebaseChatService.instance.warmProfiles(hostIds);
       });
       // Start listening for incoming calls now that we have userId
       _listenForIncomingCalls();
