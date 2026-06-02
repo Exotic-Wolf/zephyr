@@ -56,7 +56,14 @@ class _ProfilePageState extends State<ProfilePage> {
   // Fresh call rate fetched from backend
   int? _freshCallRate;
 
+  // Fresh profile data (overrides card data once fetched)
+  String? _freshDisplayName;
+  String? _freshAvatarUrl;
+
   LiveFeedCard get _card => widget.feedCard;
+
+  String get _displayName => _freshDisplayName ?? _card.hostDisplayName;
+  String? get _avatarUrl => _freshAvatarUrl ?? _card.hostAvatarUrl;
 
   int? get _callRate => _freshCallRate;
 
@@ -74,8 +81,12 @@ class _ProfilePageState extends State<ProfilePage> {
     if (api == null) return;
     try {
       final user = await api.getUserById(_card.hostUserId);
-      if (mounted && user.callRateCoinsPerMinute != null) {
-        setState(() => _freshCallRate = user.callRateCoinsPerMinute);
+      if (mounted) {
+        setState(() {
+          _freshCallRate = user.callRateCoinsPerMinute;
+          _freshDisplayName = user.displayName;
+          _freshAvatarUrl = user.avatarUrl;
+        });
       }
     } catch (_) {}
   }
@@ -106,7 +117,7 @@ class _ProfilePageState extends State<ProfilePage> {
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
-            title: Text('Block ${_card.hostDisplayName}?'),
+            title: Text('Block $_displayName?'),
             content: const Text("They won't be able to match with you in random calls. You can unblock them later."),
             actions: <Widget>[
               TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
@@ -232,8 +243,8 @@ class _ProfilePageState extends State<ProfilePage> {
             uid: rtc.uid,
             token: rtc.token,
             partnerId: _card.hostUserId,
-            partnerName: _card.hostDisplayName,
-            partnerAvatarUrl: _card.hostAvatarUrl,
+            partnerName: _displayName,
+            partnerAvatarUrl: _avatarUrl,
           ),
         ),
       );
@@ -296,8 +307,8 @@ class _ProfilePageState extends State<ProfilePage> {
                         myDisplayName: widget.myDisplayName ?? 'User',
                         myAvatarUrl: widget.myAvatarUrl,
                         otherUserId: _card.hostUserId,
-                        otherDisplayName: _card.hostDisplayName,
-                        otherAvatarUrl: _card.hostAvatarUrl,
+                        otherDisplayName: _displayName,
+                        otherAvatarUrl: _avatarUrl,
                       ),
                     ));
                   } else {
@@ -470,13 +481,13 @@ class _ProfilePageState extends State<ProfilePage> {
                       child: CircleAvatar(
                         radius: 48,
                         backgroundColor: Colors.white24,
-                        backgroundImage: _card.hostAvatarUrl != null
-                            ? CachedNetworkImageProvider(_card.hostAvatarUrl!)
+                        backgroundImage: _avatarUrl != null
+                            ? CachedNetworkImageProvider(_avatarUrl!)
                             : null,
-                        child: _card.hostAvatarUrl == null
+                        child: _avatarUrl == null
                             ? Text(
-                                _card.hostDisplayName.isNotEmpty
-                                    ? _card.hostDisplayName[0].toUpperCase()
+                                _displayName.isNotEmpty
+                                    ? _displayName[0].toUpperCase()
                                     : '?',
                                 style: const TextStyle(
                                   color: Colors.white,
@@ -567,7 +578,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     children: <Widget>[
                       Expanded(
                         child: Text(
-                          _card.hostDisplayName,
+                          _displayName,
                           style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
