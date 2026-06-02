@@ -146,6 +146,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
           avatarUrl: url,
           countryCode: me.countryCode ?? '',
           language: me.language ?? '',
+          birthday: me.birthday,
         );
       }
     } catch (e) {
@@ -203,6 +204,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
         avatarUrl: updated.avatarUrl,
         countryCode: updated.countryCode ?? '',
         language: updated.language ?? '',
+        birthday: updated.birthday,
       );
 
       if (!mounted) return;

@@ -351,6 +351,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       avatarUrl: me.avatarUrl,
       countryCode: me.countryCode ?? '',
       language: me.language ?? '',
+      birthday: me.birthday,
     );
 
     // Wire push notifications for Firebase chat

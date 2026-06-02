@@ -160,6 +160,7 @@ class FirebaseChatService {
             avatarUrl: data['avatarUrl'] as String?,
             countryCode: (data['countryCode'] as String?) ?? '',
             language: (data['language'] as String?) ?? '',
+            birthday: data['birthday'] as String?,
           );
           final old = _profileCache[uid];
           _profileCache[uid] = profile;
@@ -177,12 +178,14 @@ class FirebaseChatService {
     String? avatarUrl,
     required String countryCode,
     required String language,
+    String? birthday,
   }) async {
     await _rtdb.ref('profiles/$_myUserId').set({
       'displayName': displayName,
       'avatarUrl': avatarUrl,
       'countryCode': countryCode,
       'language': language,
+      if (birthday != null) 'birthday': birthday,
     });
   }
 
@@ -870,12 +873,14 @@ class RtdbProfile {
     this.avatarUrl,
     required this.countryCode,
     required this.language,
+    this.birthday,
   });
 
   final String displayName;
   final String? avatarUrl;
   final String countryCode;
   final String language;
+  final String? birthday;
 
   @override
   bool operator ==(Object other) =>
@@ -884,10 +889,11 @@ class RtdbProfile {
           displayName == other.displayName &&
           avatarUrl == other.avatarUrl &&
           countryCode == other.countryCode &&
-          language == other.language;
+          language == other.language &&
+          birthday == other.birthday;
 
   @override
-  int get hashCode => Object.hash(displayName, avatarUrl, countryCode, language);
+  int get hashCode => Object.hash(displayName, avatarUrl, countryCode, language, birthday);
 }
 
 class FirebaseConversation {
