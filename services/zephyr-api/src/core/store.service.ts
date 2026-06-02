@@ -426,6 +426,7 @@ export class StoreService implements OnModuleInit {
         public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         created_at: string;
       }>(
         `
@@ -582,6 +583,7 @@ export class StoreService implements OnModuleInit {
         public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         created_at: string;
       }>(
         `
@@ -664,6 +666,7 @@ export class StoreService implements OnModuleInit {
         language: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         created_at: string;
       }>(
         `
@@ -733,6 +736,7 @@ export class StoreService implements OnModuleInit {
         public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         created_at: string;
       }>(
         `
@@ -854,6 +858,7 @@ export class StoreService implements OnModuleInit {
         host_language: string | null;
         user_status: string;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         room_id: string | null;
         audience_count: number | null;
         started_at: string | null;
@@ -1144,6 +1149,7 @@ export class StoreService implements OnModuleInit {
         public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         created_at: string;
       }>(
         `
@@ -1182,6 +1188,7 @@ export class StoreService implements OnModuleInit {
         public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         created_at: string;
       }>(
         `SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
@@ -1210,6 +1217,7 @@ export class StoreService implements OnModuleInit {
         public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         created_at: string;
       }>(
         `
@@ -1248,6 +1256,7 @@ export class StoreService implements OnModuleInit {
         public_id: string | null;
         is_admin: boolean;
         call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
         created_at: string;
       }>(
         `
