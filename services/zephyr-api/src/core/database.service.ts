@@ -344,6 +344,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMPTZ
     `);
 
+    // Backfill: existing users who already completed profile setup
+    await this.pool.query(`
+      UPDATE users SET onboarded_at = created_at
+      WHERE onboarded_at IS NULL AND country_code IS NOT NULL
+    `);
+
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS call_reports (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
