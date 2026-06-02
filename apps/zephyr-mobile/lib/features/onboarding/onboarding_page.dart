@@ -1,9 +1,11 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/models.dart';
 import '../../services/api_client.dart';
@@ -265,6 +267,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             textAlign: TextAlign.center,
                           ),
                         ],
+
+                        // Legal links
+                        const SizedBox(height: 16),
+                        RichText(
+                          textAlign: TextAlign.center,
+                          text: TextSpan(
+                            style: const TextStyle(
+                              color: Color(0x73FFFFFF),
+                              fontSize: 11.5,
+                            ),
+                            children: <TextSpan>[
+                              const TextSpan(text: 'By continuing, you agree to our '),
+                              TextSpan(
+                                text: 'Terms of Service',
+                                style: const TextStyle(
+                                  color: Color(0xFFFF8F00),
+                                  decoration: TextDecoration.underline,
+                                ),
+                                recognizer: TapGestureRecognizer()
+                                  ..onTap = () => launchUrl(
+                                        Uri.parse('$apiBaseUrl/legal/terms'),
+                                        mode: LaunchMode.externalApplication,
+                                      ),
+                              ),
+                              const TextSpan(text: ' and '),
+                              TextSpan(
+                                text: 'Privacy Policy',
+                                style: const TextStyle(
+                                  color: Color(0xFFFF8F00),
+                                  decoration: TextDecoration.underline,
+                                ),
+                                recognizer: TapGestureRecognizer()
+                                  ..onTap = () => launchUrl(
+                                        Uri.parse('$apiBaseUrl/legal/privacy'),
+                                        mode: LaunchMode.externalApplication,
+                                      ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),

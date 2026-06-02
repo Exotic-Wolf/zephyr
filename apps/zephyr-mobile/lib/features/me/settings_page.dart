@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../app_constants.dart';
 import '../../l10n/app_localizations.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -85,6 +87,19 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               );
             },
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('Privacy Policy'),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => launchUrl(Uri.parse('$apiBaseUrl/legal/privacy'), mode: LaunchMode.externalApplication),
+          ),
+          ListTile(
+            leading: const Icon(Icons.gavel_outlined),
+            title: const Text('Terms of Service'),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => launchUrl(Uri.parse('$apiBaseUrl/legal/terms'), mode: LaunchMode.externalApplication),
           ),
           const Divider(height: 1),
           ListTile(
