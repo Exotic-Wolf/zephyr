@@ -1,0 +1,67 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // No access by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ── Chats ──────────────────────────────────────────────────────────────
+    // Chat doc ID = sorted "userId1_userId2"
+    // Only participants can read/write their conversation.
+    match /chats/{chatId} {
+      function isParticipant() {
+        return request.auth != null
+          && request.auth.uid in resource.data.participants;
+      }
+
+      function isParticipantOnCreate() {
+        return request.auth != null
+          && request.auth.uid in request.resource.data.participants;
+      }
+
+      allow read: if isParticipant();
+      allow create: if isParticipantOnCreate();
+      allow update: if isParticipant();
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read: if request.auth != null
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+
+        allow create: if request.auth != null
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && request.resource.data.senderId == request.auth.uid;
+
+        allow update: if request.auth != null
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      }
+    }
+
+    // ── Blocks ─────────────────────────────────────────────────────────────
+    // Doc ID = "blockerId_blockedId"
+    // Only the blocker can create/delete. Both parties can read (for block checks).
+    match /blocks/{blockId} {
+      allow read: if request.auth != null
+        && (request.auth.uid == resource.data.blockedBy
+            || request.auth.uid == resource.data.blockedUser);
+
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.blockedBy;
+
+      allow delete: if request.auth != null
+        && request.auth.uid == resource.data.blockedBy;
+    }
+
+    // ── Reports ────────────────────────────────────────────────────────────
+    // Anyone authenticated can create a report. Only admins (backend) can read.
+    match /reports/{reportId} {
+      allow create: if request.auth != null
+        && request.resource.data.reportedBy == request.auth.uid;
+
+      allow read, update, delete: if false;
+    }
+  }
+}

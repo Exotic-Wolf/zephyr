@@ -309,7 +309,7 @@ abstract class AppLocalizations {
   /// No description provided for @myBalance.
   ///
   /// In en, this message translates to:
-  /// **'My Balance'**
+  /// **'My Wallet'**
   String get myBalance;
 
   /// No description provided for @coinBalance.

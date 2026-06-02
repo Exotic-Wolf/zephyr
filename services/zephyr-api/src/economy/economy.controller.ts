@@ -15,6 +15,10 @@ import {
   StoreService,
 } from '../core/store.service';
 import {
+  IapService,
+  PurchaseResult,
+} from '../core/iap.service';
+import {
   RtcJoinTokenResult,
   RtcService,
 } from '../core/rtc.service';
@@ -33,12 +37,14 @@ import { PurchaseCoinsDto } from './dto/purchase-coins.dto';
 import { SendGiftDto } from './dto/send-gift.dto';
 import { StartCallSessionDto } from './dto/start-call-session.dto';
 import { TickCallSessionDto } from './dto/tick-call-session.dto';
+import { VerifyPurchaseDto } from './dto/verify-purchase.dto';
 
 @Controller('v1/economy')
 export class EconomyController {
   constructor(
     private readonly storeService: StoreService,
     private readonly rtcService: RtcService,
+    private readonly iapService: IapService,
   ) {}
 
   @Get('config')
@@ -72,6 +78,21 @@ export class EconomyController {
   ): Promise<WalletSummary> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     return this.storeService.purchaseCoins(user.id, body.packId);
+  }
+
+  @Post('verify-purchase')
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  async verifyPurchase(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: VerifyPurchaseDto,
+  ): Promise<PurchaseResult> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    return this.iapService.verifyAndCreditPurchase(user.id, {
+      store: body.store as 'apple' | 'google',
+      productId: body.productId,
+      transactionId: body.transactionId,
+      receiptData: body.receiptData,
+    });
   }
 
   @Get('private-call/quote')

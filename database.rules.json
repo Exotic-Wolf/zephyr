@@ -2,16 +2,48 @@
   "rules": {
     ".read": false,
     ".write": false,
+
     "presence": {
       "$userId": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid == $userId"
       }
     },
+
     "direct_calls": {
       "$userId": {
         ".read": "auth != null",
         ".write": "auth != null"
+      }
+    },
+
+    "live_rooms": {
+      "$roomId": {
+        ".read": "auth != null",
+        "audience_count": {
+          ".write": "auth != null"
+        },
+        "comments": {
+          "$commentId": {
+            ".write": "auth != null",
+            ".validate": "newData.hasChildren(['name', 'text', 'ts']) && newData.child('text').val().length <= 500"
+          }
+        },
+        "reactions": {
+          "$reactionId": {
+            ".write": "auth != null",
+            ".validate": "newData.hasChildren(['userId', 'emoji', 'ts']) && newData.child('emoji').val().length <= 10"
+          }
+        },
+        "gifts": {
+          "$giftId": {
+            ".write": "auth != null",
+            ".validate": "newData.hasChildren(['senderName', 'giftId', 'giftName', 'quantity', 'ts'])"
+          }
+        },
+        "status": {
+          ".write": "auth != null"
+        }
       }
     }
   }

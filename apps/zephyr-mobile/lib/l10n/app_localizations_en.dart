@@ -125,7 +125,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Keep streaming, receiving gifts, and engaging to level up.';
 
   @override
-  String get myBalance => 'My Balance';
+  String get myBalance => 'My Wallet';
 
   @override
   String get coinBalance => 'Coin Balance';

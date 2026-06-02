@@ -124,7 +124,7 @@ class AppLocalizationsAr extends AppLocalizations {
       'واصل البث واستقبال الهدايا والتفاعل للارتقاء في المستوى.';
 
   @override
-  String get myBalance => 'رصيدي';
+  String get myBalance => 'محفظتي';
 
   @override
   String get coinBalance => 'رصيد العملات';

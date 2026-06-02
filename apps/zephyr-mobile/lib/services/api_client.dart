@@ -437,6 +437,28 @@ class ZephyrApiClient {
     return WalletSummary.fromJson(data);
   }
 
+  Future<IapVerifyResult> verifyPurchase(
+    String accessToken, {
+    required String store,
+    required String productId,
+    required String transactionId,
+    String? receiptData,
+  }) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'POST',
+      path: '/v1/economy/verify-purchase',
+      accessToken: accessToken,
+      body: <String, dynamic>{
+        'store': store,
+        'productId': productId,
+        'transactionId': transactionId,
+        if (receiptData != null) 'receiptData': receiptData,
+      },
+    );
+
+    return IapVerifyResult.fromJson(data);
+  }
+
   Future<List<CallRateTier>> getCallRateTiers() async {
     final dynamic data = await _request(
       method: 'GET',

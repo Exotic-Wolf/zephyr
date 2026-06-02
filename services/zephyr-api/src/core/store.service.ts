@@ -2871,7 +2871,7 @@ export class StoreService implements OnModuleInit {
     );
   }
 
-  private async ensureWalletAndRevenueRows(userId: string): Promise<void> {
+  async ensureWalletAndRevenueRows(userId: string): Promise<void> {
     if (!this.databaseService?.isEnabled()) {
       return;
     }

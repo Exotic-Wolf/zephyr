@@ -32,6 +32,7 @@
     "@nestjs/throttler": "^6.4.0",
     "@sentry/nestjs": "^10.53.1",
     "agora-token": "^2.0.5",
+    "app-store-server-api": "^0.17.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "cloudinary": "^2.10.0",

@@ -125,7 +125,7 @@ class AppLocalizationsEs extends AppLocalizations {
       'Sigue transmitiendo, recibiendo regalos e interactuando para subir de nivel.';
 
   @override
-  String get myBalance => 'Mi Saldo';
+  String get myBalance => 'Mi Billetera';
 
   @override
   String get coinBalance => 'Saldo de Monedas';

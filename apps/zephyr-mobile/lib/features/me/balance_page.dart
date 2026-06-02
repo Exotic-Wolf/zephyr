@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../../models/models.dart';
 import '../../services/api_client.dart';
+import '../../services/iap_service.dart';
 import '../../widgets/coin_icon.dart';
 
 class BalancePage extends StatefulWidget {
@@ -22,13 +24,38 @@ class _BalancePageState extends State<BalancePage> {
   int _coinBalance = 0;
   List<CoinPack> _coinPacks = <CoinPack>[];
   List<WalletTransaction> _transactions = <WalletTransaction>[];
-  String? _purchasingPackId;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _initIap();
+  }
+
+  void _initIap() {
+    final iap = IapService.instance;
+    iap.initialize(
+      apiClient: widget.apiClient,
+      accessToken: widget.accessToken,
+    );
+    iap.onPurchaseSuccess = (int coinsAwarded) {
+      if (!mounted) return;
+      // Refresh wallet and transactions after successful purchase
+      _loadData();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('+${_formatNumber(coinsAwarded)} coins added!'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    };
+    iap.onPurchaseError = (String error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error), behavior: SnackBarBehavior.floating),
+      );
+    };
   }
 
   Future<void> _loadData() async {
@@ -54,31 +81,42 @@ class _BalancePageState extends State<BalancePage> {
   }
 
   Future<void> _buyCoins(CoinPack pack) async {
-    setState(() => _purchasingPackId = pack.id);
-    try {
-      final WalletSummary wallet =
-          await widget.apiClient.purchaseCoins(widget.accessToken, pack.id);
-      if (!mounted) return;
-      setState(() {
-        _coinBalance = wallet.coinBalance;
-        _purchasingPackId = null;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('+${_formatNumber(pack.coins)} coins added!'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      // Refresh transactions to show the new purchase
-      widget.apiClient.getTransactionHistory(widget.accessToken).then((txns) {
-        if (mounted) setState(() => _transactions = txns);
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _purchasingPackId = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Purchase failed: $error')),
-      );
+    // Find matching store product
+    final iap = IapService.instance;
+    final storeProducts = iap.products.value;
+    final ProductDetails? product = storeProducts
+        .where((p) => p.id == pack.id)
+        .firstOrNull;
+
+    if (product != null) {
+      // Use real IAP flow
+      Navigator.of(context).pop(); // Close bottom sheet
+      await iap.buyProduct(product);
+    } else {
+      // Fallback: use direct purchase (for development/testing when store is unavailable)
+      try {
+        final WalletSummary wallet =
+            await widget.apiClient.purchaseCoins(widget.accessToken, pack.id);
+        if (!mounted) return;
+        Navigator.of(context).pop(); // Close bottom sheet
+        setState(() {
+          _coinBalance = wallet.coinBalance;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('+${_formatNumber(pack.coins)} coins added!'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        widget.apiClient.getTransactionHistory(widget.accessToken).then((txns) {
+          if (mounted) setState(() => _transactions = txns);
+        });
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Purchase failed: $error')),
+        );
+      }
     }
   }
 
@@ -89,7 +127,6 @@ class _BalancePageState extends State<BalancePage> {
       backgroundColor: Colors.transparent,
       builder: (_) => _CoinPackSheet(
         packs: _coinPacks,
-        purchasingPackId: _purchasingPackId,
         onBuy: _buyCoins,
       ),
     );
@@ -223,12 +260,10 @@ class _BalancePageState extends State<BalancePage> {
 class _CoinPackSheet extends StatelessWidget {
   const _CoinPackSheet({
     required this.packs,
-    required this.purchasingPackId,
     required this.onBuy,
   });
 
   final List<CoinPack> packs;
-  final String? purchasingPackId;
   final ValueChanged<CoinPack> onBuy;
 
   @override
@@ -267,9 +302,8 @@ class _CoinPackSheet extends StatelessWidget {
             crossAxisSpacing: 10,
             childAspectRatio: 1.5,
             children: packs.map((pack) {
-              final bool isPurchasing = purchasingPackId == pack.id;
               return GestureDetector(
-                onTap: isPurchasing ? null : () => onBuy(pack),
+                onTap: () => onBuy(pack),
                 child: Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
@@ -304,7 +338,7 @@ class _CoinPackSheet extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          isPurchasing ? '...' : '\$${pack.priceUsd.toStringAsFixed(2)}',
+                          '\$${pack.priceUsd.toStringAsFixed(2)}',
                           style: const TextStyle(
                             color: Colors.black87,
                             fontWeight: FontWeight.w700,
@@ -344,6 +378,7 @@ class _TransactionTile extends StatelessWidget {
       'gift_earning_spark' => (Icons.redeem_rounded, 'Gift received'),
       'purchase' => (Icons.shopping_cart_rounded, 'Coin purchase'),
       'coin_purchase' => (Icons.shopping_cart_rounded, 'Coin purchase'),
+      'iap_purchase' => (Icons.shopping_cart_rounded, 'Coin purchase'),
       _ => (Icons.swap_horiz_rounded, transaction.type),
     };
 

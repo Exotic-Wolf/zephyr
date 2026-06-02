@@ -420,6 +420,26 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       `).catch(() => {});
     }, 10 * 1000);
 
+    // ── IAP purchases (idempotent receipt tracking) ──────────────────────────
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS iap_purchases (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        store TEXT NOT NULL,
+        transaction_id TEXT NOT NULL UNIQUE,
+        product_id TEXT NOT NULL,
+        coins_credited INTEGER NOT NULL,
+        amount_usd NUMERIC(12, 2),
+        receipt_data TEXT,
+        verified_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS iap_purchases_user_idx
+      ON iap_purchases(user_id, verified_at DESC)
+    `);
+
     this.logger.log('Database schema is ready.');
   }
 }

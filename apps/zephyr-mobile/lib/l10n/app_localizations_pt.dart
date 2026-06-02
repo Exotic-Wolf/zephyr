@@ -125,7 +125,7 @@ class AppLocalizationsPt extends AppLocalizations {
       'Continue transmitindo, recebendo presentes e interagindo para subir de nível.';
 
   @override
-  String get myBalance => 'Meu Saldo';
+  String get myBalance => 'Minha Carteira';
 
   @override
   String get coinBalance => 'Saldo de Moedas';

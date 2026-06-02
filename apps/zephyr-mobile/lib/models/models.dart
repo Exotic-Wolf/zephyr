@@ -51,6 +51,26 @@ class CoinPack {
   }
 }
 
+class IapVerifyResult {
+  IapVerifyResult({
+    required this.wallet,
+    required this.coinsAwarded,
+    required this.transactionId,
+  });
+
+  final WalletSummary wallet;
+  final int coinsAwarded;
+  final String transactionId;
+
+  factory IapVerifyResult.fromJson(Map<String, dynamic> json) {
+    return IapVerifyResult(
+      wallet: WalletSummary.fromJson(json['wallet'] as Map<String, dynamic>),
+      coinsAwarded: (json['coinsAwarded'] as num?)?.toInt() ?? 0,
+      transactionId: json['transactionId'] as String? ?? '',
+    );
+  }
+}
+
 class CallRateTier {
   CallRateTier({
     required this.label,
