@@ -22,6 +22,7 @@
 | Database | PostgreSQL (Render) | Singapore region |
 | Messaging | Firebase Firestore + Storage + FCM | `firebase_chat_service.dart` |
 | Status & Presence | Firebase RTDB (asia-southeast1) | Online/inactive/offline/busy/live, call signaling, live state — **source of truth for availability** |
+| User Identity | Firebase RTDB `profiles/{userId}` | displayName, avatarUrl, countryCode, language, birthday — **source of truth for identity**. LRU-cached listeners, reactive via `profileVersion` ValueNotifier |
 | Live Rooms | Firebase RTDB | Comments, reactions, gifts, audience_count, room status — all via `live_rooms/{roomId}/` |
 | Video | Agora (calls + live streaming) | SDK in mobile |
 | Deploy | Render (auto-deploy from `main`) | `https://zephyr-api-wr1s.onrender.com` |
@@ -57,7 +58,7 @@ pnpm --filter zephyr-api start:dev
 | `app_constants.dart` | `apiBaseUrl`, `googleServerClientId`, env constants |
 | `models/models.dart` | All data models: `UserProfile`, `Room`, `ZephyrMessage`, `WalletSummary`, `CoinPack`, `CallSession`, etc. |
 | `services/api_client.dart` | All HTTP calls — GET/POST/PATCH/DELETE |
-| `services/firebase_chat_service.dart` | Firebase chat — Firestore messages, RTDB presence, Storage images, block/report |
+| `services/firebase_chat_service.dart` | Firebase chat — Firestore messages, RTDB presence + profiles (LRU-cached), Storage images, block/report |
 | `pages/home_screen.dart` | Feed, socket connection, inbox badge, 5s poll fallback, RTDB listener for incoming direct calls |
 | `features/call/direct_call_screen.dart` | Reusable Agora video call screen (direct + random), remote mute detection, PIP |
 | `features/call/incoming_call_overlay.dart` | Incoming call overlay — accept/decline, caller info |
@@ -175,7 +176,7 @@ Firebase Chat:
 - **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
 - **Zero Socket.IO** — All real-time is Firebase RTDB. Live room events (comments, reactions, gifts, audience) are written directly to RTDB by clients. Random call matchmaking uses REST + RTDB signals. No WebSocket libraries exist in the codebase.
 - **FCM/APNs** — push notifications for chat messages (backend relays via `POST /v1/messages/push`)
-- **Firebase is truth** — Firestore is source of truth for messages/conversations. RTDB is source of truth for real-time status (presence + call state + live room events). Backend validates economy and issues tokens.
+- **Firebase is truth** — Firestore is source of truth for messages/conversations. RTDB is source of truth for real-time status (presence + call state + live room events) AND user identity (`profiles/{userId}` — displayName, avatarUrl, countryCode, language, birthday). Backend validates economy and issues tokens.
 
 ---
 

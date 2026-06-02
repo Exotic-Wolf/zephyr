@@ -16,6 +16,11 @@
 | Persistent data / validation | PostgreSQL via REST (`ZephyrApiClient`) |
 | Push notifications | FCM (`FcmService` on backend) |
 
+## Identity sync architecture:
+- **Single source of truth for user identity**: Firebase RTDB `profiles/{userId}` — displayName, avatarUrl, countryCode, language, birthday
+- Owner writes on profile save. All clients listen via LRU-cached subscriptions (50 max). UI rebuilds via `profileVersion` ValueNotifier.
+- **NEVER** denormalize names into N documents. One node, N listeners.
+
 ## Presence sync architecture:
 - **Single source of truth**: Firebase RTDB `presence/{userId}`
 - **PG sync**: Cloud Function triggers on RTDB presence change → writes `status` + `last_seen_at` to PostgreSQL
@@ -26,6 +31,7 @@
 
 ## Firebase RTDB paths:
 - `presence/{userId}` — state (online/inactive/offline/busy/live), lastSeen, roomId
+- `profiles/{userId}` — displayName, avatarUrl, countryCode, language, birthday (single source of truth for user identity)
 - `direct_calls/{userId}` — call signaling
 - `live_rooms/{roomId}/` — comments, reactions, gifts, audience_count, status
 
