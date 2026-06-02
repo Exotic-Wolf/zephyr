@@ -144,21 +144,10 @@ export class IapService {
     expectedProductId: string,
     receiptData?: string,
   ): Promise<void> {
-    // In production, we verify the JWS signed transaction from StoreKit 2.
-    // The receiptData is the signed JWS payload from Transaction.jsonRepresentation.
-    //
-    // For StoreKit 2, the client sends the JWS-signed transaction which we decode
-    // and verify against Apple's certificate chain. The payload contains:
-    // - transactionId, productId, bundleId, purchaseDate, etc.
-    //
-    // If APPLE_IAP_SHARED_SECRET is not set, we operate in sandbox/trust mode
-    // (for development and TestFlight testing).
-
     const bundleId = process.env.APPLE_BUNDLE_ID ?? 'com.zephyr.app';
     const environment = process.env.APPLE_IAP_ENVIRONMENT ?? 'sandbox';
 
     if (!receiptData) {
-      // If no receipt data provided, trust the transactionId in sandbox mode only
       if (environment === 'production') {
         throw new BadRequestException('Receipt data required for production Apple purchases');
       }
@@ -166,47 +155,51 @@ export class IapService {
       return;
     }
 
-    // Decode the JWS payload (base64url encoded parts)
+    // Full cryptographic verification using Apple's certificate chain.
+    // `decodeTransaction` verifies the JWS signature against Apple's G3 root cert,
+    // validates the entire x5c certificate chain, and decodes the payload.
+    // If the signature is forged or tampered, it throws CertificateValidationError.
     try {
-      const parts = receiptData.split('.');
-      if (parts.length !== 3) {
-        throw new BadRequestException('Invalid Apple JWS transaction format');
-      }
+      const { decodeTransaction, APPLE_ROOT_CA_G3_FINGERPRINT } = await import('app-store-server-api');
 
-      const payloadBase64 = parts[1];
-      const payloadJson = Buffer.from(payloadBase64, 'base64url').toString('utf8');
-      const payload = JSON.parse(payloadJson) as {
-        transactionId?: string;
-        originalTransactionId?: string;
-        productId?: string;
-        bundleId?: string;
-        environment?: string;
-      };
+      const decoded = await decodeTransaction(receiptData, APPLE_ROOT_CA_G3_FINGERPRINT);
 
-      // Verify the transaction matches what we expect
-      if (payload.productId !== expectedProductId) {
+      // Verify product ID matches
+      if (decoded.productId !== expectedProductId) {
         throw new BadRequestException(
-          `Product mismatch: expected ${expectedProductId}, got ${payload.productId}`,
+          `Product mismatch: expected ${expectedProductId}, got ${decoded.productId}`,
         );
       }
 
-      if (payload.bundleId && payload.bundleId !== bundleId) {
+      // Verify bundle ID matches
+      if (decoded.bundleId !== bundleId) {
         throw new BadRequestException(
-          `Bundle ID mismatch: expected ${bundleId}, got ${payload.bundleId}`,
+          `Bundle ID mismatch: expected ${bundleId}, got ${decoded.bundleId}`,
         );
       }
 
-      // In production, also verify the JWS signature against Apple's root certificate.
-      // For now, the payload decode + field matching provides strong validation.
-      // Full certificate chain verification can be added via the app-store-server-api package
-      // when we have the App Store Connect API key configured.
+      // Reject if the transaction was already revoked (refunded)
+      if (decoded.revocationDate) {
+        throw new BadRequestException(
+          `Transaction ${decoded.transactionId} was revoked/refunded`,
+        );
+      }
 
       this.logger.log(
-        `Apple receipt verified: txn=${payload.transactionId}, product=${payload.productId}, env=${payload.environment}`,
+        `Apple receipt CRYPTO-VERIFIED: txn=${decoded.transactionId}, product=${decoded.productId}, env=${decoded.environment}`,
       );
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
-      throw new BadRequestException('Failed to decode Apple receipt');
+
+      // CertificateValidationError means forged/invalid signature
+      const errName = (err as { name?: string })?.name;
+      if (errName === 'CertificateValidationError') {
+        this.logger.error(`Apple JWS signature INVALID for txn=${transactionId}`);
+        throw new BadRequestException('Invalid Apple receipt signature — possible fraud');
+      }
+
+      this.logger.error('Apple receipt verification failed', err);
+      throw new BadRequestException('Failed to verify Apple receipt');
     }
   }
 
@@ -267,5 +260,124 @@ export class IapService {
       this.logger.error('Google receipt verification failed', err);
       throw new BadRequestException('Failed to verify Google Play purchase');
     }
+  }
+
+  // ── Refund / Chargeback Handling ───────────────────────────────────────────
+
+  /**
+   * Handle an Apple App Store Server Notification (V2).
+   * Called from the webhook endpoint when Apple notifies us of a refund.
+   */
+  async handleAppleNotification(signedPayload: string): Promise<void> {
+    try {
+      const { decodeNotificationPayload, isDecodedNotificationDataPayload, APPLE_ROOT_CA_G3_FINGERPRINT } =
+        await import('app-store-server-api');
+
+      const notification = await decodeNotificationPayload(signedPayload, APPLE_ROOT_CA_G3_FINGERPRINT);
+
+      if (!isDecodedNotificationDataPayload(notification)) {
+        this.logger.log(`Apple notification (summary type): ${notification.notificationType}`);
+        return;
+      }
+
+      const { notificationType, data } = notification;
+
+      if (notificationType === 'REFUND') {
+        // Apple refunded this transaction — claw back coins
+        const { decodeTransaction } = await import('app-store-server-api');
+        const txn = await decodeTransaction(data.signedTransactionInfo!, APPLE_ROOT_CA_G3_FINGERPRINT);
+        await this.processRefund(txn.transactionId, 'apple');
+      } else {
+        this.logger.log(`Apple notification ignored: ${notificationType}`);
+      }
+    } catch (err) {
+      this.logger.error('Failed to process Apple notification', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Handle a Google Play Real-Time Developer Notification (RTDN).
+   * Called from the webhook endpoint when Google notifies of a voided purchase.
+   */
+  async handleGoogleNotification(data: {
+    packageName: string;
+    eventTimeMillis: string;
+    oneTimeProductNotification?: {
+      version: string;
+      notificationType: number;
+      purchaseToken: string;
+      sku: string;
+    };
+    voidedPurchaseNotification?: {
+      purchaseToken: string;
+      orderId: string;
+      productType: number;
+      refundType: number;
+    };
+  }): Promise<void> {
+    // Google RTDN voidedPurchaseNotification — user was refunded
+    if (data.voidedPurchaseNotification) {
+      const { orderId } = data.voidedPurchaseNotification;
+      this.logger.warn(`Google voided purchase: orderId=${orderId}`);
+      await this.processRefund(orderId, 'google');
+      return;
+    }
+
+    this.logger.log('Google notification ignored (not a voided purchase)');
+  }
+
+  /**
+   * Core refund processor: finds the original IAP purchase by transaction ID,
+   * deducts the credited coins, and records the clawback.
+   */
+  private async processRefund(transactionId: string, store: string): Promise<void> {
+    // Find the original purchase
+    const result = await this.databaseService.query<{
+      id: string;
+      user_id: string;
+      coins_credited: number;
+    }>(
+      `SELECT id, user_id, coins_credited FROM iap_purchases WHERE transaction_id = $1`,
+      [transactionId],
+    );
+
+    if (result.rows.length === 0) {
+      this.logger.warn(`Refund for unknown transaction: ${transactionId} (${store})`);
+      return;
+    }
+
+    const purchase = result.rows[0];
+
+    // Check if already refunded (idempotent)
+    const existingRefund = await this.databaseService.query<{ id: string }>(
+      `SELECT id FROM wallet_transactions WHERE type = 'iap_refund' AND metadata->>'transactionId' = $1`,
+      [transactionId],
+    );
+    if (existingRefund.rows.length > 0) {
+      this.logger.warn(`Refund already processed for: ${transactionId}`);
+      return;
+    }
+
+    // Deduct coins (can go negative — that's intentional for fraud prevention)
+    await this.databaseService.query(
+      `UPDATE wallets SET coin_balance = coin_balance - $2, updated_at = NOW() WHERE user_id = $1`,
+      [purchase.user_id, purchase.coins_credited],
+    );
+
+    // Record the refund transaction
+    await this.databaseService.query(
+      `INSERT INTO wallet_transactions (id, user_id, type, coins_delta, amount_usd, metadata, created_at)
+       VALUES (gen_random_uuid(), $1, 'iap_refund', $2, NULL, $3::jsonb, NOW())`,
+      [
+        purchase.user_id,
+        -purchase.coins_credited,
+        JSON.stringify({ store, transactionId, originalPurchaseId: purchase.id }),
+      ],
+    );
+
+    this.logger.warn(
+      `REFUND PROCESSED: user=${purchase.user_id}, store=${store}, txn=${transactionId}, coins=-${purchase.coins_credited}`,
+    );
   }
 }

@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  ForbiddenException,
   Get,
   Headers,
   Param,
@@ -76,6 +77,15 @@ export class EconomyController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: PurchaseCoinsDto,
   ): Promise<WalletSummary> {
+    const allowFakePurchases =
+      process.env.ALLOW_FAKE_PURCHASES === 'true' ||
+      process.env.NODE_ENV !== 'production';
+    if (!allowFakePurchases) {
+      throw new ForbiddenException(
+        'Direct coin purchase is disabled. Use verify-purchase with a valid store receipt.',
+      );
+    }
+
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     return this.storeService.purchaseCoins(user.id, body.packId);
   }

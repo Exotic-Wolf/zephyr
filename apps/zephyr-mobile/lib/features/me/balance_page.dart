@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 
@@ -93,30 +94,44 @@ class _BalancePageState extends State<BalancePage> {
       Navigator.of(context).pop(); // Close bottom sheet
       await iap.buyProduct(product);
     } else {
-      // Fallback: use direct purchase (for development/testing when store is unavailable)
-      try {
-        final WalletSummary wallet =
-            await widget.apiClient.purchaseCoins(widget.accessToken, pack.id);
-        if (!mounted) return;
-        Navigator.of(context).pop(); // Close bottom sheet
-        setState(() {
-          _coinBalance = wallet.coinBalance;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('+${_formatNumber(pack.coins)} coins added!'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        widget.apiClient.getTransactionHistory(widget.accessToken).then((txns) {
-          if (mounted) setState(() => _transactions = txns);
-        });
-      } catch (error) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Purchase failed: $error')),
-        );
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Close bottom sheet
+
+      if (kDebugMode) {
+        // Dev-only fallback for local testing without store products.
+        try {
+          final WalletSummary wallet =
+              await widget.apiClient.purchaseCoins(widget.accessToken, pack.id);
+          if (!mounted) return;
+          setState(() {
+            _coinBalance = wallet.coinBalance;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('+${_formatNumber(pack.coins)} coins added! (DEV MODE)'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          widget.apiClient
+              .getTransactionHistory(widget.accessToken)
+              .then((txns) {
+            if (mounted) setState(() => _transactions = txns);
+          });
+        } catch (error) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Purchase failed: $error')),
+          );
+        }
+        return;
       }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Purchases are temporarily unavailable. Please try again in a moment.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
