@@ -45,10 +45,10 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
       _sub = FirebaseChatService.instance.watchConversations().listen(
         (List<FirebaseConversation> convos) {
           if (mounted) setState(() { _conversations = convos; _initialized = true; });
-          // Pre-warm presence cache for all conversation partners
-          FirebaseChatService.instance.warmPresence(
-            convos.map((c) => c.otherUserId).toList(),
-          );
+          // Pre-warm presence and profile caches for all conversation partners
+          final userIds = convos.map((c) => c.otherUserId).toList();
+          FirebaseChatService.instance.warmPresence(userIds);
+          FirebaseChatService.instance.warmProfiles(userIds);
           // Mark messages as delivered for all conversations with unread
           for (final c in convos) {
             if (c.unreadCount > 0) {
@@ -181,11 +181,16 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
 
     return Scaffold(
       floatingActionButton: _buildNewChatFab(context),
-      body: ListView.separated(
+      body: ValueListenableBuilder<int>(
+        valueListenable: FirebaseChatService.instance.profileVersion,
+        builder: (context, _, __) => ListView.separated(
         itemCount: _conversations.length,
         separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
         itemBuilder: (BuildContext ctx, int i) {
           final FirebaseConversation c = _conversations[i];
+          final profile = FirebaseChatService.instance.profileCached(c.otherUserId);
+          final String displayName = profile?.displayName ?? c.otherDisplayName;
+          final String? avatarUrl = profile?.avatarUrl ?? c.otherAvatarUrl;
           return ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             leading: SizedBox(
@@ -196,13 +201,13 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
                   CircleAvatar(
                     radius: 26,
                     backgroundColor: const Color(0xFFFF8F00).withValues(alpha: 0.15),
-                    backgroundImage: c.otherAvatarUrl != null
-                        ? CachedNetworkImageProvider(c.otherAvatarUrl!)
+                    backgroundImage: avatarUrl != null
+                        ? CachedNetworkImageProvider(avatarUrl)
                         : null,
-                    child: c.otherAvatarUrl == null
+                    child: avatarUrl == null
                         ? Text(
-                            c.otherDisplayName.isNotEmpty
-                                ? c.otherDisplayName[0].toUpperCase()
+                            displayName.isNotEmpty
+                                ? displayName[0].toUpperCase()
                                 : '?',
                             style: const TextStyle(
                                 color: Color(0xFFFF8F00),
@@ -222,7 +227,7 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
             title: Row(
               children: [
                 Expanded(
-                  child: Text(c.otherDisplayName,
+                  child: Text(displayName,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                 ),
                 Text(_timeAgo(c.lastMessageAt),
@@ -273,8 +278,8 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
                     myDisplayName: widget.myDisplayName,
                     myAvatarUrl: widget.myAvatarUrl,
                     otherUserId: c.otherUserId,
-                    otherDisplayName: c.otherDisplayName,
-                    otherAvatarUrl: c.otherAvatarUrl,
+                    otherDisplayName: displayName,
+                    otherAvatarUrl: avatarUrl,
 
                   ),
                 ),
@@ -282,6 +287,7 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
             },
           );
         },
+      ),
       ),
     );
   }

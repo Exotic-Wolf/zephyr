@@ -321,7 +321,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // Start listening for incoming calls now that we have userId
       _listenForIncomingCalls();
       // Initialize Firebase with custom token for secure auth
-      _initFirebaseChat(me.id);
+      _initFirebaseChat(me);
     } catch (error) {
       setState(() {
         _error = error.toString();
@@ -335,15 +335,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _initFirebaseChat(String userId) async {
+  Future<void> _initFirebaseChat(UserProfile me) async {
     try {
       final String token =
           await widget.apiClient.getFirebaseToken(widget.accessToken);
-      await FirebaseChatService.instance.init(userId, firebaseToken: token);
+      await FirebaseChatService.instance.init(me.id, firebaseToken: token);
     } catch (_) {
       // Fallback to anonymous if backend doesn't support custom tokens yet
-      await FirebaseChatService.instance.init(userId);
+      await FirebaseChatService.instance.init(me.id);
     }
+
+    // Write own profile to RTDB so other users always see fresh identity
+    FirebaseChatService.instance.writeMyProfile(
+      displayName: me.displayName,
+      avatarUrl: me.avatarUrl,
+      countryCode: me.countryCode ?? '',
+      language: me.language ?? '',
+    );
+
     // Wire push notifications for Firebase chat
     FirebaseChatService.instance.onSendPush = (recipientId, title, body) async {
       widget.apiClient

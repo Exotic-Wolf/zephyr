@@ -74,8 +74,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   @override
   void initState() {
     super.initState();
-    // Ensure presence is warmed for this user
+    // Ensure presence and profile are warmed for this user
     FirebaseChatService.instance.warmPresence([widget.otherUserId]);
+    FirebaseChatService.instance.warmProfiles([widget.otherUserId]);
     _sub = FirebaseChatService.instance
         .watchMessages(widget.otherUserId)
         .listen((List<FirebaseMessage> msgs) {
@@ -209,9 +210,6 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         otherUserId: widget.otherUserId,
         body: text,
         myDisplayName: widget.myDisplayName,
-        myAvatarUrl: widget.myAvatarUrl,
-        otherDisplayName: widget.otherDisplayName,
-        otherAvatarUrl: widget.otherAvatarUrl,
         idempotencyKey: key,
       );
     } catch (e) {
@@ -235,9 +233,6 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         otherUserId: widget.otherUserId,
         imageFile: File(picked.path),
         myDisplayName: widget.myDisplayName,
-        myAvatarUrl: widget.myAvatarUrl,
-        otherDisplayName: widget.otherDisplayName,
-        otherAvatarUrl: widget.otherAvatarUrl,
       );
     } catch (e) {
       if (mounted) {
@@ -370,8 +365,8 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
             uid: rtc.uid,
             token: rtc.token,
             partnerId: widget.otherUserId,
-            partnerName: widget.otherDisplayName,
-            partnerAvatarUrl: widget.otherAvatarUrl,
+            partnerName: FirebaseChatService.instance.profileCached(widget.otherUserId)?.displayName ?? widget.otherDisplayName,
+            partnerAvatarUrl: FirebaseChatService.instance.profileCached(widget.otherUserId)?.avatarUrl ?? widget.otherAvatarUrl,
           ),
         ),
       );
@@ -535,18 +530,24 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       backgroundColor: isDark ? null : Colors.white,
       appBar: AppBar(
         leadingWidth: 40,
-        title: Row(
+        title: ValueListenableBuilder<int>(
+          valueListenable: FirebaseChatService.instance.profileVersion,
+          builder: (context, _, __) {
+            final profile = FirebaseChatService.instance.profileCached(widget.otherUserId);
+            final String name = profile?.displayName ?? widget.otherDisplayName;
+            final String? avatar = profile?.avatarUrl ?? widget.otherAvatarUrl;
+            return Row(
           children: [
             CircleAvatar(
               radius: 18,
               backgroundColor: const Color(0xFFFF8F00).withValues(alpha: 0.15),
-              backgroundImage: widget.otherAvatarUrl != null
-                  ? CachedNetworkImageProvider(widget.otherAvatarUrl!)
+              backgroundImage: avatar != null
+                  ? CachedNetworkImageProvider(avatar)
                   : null,
-              child: widget.otherAvatarUrl == null
+              child: avatar == null
                   ? Text(
-                      widget.otherDisplayName.isNotEmpty
-                          ? widget.otherDisplayName[0].toUpperCase()
+                      name.isNotEmpty
+                          ? name[0].toUpperCase()
                           : '?',
                       style: const TextStyle(
                           color: Color(0xFFFF8F00),
@@ -560,7 +561,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(widget.otherDisplayName, style: const TextStyle(fontSize: 16)),
+                  Text(name, style: const TextStyle(fontSize: 16)),
                   // Real-time presence from cache
                   ValueListenableBuilder<int>(
                     valueListenable: FirebaseChatService.instance.presenceVersion,
@@ -596,6 +597,8 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
               ),
             ),
           ],
+        );
+          },
         ),
         actions: [
           IconButton(
@@ -907,14 +910,18 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     final token = ZephyrApiClient.accessToken;
     if (api == null || token == null) return;
 
+    final _p = FirebaseChatService.instance.profileCached(widget.otherUserId);
+    final _name = _p?.displayName ?? widget.otherDisplayName;
+    final _avatar = _p?.avatarUrl ?? widget.otherAvatarUrl;
+
     final feedCard = LiveFeedCard(
       roomId: roomId,
-      title: '${widget.otherDisplayName}\'s live',
+      title: '$_name\'s live',
       audienceCount: 0,
       hostUserId: widget.otherUserId,
-      hostDisplayName: widget.otherDisplayName,
-      hostAvatarUrl: widget.otherAvatarUrl,
-      hostCountryCode: '',
+      hostDisplayName: _name,
+      hostAvatarUrl: _avatar,
+      hostCountryCode: _p?.countryCode ?? '',
       hostLanguage: '',
       hostStatus: 'live',
       startedAt: DateTime.now(),

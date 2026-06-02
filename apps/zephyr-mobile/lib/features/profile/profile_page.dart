@@ -62,8 +62,19 @@ class _ProfilePageState extends State<ProfilePage> {
 
   LiveFeedCard get _card => widget.feedCard;
 
-  String get _displayName => _freshDisplayName ?? _card.hostDisplayName;
-  String? get _avatarUrl => _freshAvatarUrl ?? _card.hostAvatarUrl;
+  String get _displayName {
+    if (_freshDisplayName != null) return _freshDisplayName!;
+    final rtdb = FirebaseChatService.instance.profileCached(_card.hostUserId);
+    if (rtdb != null) return rtdb.displayName;
+    return _card.hostDisplayName;
+  }
+
+  String? get _avatarUrl {
+    if (_freshAvatarUrl != null) return _freshAvatarUrl!;
+    final rtdb = FirebaseChatService.instance.profileCached(_card.hostUserId);
+    if (rtdb != null) return rtdb.avatarUrl;
+    return _card.hostAvatarUrl;
+  }
 
   int? get _callRate => _freshCallRate;
 
@@ -72,8 +83,9 @@ class _ProfilePageState extends State<ProfilePage> {
     super.initState();
     _loadBlockStatus();
     _loadFreshCallRate();
-    // Warm Firebase RTDB presence for this user
+    // Warm Firebase RTDB presence and profile for this user
     FirebaseChatService.instance.warmPresence([_card.hostUserId]);
+    FirebaseChatService.instance.warmProfiles([_card.hostUserId]);
   }
 
   Future<void> _loadFreshCallRate() async {

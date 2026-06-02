@@ -139,6 +139,15 @@ class _MyProfilePageState extends State<MyProfilePage> {
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 2),
         ));
+      // Update RTDB profile with new avatar
+      if (me != null) {
+        FirebaseChatService.instance.writeMyProfile(
+          displayName: me.displayName,
+          avatarUrl: url,
+          countryCode: me.countryCode ?? '',
+          language: me.language ?? '',
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -188,10 +197,12 @@ class _MyProfilePageState extends State<MyProfilePage> {
         language: _language.isEmpty ? null : _language,
       );
 
-      // Propagate name/avatar change to all Firestore chat docs so other users see it immediately
-      FirebaseChatService.instance.updateMyNameInChats(
+      // Single RTDB write — all listeners everywhere get the new identity instantly
+      FirebaseChatService.instance.writeMyProfile(
         displayName: updated.displayName,
         avatarUrl: updated.avatarUrl,
+        countryCode: updated.countryCode ?? '',
+        language: updated.language ?? '',
       );
 
       if (!mounted) return;

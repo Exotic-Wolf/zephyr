@@ -113,6 +113,79 @@ class FirebaseChatService {
     }
   }
 
+  // ── Profiles cache (RTDB) ──────────────────────────────────────────────────
+
+  /// Cached profile data per user: displayName, avatarUrl, countryCode, language.
+  final Map<String, RtdbProfile> _profileCache = {};
+  final Map<String, StreamSubscription<DatabaseEvent>> _profileSubs = {};
+  final Map<String, DateTime> _profileLastAccess = {};
+  static const int _maxProfileSubs = 50;
+
+  /// Notifies listeners whenever any user's profile changes.
+  final ValueNotifier<int> profileVersion = ValueNotifier<int>(0);
+
+  /// Returns cached profile for a user. Null if not yet loaded.
+  RtdbProfile? profileCached(String userId) => _profileCache[userId];
+
+  /// Pre-warm profile data for a list of user IDs. Same LRU pattern as presence.
+  void warmProfiles(List<String> userIds) {
+    for (final String uid in userIds) {
+      if (_profileSubs.containsKey(uid)) {
+        _profileLastAccess[uid] = DateTime.now();
+        continue;
+      }
+
+      // Evict LRU if at capacity
+      while (_profileSubs.length >= _maxProfileSubs) {
+        String? lruKey;
+        DateTime? lruTime;
+        for (final entry in _profileLastAccess.entries) {
+          if (!_profileSubs.containsKey(entry.key)) continue;
+          if (lruTime == null || entry.value.isBefore(lruTime)) {
+            lruKey = entry.key;
+            lruTime = entry.value;
+          }
+        }
+        final evict = lruKey ?? _profileSubs.keys.first;
+        _profileSubs.remove(evict)?.cancel();
+        _profileLastAccess.remove(evict);
+      }
+
+      _profileLastAccess[uid] = DateTime.now();
+      _profileSubs[uid] = _rtdb.ref('profiles/$uid').onValue.listen((event) {
+        final data = event.snapshot.value;
+        if (data is Map) {
+          final profile = RtdbProfile(
+            displayName: (data['displayName'] as String?) ?? 'User',
+            avatarUrl: data['avatarUrl'] as String?,
+            countryCode: (data['countryCode'] as String?) ?? '',
+            language: (data['language'] as String?) ?? '',
+          );
+          final old = _profileCache[uid];
+          _profileCache[uid] = profile;
+          if (old != profile) {
+            profileVersion.value++;
+          }
+        }
+      });
+    }
+  }
+
+  /// Write the current user's profile to RTDB. Call on login, onboarding, and profile edit.
+  Future<void> writeMyProfile({
+    required String displayName,
+    String? avatarUrl,
+    required String countryCode,
+    required String language,
+  }) async {
+    await _rtdb.ref('profiles/$_myUserId').set({
+      'displayName': displayName,
+      'avatarUrl': avatarUrl,
+      'countryCode': countryCode,
+      'language': language,
+    });
+  }
+
   /// Initialize: sign in with custom Firebase token and set up presence.
   /// [zephyrUserId] is the app's user ID (UUID). Safe to call multiple times.
   /// [firebaseToken] is a custom token from the backend (optional — falls back to anonymous).
@@ -479,9 +552,6 @@ class FirebaseChatService {
     required String otherUserId,
     required String body,
     required String myDisplayName,
-    String? myAvatarUrl,
-    required String otherDisplayName,
-    String? otherAvatarUrl,
     String type = 'text',
     String? imageUrl,
     String? idempotencyKey,
@@ -515,41 +585,17 @@ class FirebaseChatService {
 
     final String preview = type == 'image' ? '📷 Photo' : body;
 
-    // Update chat metadata (create if doesn't exist)
+    // Update chat metadata (create if doesn't exist) — names live in RTDB profiles, not here
     await chatDoc.set({
       'participants': [_myUserId, otherUserId],
       'lastMessage': preview,
       'lastMessageAt': now,
       'lastSenderId': _myUserId,
-      'name_$_myUserId': myDisplayName,
-      'name_$otherUserId': otherDisplayName,
-      if (myAvatarUrl != null) 'avatar_$_myUserId': myAvatarUrl,
-      if (otherAvatarUrl != null) 'avatar_$otherUserId': otherAvatarUrl,
       'unread_$otherUserId': FieldValue.increment(1),
     }, SetOptions(merge: true));
 
     // Send push notification to recipient (fire-and-forget)
     onSendPush?.call(otherUserId, myDisplayName, preview);
-  }
-
-  /// Update the current user's display name and avatar across all their chat documents.
-  /// Call this after a profile edit so inbox shows the new name for all conversation partners.
-  Future<void> updateMyNameInChats({
-    required String displayName,
-    String? avatarUrl,
-  }) async {
-    final snap = await _fs
-        .collection('chats')
-        .where('participants', arrayContains: _myUserId)
-        .get();
-    final batch = _fs.batch();
-    for (final doc in snap.docs) {
-      batch.update(doc.reference, {
-        'name_$_myUserId': displayName,
-        if (avatarUrl != null) 'avatar_$_myUserId': avatarUrl,
-      });
-    }
-    await batch.commit();
   }
 
   /// Upload an image and send it as a message.
@@ -558,9 +604,6 @@ class FirebaseChatService {
     required String otherUserId,
     required File imageFile,
     required String myDisplayName,
-    String? myAvatarUrl,
-    required String otherDisplayName,
-    String? otherAvatarUrl,
   }) async {
     // Image validation
     final int fileSize = await imageFile.length();
@@ -585,9 +628,6 @@ class FirebaseChatService {
       otherUserId: otherUserId,
       body: '',
       myDisplayName: myDisplayName,
-      myAvatarUrl: myAvatarUrl,
-      otherDisplayName: otherDisplayName,
-      otherAvatarUrl: otherAvatarUrl,
       type: 'image',
       imageUrl: downloadUrl,
     );
@@ -823,6 +863,32 @@ class FirebaseChatService {
 }
 
 // ── Models ────────────────────────────────────────────────────────────────────
+
+class RtdbProfile {
+  const RtdbProfile({
+    required this.displayName,
+    this.avatarUrl,
+    required this.countryCode,
+    required this.language,
+  });
+
+  final String displayName;
+  final String? avatarUrl;
+  final String countryCode;
+  final String language;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RtdbProfile &&
+          displayName == other.displayName &&
+          avatarUrl == other.avatarUrl &&
+          countryCode == other.countryCode &&
+          language == other.language;
+
+  @override
+  int get hashCode => Object.hash(displayName, avatarUrl, countryCode, language);
+}
 
 class FirebaseConversation {
   FirebaseConversation({

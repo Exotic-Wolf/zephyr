@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/api_client.dart';
+import '../../services/firebase_chat_service.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({
@@ -76,6 +77,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         displayName: _nicknameCtrl.text.trim(),
         countryCode: _selectedCountry!.countryCode,
         language: _selectedLanguage,
+      );
+      // Write RTDB profile node so other users can see this identity in real-time
+      FirebaseChatService.instance.writeMyProfile(
+        displayName: _nicknameCtrl.text.trim(),
+        countryCode: _selectedCountry!.countryCode,
+        language: _selectedLanguage!,
       );
       if (mounted) widget.onComplete();
     } catch (e) {
