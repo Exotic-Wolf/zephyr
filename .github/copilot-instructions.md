@@ -110,6 +110,18 @@ When auditing a feature, always grade each aspect (A+ to F) and record results h
 | Security | A | Block check both directions, backend validates all billing, service key on internals |
 | Code quality | A+ | Random = thin matchmaking layer inheriting DirectCallScreen. Zero duplication. Zero dead code. |
 
+### IAP / Billing — 2 Jun 2026 — Overall: A+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | A+ | Flutter `in_app_purchase` → backend verify-purchase → credit coins. StoreKit 2 + Google Play Billing. Direct credit endpoint blocked in production. |
+| Apple verification | A+ | Full JWS certificate chain verified against Apple G3 root CA via `decodeTransaction()`. Forged receipts detected as `CertificateValidationError`. Validates bundleId + productId cryptographically. Rejects revoked transactions. |
+| Google verification | A+ | Publisher API token verification via `google-auth-library`. Validates packageName + productId. Checks `purchaseState === 0` (purchased) and `consumptionState === 0` (unconsumed). |
+| Refund handling | A+ | Apple ASNS V2 webhook + Google RTDN webhook. `processRefund()` deducts coins immediately, records `iap_refund` transaction. Idempotent (skips if already refunded). Balance can go negative (fraud protection). |
+| Idempotency | A+ | `iap_purchases.transaction_id` UNIQUE constraint. Check-before-insert prevents double-credit. Race conditions caught by PostgreSQL. |
+| Retry safety | A+ | `completePurchase()` only called after backend confirms credit. Failed verifications retry on next app launch automatically. |
+| Production hardening | A+ | `POST /v1/economy/purchase-coins` blocked unless `ALLOW_FAKE_PURCHASES=true`. Flutter fallback restricted to `kDebugMode`. |
+| Code quality | A+ | Singleton `IapService.instance`. Clean separation: Flutter handles store interaction, backend handles all validation + crediting. Zero trust on client. |
+
 ### Onboarding — 2 Jun 2026 — Overall: A
 | Aspect | Grade | Notes |
 |--------|-------|-------|
