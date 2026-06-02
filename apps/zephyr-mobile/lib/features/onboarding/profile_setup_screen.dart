@@ -120,11 +120,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFF150805),
         body: SafeArea(
-          child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          child: CustomScrollView(
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
               const SizedBox(height: 48),
               const Text(
                 'Welcome to Zephyr',
@@ -324,6 +328,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               SizedBox(height: bottomPad + 16),
             ],
           ),
+        ),
+            ),
+          ],
         ),
       ),
       ),
