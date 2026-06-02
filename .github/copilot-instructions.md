@@ -110,3 +110,14 @@ When auditing a feature, always grade each aspect (A+ to F) and record results h
 | Security | A | Block check both directions, backend validates all billing, service key on internals |
 | Code quality | A+ | Random = thin matchmaking layer inheriting DirectCallScreen. Zero duplication. Zero dead code. |
 
+### Onboarding — 2 Jun 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | A | Google + Apple login → `onboardedAt` null-check → profile setup or straight to home. Backend `COALESCE(onboarded_at, NOW())` on PATCH /me. No guest login. |
+| Login flow | A | Google Sign-In + Apple Sign-In. Buttons disabled during loading. Proper error display. API offline warning on startup. |
+| Profile setup | A | Nickname (2-20 chars, control chars blocked, emoji allowed), country picker, language dropdown. Keyboard dismiss on tap. Semantics labels. |
+| Backend | A | `issueGoogleSession` / `issueAppleSession` → find-or-create user → JWT. `updateMe` sets `onboarded_at` via COALESCE on first profile save. Backfill migration for existing users. |
+| Session restore | A | `main.dart` checks `profile.onboardedAt != null` — already-onboarded users skip setup on re-login. |
+| Security | A | Google token verified server-side with audience check. Apple token verified via JWKS. No client-side trust. |
+| Code quality | A | Clean separation: `onboarding_page.dart` (login), `profile_setup_screen.dart` (setup). No dead code. Proper dispose. |
+
