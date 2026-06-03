@@ -49,6 +49,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   bool _sending = false;
   bool _loadingMore = false;
   bool _hasMore = true;
+  bool _streamReady = false;
   final Map<String, String> _translations = {}; // messageId -> translated text
   final Set<String> _translating = {}; // messageIds currently being translated
 
@@ -85,13 +86,22 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   /// Ensure the chat doc exists (with participants) before listening.
   /// Security rules on /messages require the parent doc's participants array.
   Future<void> _ensureChatDocAndListen() async {
-    await FirebaseChatService.instance.ensureChatDoc(widget.otherUserId);
+    await FirebaseChatService.instance.ensureChatDoc(
+      widget.otherUserId,
+      myDisplayName: widget.myDisplayName,
+      myAvatarUrl: widget.myAvatarUrl,
+      otherDisplayName: widget.otherDisplayName,
+      otherAvatarUrl: widget.otherAvatarUrl,
+    );
     if (!mounted) return;
     _sub = FirebaseChatService.instance
         .watchMessages(widget.otherUserId)
         .listen((List<FirebaseMessage> msgs) {
       if (mounted) {
-        setState(() => _messages = msgs);
+        setState(() {
+          _messages = msgs;
+          _streamReady = true;
+        });
         _scrollToBottom();
         // Mark incoming messages as read continuously while chat is open
         _markIncomingRead(msgs);
@@ -218,6 +228,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         otherUserId: widget.otherUserId,
         body: text,
         myDisplayName: widget.myDisplayName,
+        myAvatarUrl: widget.myAvatarUrl,
         idempotencyKey: key,
       );
     } catch (e) {
@@ -241,6 +252,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         otherUserId: widget.otherUserId,
         imageFile: File(picked.path),
         myDisplayName: widget.myDisplayName,
+        myAvatarUrl: widget.myAvatarUrl,
       );
     } catch (e) {
       if (mounted) {
@@ -630,7 +642,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           Column(
         children: [
           Expanded(
-            child: _messages.isEmpty && _olderMessages.isEmpty
+            child: !_streamReady
+                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                : _messages.isEmpty && _olderMessages.isEmpty
                 ? Center(
                     child: Text('Say hello!',
                         style: TextStyle(color: Colors.grey.shade500)))

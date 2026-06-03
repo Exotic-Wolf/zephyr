@@ -446,10 +446,22 @@ class FirebaseChatService {
 
   /// Ensure the chat doc exists with participants. Call before listening to messages.
   /// Needed because Firestore security rules require the parent doc's participants array.
-  Future<void> ensureChatDoc(String otherUserId) async {
+  /// Optionally writes display names/avatars as fallback for inbox display
+  /// (RTDB profiles remain the source of truth via profileCached).
+  Future<void> ensureChatDoc(
+    String otherUserId, {
+    String? myDisplayName,
+    String? myAvatarUrl,
+    String? otherDisplayName,
+    String? otherAvatarUrl,
+  }) async {
     final String cId = chatId(_myUserId!, otherUserId);
     await _fs.collection('chats').doc(cId).set({
       'participants': [_myUserId, otherUserId],
+      if (myDisplayName != null) 'name_${_myUserId}': myDisplayName,
+      if (myAvatarUrl != null) 'avatar_${_myUserId}': myAvatarUrl,
+      if (otherDisplayName != null) 'name_$otherUserId': otherDisplayName,
+      if (otherAvatarUrl != null) 'avatar_$otherUserId': otherAvatarUrl,
     }, SetOptions(merge: true));
   }
 
@@ -597,6 +609,7 @@ class FirebaseChatService {
     required String otherUserId,
     required String body,
     required String myDisplayName,
+    String? myAvatarUrl,
     String type = 'text',
     String? imageUrl,
     String? idempotencyKey,
@@ -636,12 +649,15 @@ class FirebaseChatService {
 
     final String preview = type == 'image' ? '📷 Photo' : body;
 
-    // Update chat metadata — names live in RTDB profiles, not here
+    // Update chat metadata — keep sender name/avatar as inbox fallback
+    // (RTDB profiles remain the primary source via profileCached)
     await chatDoc.set({
       'lastMessage': preview,
       'lastMessageAt': now,
       'lastSenderId': _myUserId,
       'unread_$otherUserId': FieldValue.increment(1),
+      'name_${_myUserId}': myDisplayName,
+      if (myAvatarUrl != null) 'avatar_${_myUserId}': myAvatarUrl,
     }, SetOptions(merge: true));
 
     // Send push notification to recipient (fire-and-forget)
@@ -654,6 +670,7 @@ class FirebaseChatService {
     required String otherUserId,
     required File imageFile,
     required String myDisplayName,
+    String? myAvatarUrl,
   }) async {
     // Image validation
     final int fileSize = await imageFile.length();
@@ -678,6 +695,7 @@ class FirebaseChatService {
       otherUserId: otherUserId,
       body: '',
       myDisplayName: myDisplayName,
+      myAvatarUrl: myAvatarUrl,
       type: 'image',
       imageUrl: downloadUrl,
     );
