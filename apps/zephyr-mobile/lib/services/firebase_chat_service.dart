@@ -180,6 +180,7 @@ class FirebaseChatService {
     required String language,
     String? birthday,
   }) async {
+    if (_myUserId == null) return;
     await _rtdb.ref('profiles/$_myUserId').set({
       'displayName': displayName,
       'avatarUrl': avatarUrl,
