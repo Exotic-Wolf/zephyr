@@ -224,18 +224,23 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _clearLocalAppData() async {
+    // Terminate Firestore FIRST — while auth is still valid.
+    // This drops all snapshot listeners cleanly before sign-out.
+    try {
+      await FirebaseFirestore.instance
+          .terminate()
+          .timeout(const Duration(seconds: 5), onTimeout: () {});
+      await FirebaseFirestore.instance
+          .clearPersistence()
+          .timeout(const Duration(seconds: 3), onTimeout: () {});
+    } catch (_) {}
+
     try {
       await _storage.deleteAll();
     } catch (_) {}
 
     try {
       await FirebaseChatService.instance.clearSession();
-    } catch (_) {}
-
-    // Terminate Firestore and clear its local persistence safely.
-    try {
-      await FirebaseFirestore.instance.terminate();
-      await FirebaseFirestore.instance.clearPersistence();
     } catch (_) {}
 
     // Clear Flutter image cache held in memory.
