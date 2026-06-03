@@ -57,14 +57,12 @@ export class UsersController {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     await this.storeService.deleteUserAccount(user.id);
 
-    // Best-effort Firebase cleanup for no-trace test reset.
-    try {
-      await this.fcmService.deleteUserRealtimeData(user.id);
-    } catch (error) {
+    // Fire-and-forget Firebase cleanup — don't block the response.
+    this.fcmService.deleteUserRealtimeData(user.id).catch((error) => {
       this.logger.warn(
         `Delete account cleanup partially failed for user ${user.id}: ${String(error)}`,
       );
-    }
+    });
   }
 
   @Post('me/avatar')
