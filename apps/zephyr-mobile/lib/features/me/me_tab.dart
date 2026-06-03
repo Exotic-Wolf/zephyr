@@ -18,6 +18,7 @@ class MeTab extends StatelessWidget {
     required this.apiClient,
     required this.accessToken,
     required this.onLogout,
+    required this.onDeleteAccount,
     required this.locale,
     required this.onLocaleChanged,
     required this.themeMode,
@@ -29,6 +30,7 @@ class MeTab extends StatelessWidget {
   final ZephyrApiClient apiClient;
   final String accessToken;
   final VoidCallback onLogout;
+  final Future<void> Function() onDeleteAccount;
   final Locale? locale;
   final ValueChanged<Locale?> onLocaleChanged;
   final ThemeMode themeMode;
@@ -182,6 +184,7 @@ class MeTab extends StatelessWidget {
                     MaterialPageRoute<void>(
                       builder: (_) => SettingsPage(
                         onLogout: onLogout,
+                        onDeleteAccount: onDeleteAccount,
                         locale: locale,
                         onLocaleChanged: onLocaleChanged,
                         themeMode: themeMode,

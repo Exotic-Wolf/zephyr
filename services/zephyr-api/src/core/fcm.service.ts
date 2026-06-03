@@ -88,4 +88,77 @@ export class FcmService implements OnModuleInit {
     if (!this.initialized) return;
     await admin.database().ref(`direct_calls/${userId}`).remove();
   }
+
+  /**
+   * Delete user-owned Firebase data so account deletion leaves no runtime traces.
+   * Best-effort: ignores missing resources and continues cleanup.
+   */
+  async deleteUserRealtimeData(userId: string): Promise<void> {
+    if (!this.initialized) return;
+
+    // RTDB: remove direct user-owned nodes
+    let roomIdFromPresence: string | null = null;
+    try {
+      const presenceSnap = await admin.database().ref(`presence/${userId}`).get();
+      const presence = presenceSnap.val() as { roomId?: string } | null;
+      roomIdFromPresence = presence?.roomId ?? null;
+    } catch {
+      roomIdFromPresence = null;
+    }
+
+    await admin.database().ref().update({
+      [`presence/${userId}`]: null,
+      [`profiles/${userId}`]: null,
+      [`direct_calls/${userId}`]: null,
+    });
+
+    // RTDB: remove incoming call nodes where this user is caller
+    try {
+      const callsByCaller = await admin
+        .database()
+        .ref('direct_calls')
+        .orderByChild('callerId')
+        .equalTo(userId)
+        .get();
+      const updates: Record<string, null> = {};
+      callsByCaller.forEach((child) => {
+        updates[`direct_calls/${child.key}`] = null;
+      });
+      if (Object.keys(updates).length > 0) {
+        await admin.database().ref().update(updates);
+      }
+    } catch {
+      // Ignore query failures in best-effort cleanup.
+    }
+
+    // RTDB: if user was live, remove that room node too.
+    if (roomIdFromPresence) {
+      try {
+        await admin.database().ref(`live_rooms/${roomIdFromPresence}`).remove();
+      } catch {
+        // Ignore if room already removed.
+      }
+    }
+
+    // Firestore: delete all chats this user participated in (including subcollections).
+    try {
+      const firestore = admin.firestore();
+      const chatSnap = await firestore
+        .collection('chats')
+        .where('participants', 'array-contains', userId)
+        .get();
+      for (const doc of chatSnap.docs) {
+        await firestore.recursiveDelete(doc.ref);
+      }
+    } catch {
+      // Ignore if Firestore is unavailable.
+    }
+
+    // Firebase Auth account (custom token identity)
+    try {
+      await admin.auth().deleteUser(userId);
+    } catch {
+      // Ignore if user does not exist.
+    }
+  }
 }

@@ -2,6 +2,8 @@ import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, 
 import { FileInterceptor } from '@nestjs/platform-express';
 import { v2 as cloudinary } from 'cloudinary';
 import { unlink } from 'fs';
+import { Logger } from '@nestjs/common';
+import { FcmService } from '../core/fcm.service';
 import { StoreService } from '../core/store.service';
 import type { UserProfile } from '../core/store.service';
 import { UpdateMeDto } from './dto/update-me.dto';
@@ -14,7 +16,12 @@ cloudinary.config({
 
 @Controller('v1/users')
 export class UsersController {
-  constructor(private readonly storeService: StoreService) {}
+  private readonly logger = new Logger(UsersController.name);
+
+  constructor(
+    private readonly storeService: StoreService,
+    private readonly fcmService: FcmService,
+  ) {}
 
   @Get('me')
   async getMe(@Headers('authorization') authorization?: string): Promise<UserProfile> {
@@ -40,6 +47,24 @@ export class UsersController {
       // Only admins may claim a custom public ID
       publicId: user.isAdmin ? body?.publicId : undefined,
     });
+  }
+
+  @Delete('me')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteMe(
+    @Headers('authorization') authorization: string | undefined,
+  ): Promise<void> {
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    await this.storeService.deleteUserAccount(user.id);
+
+    // Best-effort Firebase cleanup for no-trace test reset.
+    try {
+      await this.fcmService.deleteUserRealtimeData(user.id);
+    } catch (error) {
+      this.logger.warn(
+        `Delete account cleanup partially failed for user ${user.id}: ${String(error)}`,
+      );
+    }
   }
 
   @Post('me/avatar')

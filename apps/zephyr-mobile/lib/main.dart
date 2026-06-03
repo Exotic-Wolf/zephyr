@@ -6,7 +6,11 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'firebase_options.dart';
@@ -173,11 +177,111 @@ class _MyAppState extends State<MyApp> {
 
   void _onLogout() {
     FirebaseChatService.instance.setOfflineStatus();
+    FirebaseChatService.instance.clearSession();
     final token = _accessToken;
     _storage.delete(key: _tokenKey);
     ZephyrApiClient.accessToken = null;
     setState(() => _accessToken = null);
     if (token != null) _unregisterFcmToken(token);
+  }
+
+  Future<void> _onDeleteAccount() async {
+    final token = _accessToken;
+    if (token == null || token.isEmpty) return;
+
+    try {
+      await FirebaseChatService.instance.setOfflineStatus();
+    } catch (error) {
+      debugPrint('Delete account failed at setOfflineStatus: $error');
+      rethrow;
+    }
+
+    try {
+      await _unregisterFcmToken(token);
+    } catch (error) {
+      debugPrint('Delete account failed at unregisterFcmToken: $error');
+      rethrow;
+    }
+
+    try {
+      await _apiClient.deleteMyAccount(token);
+    } catch (error) {
+      debugPrint('Delete account failed at deleteMyAccount API: $error');
+      rethrow;
+    }
+
+    try {
+      await _clearLocalAppData();
+    } catch (error) {
+      debugPrint('Delete account failed at clearLocalAppData: $error');
+      rethrow;
+    }
+
+    ZephyrApiClient.accessToken = null;
+    if (mounted) {
+      setState(() => _accessToken = null);
+    }
+  }
+
+  Future<void> _clearLocalAppData() async {
+    try {
+      await _storage.deleteAll();
+    } catch (_) {}
+
+    try {
+      await FirebaseChatService.instance.clearSession();
+    } catch (_) {}
+
+    // Clear Flutter image cache held in memory.
+    try {
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    } catch (_) {}
+
+    // Best-effort remove files from app cache/temp dirs.
+    try {
+      final Directory tempDir = await getTemporaryDirectory();
+      await _deleteDirectoryContents(tempDir);
+    } catch (_) {}
+
+    try {
+      final Directory cacheDir = await getApplicationCacheDirectory();
+      await _deleteDirectoryContents(cacheDir);
+    } catch (_) {}
+
+    // Best-effort wipe local SQLite files.
+    try {
+      final String dbPath = await getDatabasesPath();
+      final Directory dbDir = Directory(dbPath);
+      if (await dbDir.exists()) {
+        await _deleteDirectoryContents(dbDir);
+      }
+    } catch (_) {}
+
+    // Wipe any extra cache-like folders under app support used by plugins.
+    try {
+      final Directory supportDir = await getApplicationSupportDirectory();
+      final Directory supportCache = Directory(p.join(supportDir.path, 'cache'));
+      if (await supportCache.exists()) {
+        await _deleteDirectoryContents(supportCache);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _deleteDirectoryContents(Directory directory) async {
+    if (!await directory.exists()) return;
+
+    await for (final entity in directory.list(followLinks: false)) {
+      try {
+        if (entity is File) {
+          await entity.delete();
+        } else if (entity is Directory) {
+          await entity.delete(recursive: true);
+        }
+      } catch (_) {
+        // Ignore per-entity failures so wipe keeps progressing.
+      }
+    }
   }
 
   Future<void> _unregisterFcmToken(String accessToken) async {
@@ -226,6 +330,7 @@ class _MyAppState extends State<MyApp> {
               apiClient: _apiClient,
               accessToken: _accessToken!,
               onLogout: _onLogout,
+              onDeleteAccount: _onDeleteAccount,
               tabNotifier: _tabNotifier,
               themeMode: _themeMode,
               onThemeModeChanged: (ThemeMode mode) {

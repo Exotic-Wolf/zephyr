@@ -818,6 +818,78 @@ export class StoreService implements OnModuleInit {
     return nextUser;
   }
 
+  async deleteUserAccount(userId: string): Promise<void> {
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.transaction(async (client) => {
+        // Hard delete call sessions where user participated so receiver-set-null rows do not remain.
+        await client.query(
+          `
+            DELETE FROM call_sessions
+            WHERE caller_user_id = $1 OR receiver_user_id = $1
+          `,
+          [userId],
+        );
+
+        const deleted = await client.query<{ id: string }>(
+          `
+            DELETE FROM users
+            WHERE id = $1
+            RETURNING id
+          `,
+          [userId],
+        );
+
+        if ((deleted.rowCount ?? 0) === 0) {
+          throw new NotFoundException('User not found');
+        }
+      });
+
+      return;
+    }
+
+    this.users.delete(userId);
+    this.walletBalances.delete(userId);
+    this.userLevels.delete(userId);
+    this.userRevenueUsd.delete(userId);
+    this.userSparkBalances.delete(userId);
+
+    for (const [token, session] of this.sessions.entries()) {
+      if (session.userId === userId) {
+        this.sessions.delete(token);
+      }
+    }
+
+    for (const [roomId, room] of this.rooms.entries()) {
+      if (room.hostUserId === userId) {
+        this.rooms.delete(roomId);
+      }
+    }
+
+    for (const [sessionId, session] of this.callSessions.entries()) {
+      if (session.callerUserId === userId || session.receiverUserId === userId) {
+        this.callSessions.delete(sessionId);
+      }
+    }
+
+    for (const [messageId, message] of this.inMemoryMessages.entries()) {
+      if (message.senderId === userId || message.receiverId === userId) {
+        this.inMemoryMessages.delete(messageId);
+      }
+    }
+
+    for (const [subject, mappedUserId] of this.googleSubjectToUserId.entries()) {
+      if (mappedUserId === userId) {
+        this.googleSubjectToUserId.delete(subject);
+      }
+    }
+
+    for (const [subject, mappedUserId] of this.appleSubjectToUserId.entries()) {
+      if (mappedUserId === userId) {
+        this.appleSubjectToUserId.delete(subject);
+      }
+    }
+  }
+
   async listRooms(): Promise<Room[]> {
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{

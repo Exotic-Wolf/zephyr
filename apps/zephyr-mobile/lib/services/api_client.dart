@@ -82,6 +82,14 @@ class ZephyrApiClient {
     return UserProfile.fromJson(data);
   }
 
+  Future<void> deleteMyAccount(String accessToken) async {
+    await _request(
+      method: 'DELETE',
+      path: '/v1/users/me',
+      accessToken: accessToken,
+    );
+  }
+
   Future<UserProfile> updateMe(
     String accessToken, {
     String? displayName,

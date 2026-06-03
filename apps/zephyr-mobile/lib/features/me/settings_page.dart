@@ -8,6 +8,7 @@ class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,
     required this.onLogout,
+    required this.onDeleteAccount,
     required this.locale,
     required this.onLocaleChanged,
     required this.themeMode,
@@ -15,6 +16,7 @@ class SettingsPage extends StatefulWidget {
   });
 
   final VoidCallback onLogout;
+  final Future<void> Function() onDeleteAccount;
   final Locale? locale;
   final ValueChanged<Locale?> onLocaleChanged;
   final ThemeMode themeMode;
@@ -27,6 +29,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late ThemeMode _themeMode = widget.themeMode;
   late Locale? _locale = widget.locale;
+  bool _deletingAccount = false;
 
   void _handleThemeChanged(ThemeMode mode) {
     setState(() => _themeMode = mode);
@@ -36,6 +39,45 @@ class _SettingsPageState extends State<SettingsPage> {
   void _handleLocaleChanged(Locale? locale) {
     setState(() => _locale = locale);
     widget.onLocaleChanged(locale);
+  }
+
+  Future<void> _handleDeleteAccount() async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Account'),
+        content: const Text(
+          'This permanently deletes your account, chats, live data, and wallet history. This cannot be undone.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(AppLocalizations.of(ctx)!.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Delete Forever',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    setState(() => _deletingAccount = true);
+    try {
+      await widget.onDeleteAccount();
+    } catch (error) {
+      debugPrint('Delete account UI error: $error');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Delete account failed: $error')),
+      );
+      setState(() => _deletingAccount = false);
+    }
   }
 
   @override
@@ -100,6 +142,22 @@ class _SettingsPageState extends State<SettingsPage> {
             title: const Text('Terms of Service'),
             trailing: const Icon(Icons.open_in_new, size: 18),
             onTap: () => launchUrl(Uri.parse('$apiBaseUrl/legal/terms'), mode: LaunchMode.externalApplication),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            enabled: !_deletingAccount,
+            leading: _deletingAccount
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.delete_forever_rounded, color: Colors.red),
+            title: Text(
+              _deletingAccount ? 'Deleting account...' : 'Delete Account',
+              style: const TextStyle(color: Colors.red),
+            ),
+            onTap: _deletingAccount ? null : _handleDeleteAccount,
           ),
           const Divider(height: 1),
           ListTile(

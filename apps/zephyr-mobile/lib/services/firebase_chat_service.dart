@@ -342,6 +342,38 @@ class FirebaseChatService {
     _connectedSub = null;
   }
 
+  /// Clears all local listeners/caches and signs out Firebase Auth.
+  Future<void> clearSession() async {
+    _connectedSub?.cancel();
+    _connectedSub = null;
+
+    for (final sub in _presenceSubs.values) {
+      await sub.cancel();
+    }
+    _presenceSubs.clear();
+    _presenceLastAccess.clear();
+    _presenceCache.clear();
+    _presenceRoomCache.clear();
+
+    for (final sub in _profileSubs.values) {
+      await sub.cancel();
+    }
+    _profileSubs.clear();
+    _profileLastAccess.clear();
+    _profileCache.clear();
+
+    _isLive = false;
+    _isBusy = false;
+    _isBackground = false;
+    _myUserId = null;
+
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {
+      // Ignore sign-out errors.
+    }
+  }
+
   // ── Direct Call Signaling (RTDB) ─────────────────────────────────────────────
 
   /// Reference to a user's call signaling node.

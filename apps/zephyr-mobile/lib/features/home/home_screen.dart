@@ -29,6 +29,7 @@ class HomeScreen extends StatefulWidget {
     required this.apiClient,
     required this.accessToken,
     required this.onLogout,
+    required this.onDeleteAccount,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.locale,
@@ -40,6 +41,7 @@ class HomeScreen extends StatefulWidget {
   final ZephyrApiClient apiClient;
   final String accessToken;
   final VoidCallback onLogout;
+  final Future<void> Function() onDeleteAccount;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Locale? locale;
@@ -839,6 +841,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 apiClient: widget.apiClient,
                 accessToken: widget.accessToken,
                 onLogout: widget.onLogout,
+              onDeleteAccount: widget.onDeleteAccount,
                 locale: widget.locale,
                 onLocaleChanged: widget.onLocaleChanged,
                 themeMode: widget.themeMode,
