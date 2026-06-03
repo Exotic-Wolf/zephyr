@@ -342,9 +342,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final String token =
           await widget.apiClient.getFirebaseToken(widget.accessToken);
       await FirebaseChatService.instance.init(me.id, firebaseToken: token);
-    } catch (_) {
-      // Fallback to anonymous if backend doesn't support custom tokens yet
-      await FirebaseChatService.instance.init(me.id);
+    } catch (e) {
+      debugPrint('Firebase custom token failed: $e — skipping RTDB init');
+      return; // Don't use anonymous — it can't satisfy RTDB rules
     }
 
     // Write own profile to RTDB so other users always see fresh identity

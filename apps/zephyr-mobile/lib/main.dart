@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -10,7 +11,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'firebase_options.dart';
@@ -232,6 +232,12 @@ class _MyAppState extends State<MyApp> {
       await FirebaseChatService.instance.clearSession();
     } catch (_) {}
 
+    // Terminate Firestore and clear its local persistence safely.
+    try {
+      await FirebaseFirestore.instance.terminate();
+      await FirebaseFirestore.instance.clearPersistence();
+    } catch (_) {}
+
     // Clear Flutter image cache held in memory.
     try {
       PaintingBinding.instance.imageCache.clear();
@@ -247,15 +253,6 @@ class _MyAppState extends State<MyApp> {
     try {
       final Directory cacheDir = await getApplicationCacheDirectory();
       await _deleteDirectoryContents(cacheDir);
-    } catch (_) {}
-
-    // Best-effort wipe local SQLite files.
-    try {
-      final String dbPath = await getDatabasesPath();
-      final Directory dbDir = Directory(dbPath);
-      if (await dbDir.exists()) {
-        await _deleteDirectoryContents(dbDir);
-      }
     } catch (_) {}
 
     // Wipe any extra cache-like folders under app support used by plugins.
