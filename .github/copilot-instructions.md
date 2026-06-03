@@ -139,3 +139,14 @@ When auditing a feature, always grade each aspect (A+ to F) and record results h
 | Security | A | Google token verified server-side with audience check. Apple token verified via JWKS. No client-side trust. |
 | Code quality | A | Clean separation: `onboarding_page.dart` (login), `profile_setup_screen.dart` (setup). No dead code. Proper dispose. |
 
+### RTDB Architecture & Data Modeling — 3 Jun 2026 — Overall: A-
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Data model | A+ | 4 clean root nodes only: `presence`, `profiles`, `direct_calls`, `live_rooms`. Flat, predictable paths. |
+| Normalization | A+ | Identity is centralized in `profiles/{userId}`. No broad denormalized name fan-out in persistent docs. |
+| Presence robustness | A+ | `onDisconnect` + Cloud Function sync/reaper gives strong crash/offline recovery. |
+| Client caching | A | LRU subscription cache (50 cap) for presence and profiles. RTDB remains source of truth. |
+| Security rules | B- | `direct_calls` and `live_rooms/status` are too permissive; need stricter writer validation. |
+| Indexing | C | Missing `.indexOn` for `comments.ts`, `reactions.ts`, `gifts.ts`; add indexes to avoid scans/warnings. |
+| Scale posture | A- | Current approach is strong for MVP and early growth; scheduled global presence scan should evolve later at very high scale. |
+
