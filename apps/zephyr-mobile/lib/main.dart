@@ -189,20 +189,7 @@ class _MyAppState extends State<MyApp> {
     final token = _accessToken;
     if (token == null || token.isEmpty) return;
 
-    try {
-      await FirebaseChatService.instance.setOfflineStatus();
-    } catch (error) {
-      debugPrint('Delete account failed at setOfflineStatus: $error');
-      rethrow;
-    }
-
-    try {
-      await _unregisterFcmToken(token);
-    } catch (error) {
-      debugPrint('Delete account failed at unregisterFcmToken: $error');
-      rethrow;
-    }
-
+    // Critical step — delete the account on the backend.
     try {
       await _apiClient.deleteMyAccount(token);
     } catch (error) {
@@ -210,12 +197,23 @@ class _MyAppState extends State<MyApp> {
       rethrow;
     }
 
+    // Everything below is best-effort cleanup — never hang.
+    try {
+      await FirebaseChatService.instance
+          .setOfflineStatus()
+          .timeout(const Duration(seconds: 3), onTimeout: () {});
+    } catch (_) {}
+
+    try {
+      await _unregisterFcmToken(token).timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
+    } catch (_) {}
+
     try {
       await _clearLocalAppData();
-    } catch (error) {
-      debugPrint('Delete account failed at clearLocalAppData: $error');
-      rethrow;
-    }
+    } catch (_) {}
 
     ZephyrApiClient.accessToken = null;
     if (mounted) {
