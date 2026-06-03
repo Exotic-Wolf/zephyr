@@ -77,6 +77,16 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     // Ensure presence and profile are warmed for this user
     FirebaseChatService.instance.warmPresence([widget.otherUserId]);
     FirebaseChatService.instance.warmProfiles([widget.otherUserId]);
+    _ensureChatDocAndListen();
+    _scrollCtrl.addListener(_onScroll);
+    _lookupLiveRoom();
+  }
+
+  /// Ensure the chat doc exists (with participants) before listening.
+  /// Security rules on /messages require the parent doc's participants array.
+  Future<void> _ensureChatDocAndListen() async {
+    await FirebaseChatService.instance.ensureChatDoc(widget.otherUserId);
+    if (!mounted) return;
     _sub = FirebaseChatService.instance
         .watchMessages(widget.otherUserId)
         .listen((List<FirebaseMessage> msgs) {
@@ -87,8 +97,6 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         _markIncomingRead(msgs);
       }
     });
-    _scrollCtrl.addListener(_onScroll);
-    _lookupLiveRoom();
   }
 
   /// Fetches roomId from live feed if presence doesn't include it.

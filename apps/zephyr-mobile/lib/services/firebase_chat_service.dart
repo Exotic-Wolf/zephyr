@@ -444,6 +444,15 @@ class FirebaseChatService {
 
   // ── Conversations (Inbox) ───────────────────────────────────────────────────
 
+  /// Ensure the chat doc exists with participants. Call before listening to messages.
+  /// Needed because Firestore security rules require the parent doc's participants array.
+  Future<void> ensureChatDoc(String otherUserId) async {
+    final String cId = chatId(_myUserId!, otherUserId);
+    await _fs.collection('chats').doc(cId).set({
+      'participants': [_myUserId, otherUserId],
+    }, SetOptions(merge: true));
+  }
+
   /// Stream of conversations for the current user, ordered by last message time.
   Stream<List<FirebaseConversation>> watchConversations() {
     return _fs
@@ -596,6 +605,12 @@ class FirebaseChatService {
     final DocumentReference chatDoc = _fs.collection('chats').doc(cId);
     final CollectionReference messagesCol = chatDoc.collection('messages');
 
+    // Ensure chat doc exists with participants BEFORE any subcollection ops.
+    // Security rules on /messages require the parent doc's participants array.
+    await chatDoc.set({
+      'participants': [_myUserId, otherUserId],
+    }, SetOptions(merge: true));
+
     // Duplicate send protection via idempotency key
     if (idempotencyKey != null) {
       final existing = await messagesCol
@@ -621,9 +636,8 @@ class FirebaseChatService {
 
     final String preview = type == 'image' ? '📷 Photo' : body;
 
-    // Update chat metadata (create if doesn't exist) — names live in RTDB profiles, not here
+    // Update chat metadata — names live in RTDB profiles, not here
     await chatDoc.set({
-      'participants': [_myUserId, otherUserId],
       'lastMessage': preview,
       'lastMessageAt': now,
       'lastSenderId': _myUserId,
