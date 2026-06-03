@@ -447,7 +447,7 @@ class LiveFeedCard {
           .trim()
           .toUpperCase(),
       hostLanguage: (json['hostLanguage'] as String? ?? 'English').trim(),
-      hostStatus: (json['hostStatus'] as String? ?? 'online').trim().toLowerCase(),
+      hostStatus: (json['hostStatus'] as String? ?? 'offline').trim().toLowerCase(),
       startedAt: DateTime.parse(json['startedAt'] as String),
       callRateCoinsPerMinute: (json['hostCallRateCoinsPerMinute'] as num?)?.toInt(),
     );

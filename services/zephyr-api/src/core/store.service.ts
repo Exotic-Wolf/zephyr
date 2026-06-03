@@ -942,7 +942,7 @@ export class StoreService implements OnModuleInit {
             users.avatar_url    AS host_avatar_url,
             users.country_code  AS host_country_code,
             users.language      AS host_language,
-            COALESCE(users.status, 'online') AS user_status,
+            COALESCE(users.status, 'offline') AS user_status,
             users.call_rate_coins_per_minute,
             rooms.id            AS room_id,
             rooms.audience_count,
@@ -992,7 +992,7 @@ export class StoreService implements OnModuleInit {
           hostAvatarUrl: u.avatarUrl ?? null,
           hostCountryCode: u.countryCode ?? 'PH',
           hostLanguage: u.language ?? 'English',
-          hostStatus: room ? 'live' : (u as any).status ?? 'online',
+          hostStatus: room ? 'live' : (u as any).status ?? 'offline',
           hostCallRateCoinsPerMinute: u.callRateCoinsPerMinute ?? null,
           startedAt: room?.createdAt ?? new Date().toISOString(),
         };
