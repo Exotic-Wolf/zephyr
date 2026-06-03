@@ -190,8 +190,12 @@ class _MyAppState extends State<MyApp> {
     if (token == null || token.isEmpty) return;
 
     // Critical step — delete the account on the backend.
+    // Timeout is treated as success: the SQL delete completes in <1s,
+    // but the response may be slow if Firebase cleanup blocks (old deploys).
     try {
       await _apiClient.deleteMyAccount(token);
+    } on TimeoutException {
+      debugPrint('Delete account API timed out — treating as success');
     } catch (error) {
       debugPrint('Delete account failed at deleteMyAccount API: $error');
       rethrow;
@@ -212,7 +216,8 @@ class _MyAppState extends State<MyApp> {
     } catch (_) {}
 
     try {
-      await _clearLocalAppData();
+      await _clearLocalAppData()
+          .timeout(const Duration(seconds: 10), onTimeout: () {});
     } catch (_) {}
 
     ZephyrApiClient.accessToken = null;
@@ -238,7 +243,8 @@ class _MyAppState extends State<MyApp> {
     } catch (_) {}
 
     try {
-      await FirebaseChatService.instance.clearSession();
+      await FirebaseChatService.instance.clearSession()
+          .timeout(const Duration(seconds: 3), onTimeout: () {});
     } catch (_) {}
 
     // Clear Flutter image cache held in memory.

@@ -87,7 +87,7 @@ class ZephyrApiClient {
       method: 'DELETE',
       path: '/v1/users/me',
       accessToken: accessToken,
-    );
+    ).timeout(const Duration(seconds: 15));
   }
 
   Future<UserProfile> updateMe(

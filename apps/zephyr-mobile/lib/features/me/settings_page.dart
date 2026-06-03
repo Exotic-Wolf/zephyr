@@ -70,6 +70,8 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _deletingAccount = true);
     try {
       await widget.onDeleteAccount();
+      if (!mounted) return;
+      Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (error) {
       debugPrint('Delete account UI error: $error');
       if (!mounted) return;
