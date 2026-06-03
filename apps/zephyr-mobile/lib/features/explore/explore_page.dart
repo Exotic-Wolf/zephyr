@@ -71,7 +71,7 @@ class _ExplorePageState extends State<ExplorePage> {
       hostAvatarUrl: profile.avatarUrl,
       hostCountryCode: profile.countryCode ?? 'XX',
       hostLanguage: profile.language ?? '',
-      hostStatus: 'online',
+      hostStatus: 'offline',
       audienceCount: 0,
       startedAt: DateTime.now(),
     );
