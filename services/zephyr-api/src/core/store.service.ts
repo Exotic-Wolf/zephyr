@@ -34,6 +34,7 @@ export interface UserProfile {
   countryCode: string | null;
   language: string | null;
   isAdmin: boolean;
+  isHost: boolean;
   callRateCoinsPerMinute: number | null;
   onboardedAt: string | null;
   createdAt: string;
@@ -297,6 +298,7 @@ export class StoreService implements OnModuleInit {
       countryCode: null,
       language: null,
       isAdmin: false,
+      isHost: false,
       callRateCoinsPerMinute: null,
       onboardedAt: null,
       createdAt: now,
@@ -433,7 +435,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
+                 country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -476,6 +478,7 @@ export class StoreService implements OnModuleInit {
       countryCode: null,
       language: null,
       isAdmin: false,
+      isHost: false,
       callRateCoinsPerMinute: null,
       onboardedAt: null,
       createdAt: this.users.get(userId)?.createdAt ?? new Date().toISOString(),
@@ -591,7 +594,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
+                 country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -634,6 +637,7 @@ export class StoreService implements OnModuleInit {
       countryCode: null,
       language: null,
       isAdmin: false,
+      isHost: false,
       callRateCoinsPerMinute: null,
       onboardedAt: null,
       createdAt: this.users.get(userId)?.createdAt ?? new Date().toISOString(),
@@ -675,7 +679,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.cover_url, u.bio, u.gender, u.birthday,
-                 u.country_code, u.language, u.is_admin, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at
+                 u.country_code, u.language, u.is_admin, u.is_host, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at
           FROM sessions s
           INNER JOIN users u ON u.id = s.user_id
           WHERE s.token = $1 AND s.user_id = $2 AND s.expires_at > NOW()
@@ -747,7 +751,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
+                 country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE id = $1
           LIMIT 1
@@ -771,6 +775,9 @@ export class StoreService implements OnModuleInit {
       const nextCallRate = updates.callRateCoinsPerMinute !== undefined ? updates.callRateCoinsPerMinute : currentUser.callRateCoinsPerMinute;
       const nextPublicId = updates.publicId !== undefined ? updates.publicId : currentUser.publicId;
 
+      // Auto-set is_host based on gender: Female = host by default
+      const shouldSetHost = updates.gender !== undefined ? updates.gender === 'Female' : undefined;
+
       const updatedResult = await this.databaseService.query<{
         id: string;
         public_id: string | null;
@@ -783,6 +790,7 @@ export class StoreService implements OnModuleInit {
         country_code: string | null;
         language: string | null;
         is_admin: boolean;
+        is_host: boolean;
         call_rate_coins_per_minute: number | null;
         onboarded_at: string | null;
         created_at: string;
@@ -793,11 +801,14 @@ export class StoreService implements OnModuleInit {
               gender = $6, birthday = $7, country_code = $8, language = $9,
               call_rate_coins_per_minute = $10, public_id = $11,
               onboarded_at = COALESCE(onboarded_at, NOW())
+              ${shouldSetHost !== undefined ? `, is_host = $12` : ''}
           WHERE id = $1
           RETURNING id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                    country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
+                    country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
         `,
-        [userId, nextDisplayName, nextAvatarUrl, nextCoverUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate, nextPublicId],
+        shouldSetHost !== undefined
+          ? [userId, nextDisplayName, nextAvatarUrl, nextCoverUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate, nextPublicId, shouldSetHost]
+          : [userId, nextDisplayName, nextAvatarUrl, nextCoverUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate, nextPublicId],
       );
 
       return this.toUserProfile(updatedResult.rows[0]);
@@ -1235,7 +1246,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
+                 country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users WHERE id = $1 LIMIT 1
         `,
         [userId],
@@ -1273,7 +1284,7 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
+                country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
          FROM users WHERE id IN (${placeholders})`,
         userIds,
       );
@@ -1303,7 +1314,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
+                 country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users WHERE public_id = $1 LIMIT 1
         `,
         [publicId],
@@ -1342,7 +1353,7 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
+                 country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE display_name ILIKE $1
              OR public_id = $2
@@ -2289,10 +2300,11 @@ export class StoreService implements OnModuleInit {
     const blockedIds = await this.getBlockedIds(callerId);
     const blockedArr = [...blockedIds];
 
-    // Step 1: online/away user, respect 4h cooldown
+    // Step 1: online/away host, respect 4h cooldown
     const withCooldown = await this.databaseService.query<{ id: string }>(
       `SELECT u.id FROM users u
-       WHERE u.status IN ('online', 'away')
+       WHERE u.is_host = TRUE
+         AND u.status IN ('online', 'away')
          AND u.id != $1
          AND u.is_banned = FALSE
          ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}
@@ -2323,7 +2335,8 @@ export class StoreService implements OnModuleInit {
     // Step 2: fallback — ignore cooldown
     const fallback = await this.databaseService.query<{ id: string }>(
       `SELECT u.id FROM users u
-       WHERE u.status IN ('online', 'away')
+       WHERE u.is_host = TRUE
+         AND u.status IN ('online', 'away')
          AND u.id != $1
          AND u.is_banned = FALSE
          ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}
@@ -3270,6 +3283,7 @@ export class StoreService implements OnModuleInit {
     country_code?: string | null;
     language?: string | null;
     is_admin?: boolean | null;
+    is_host?: boolean | null;
     call_rate_coins_per_minute?: number | null;
     onboarded_at?: string | Date | null;
     created_at: string;
@@ -3286,6 +3300,7 @@ export class StoreService implements OnModuleInit {
       countryCode: row.country_code ?? null,
       language: row.language ?? null,
       isAdmin: row.is_admin ?? false,
+      isHost: row.is_host ?? false,
       callRateCoinsPerMinute: row.call_rate_coins_per_minute ?? null,
       onboardedAt: row.onboarded_at ? new Date(row.onboarded_at).toISOString() : null,
       createdAt: new Date(row.created_at).toISOString(),

@@ -12,18 +12,6 @@ import { StoreService } from '../core/store.service';
 import { RtcService } from '../core/rtc.service';
 import { FcmService } from '../core/fcm.service';
 
-interface QueueEntry {
-  userId: string;
-  blockedIds: Set<string>;
-  enqueuedAt: number;
-}
-
-/** In-memory seeker queue for random matchmaking. */
-const seekerQueue: Map<string, QueueEntry> = new Map();
-
-/** Tried-online tracking per seeker to avoid ringing the same user twice. */
-const triedOnline: Map<string, Set<string>> = new Map();
-
 @Controller('v1/calls/random')
 export class MatchmakingController {
   constructor(
@@ -49,10 +37,6 @@ export class MatchmakingController {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     const userId = user.id;
 
-    // Remove from queue if already there (re-seek)
-    seekerQueue.delete(userId);
-    triedOnline.delete(userId);
-
     // Check if banned
     if ((user as any).is_banned) {
       return { matched: false };
@@ -64,34 +48,13 @@ export class MatchmakingController {
       return this.connectPair(userId, hostId);
     }
 
-    // Step 2: Try to match with an online user
+    // Step 2: Try to match with an online host
     const onlineId = await this.storeService.findBestOnlineMatch(userId);
     if (onlineId) {
       return this.connectPair(userId, onlineId);
     }
 
-    // Step 3: Check if there's a compatible seeker already waiting
-    const blockedIds = await this.storeService.getBlockedIds(userId);
-    for (const [waitingId, entry] of seekerQueue) {
-      if (waitingId === userId) continue;
-      if (entry.blockedIds.has(userId)) continue;
-      if (blockedIds.has(waitingId)) continue;
-
-      // Found a peer match!
-      seekerQueue.delete(waitingId);
-      return this.connectPair(userId, waitingId);
-    }
-
-    // Step 4: No match — add to queue
-    seekerQueue.set(userId, { userId, blockedIds, enqueuedAt: Date.now() });
-
-    // Auto-expire after 60s
-    setTimeout(() => {
-      if (seekerQueue.has(userId)) {
-        seekerQueue.delete(userId);
-      }
-    }, 60_000);
-
+    // No available host — return unmatched
     return { matched: false };
   }
 
@@ -104,9 +67,7 @@ export class MatchmakingController {
   async cancelSeek(
     @Headers('authorization') authorization: string | undefined,
   ): Promise<void> {
-    const user = await this.storeService.getUserFromAuthHeader(authorization);
-    seekerQueue.delete(user.id);
-    triedOnline.delete(user.id);
+    // No-op now — two-sided model doesn't queue consumers
   }
 
   /**
@@ -149,8 +110,6 @@ export class MatchmakingController {
     @Body() body: { sessionId: string; partnerId?: string },
   ): Promise<void> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
-    seekerQueue.delete(user.id);
-    triedOnline.delete(user.id);
 
     if (body?.sessionId) {
       await this.storeService.endCallSession(user.id, body.sessionId, 'caller_ended').catch(() => null);
@@ -196,9 +155,7 @@ export class MatchmakingController {
       ts: Date.now(),
     });
 
-    // Remove receiver from seeker queue if they were there
-    seekerQueue.delete(receiverId);
-    triedOnline.delete(receiverId);
+    // Remove receiver from seeker queue if they were there (legacy, no-op now)
 
     return {
       matched: true,

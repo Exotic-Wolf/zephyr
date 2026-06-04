@@ -331,6 +331,7 @@ class UserProfile {
     required this.createdAt,
     String? publicId,
     this.isAdmin = false,
+    this.isHost = false,
     this.coverUrl,
     this.gender,
     this.birthday,
@@ -344,6 +345,7 @@ class UserProfile {
   /// Short 8-digit public ID shown to users. Safe to share; does not expose the DB UUID.
   final String publicId;
   final bool isAdmin;
+  final bool isHost;
   final String displayName;
   final String? avatarUrl;
   final String? coverUrl;
@@ -366,6 +368,7 @@ class UserProfile {
       id: json['id'] as String,
       publicId: json['publicId'] as String?,
       isAdmin: (json['isAdmin'] as bool?) ?? false,
+      isHost: (json['isHost'] as bool?) ?? false,
       displayName: json['displayName'] as String,
       avatarUrl: json['avatarUrl'] as String?,
       coverUrl: json['coverUrl'] as String?,
