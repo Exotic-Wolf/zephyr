@@ -1,6 +1,6 @@
-import 'package:country_picker/country_picker.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
@@ -24,403 +24,321 @@ class ProfileSetupScreen extends StatefulWidget {
 }
 
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
-  late final TextEditingController _nicknameCtrl;
-  Country? _selectedCountry;
-  String? _selectedLanguage;
+  final PageController _pageCtrl = PageController();
   String? _selectedGender;
+  String? _selectedLanguage;
   bool _saving = false;
-  String? _error;
 
   static const List<Map<String, String>> _languages = [
-    {'code': 'en', 'label': 'English'},
-    {'code': 'ar', 'label': 'العربية'},
-    {'code': 'pt', 'label': 'Português'},
-    {'code': 'es', 'label': 'Español'},
-    {'code': 'fil', 'label': 'Filipino'},
-    {'code': 'hi', 'label': 'हिन्दी'},
-    {'code': 'id', 'label': 'Bahasa Indonesia'},
-    {'code': 'th', 'label': 'ภาษาไทย'},
-    {'code': 'vi', 'label': 'Tiếng Việt'},
-    {'code': 'zh', 'label': '中文'},
+    {'code': 'en', 'label': 'English', 'flag': '🇬🇧'},
+    {'code': 'ar', 'label': 'العربية', 'flag': '🇸🇦'},
+    {'code': 'pt', 'label': 'Português', 'flag': '🇧🇷'},
+    {'code': 'es', 'label': 'Español', 'flag': '🇪🇸'},
+    {'code': 'fil', 'label': 'Filipino', 'flag': '🇵🇭'},
+    {'code': 'hi', 'label': 'हिन्दी', 'flag': '🇮🇳'},
+    {'code': 'id', 'label': 'Indonesia', 'flag': '🇮🇩'},
+    {'code': 'th', 'label': 'ภาษาไทย', 'flag': '🇹🇭'},
+    {'code': 'vi', 'label': 'Tiếng Việt', 'flag': '🇻🇳'},
+    {'code': 'zh', 'label': '中文', 'flag': '🇨🇳'},
+    {'code': 'fr', 'label': 'Français', 'flag': '🇫🇷'},
+    {'code': 'ru', 'label': 'Русский', 'flag': '🇷🇺'},
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    // Pre-fill with the name from Google/Apple if it looks real
-    final name = widget.initialDisplayName;
-    final isPlaceholder = name.startsWith('google_') ||
-        name.startsWith('zephyr_') ||
-        name.startsWith('apple_');
-    _nicknameCtrl = TextEditingController(text: isPlaceholder ? '' : name);
+  String _detectCountryCode() {
+    try {
+      final parts = Platform.localeName.split('_');
+      if (parts.length >= 2) return parts.last.substring(0, 2).toUpperCase();
+    } catch (_) {}
+    return '';
+  }
+
+  void _selectGender(String gender) {
+    setState(() => _selectedGender = gender);
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        _pageCtrl.nextPage(
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  Future<void> _selectLanguage(String code) async {
+    if (_saving) return;
+    setState(() {
+      _selectedLanguage = code;
+      _saving = true;
+    });
+
+    try {
+      final country = _detectCountryCode();
+      await widget.apiClient.updateMe(
+        widget.accessToken,
+        gender: _selectedGender,
+        language: code,
+        countryCode: country.isNotEmpty ? country : null,
+      );
+      FirebaseChatService.instance.writeMyProfile(
+        displayName: widget.initialDisplayName,
+        countryCode: country,
+        language: code,
+      );
+      if (mounted) widget.onComplete();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
   void dispose() {
-    _nicknameCtrl.dispose();
+    _pageCtrl.dispose();
     super.dispose();
-  }
-
-  bool get _isValid =>
-      _nicknameCtrl.text.trim().length >= 2 &&
-      _selectedCountry != null &&
-      _selectedLanguage != null &&
-      _selectedGender != null;
-
-  Future<void> _save() async {
-    if (!_isValid) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      await widget.apiClient.updateMe(
-        widget.accessToken,
-        displayName: _nicknameCtrl.text.trim(),
-        countryCode: _selectedCountry!.countryCode,
-        language: _selectedLanguage,
-        gender: _selectedGender,
-      );
-      // Write RTDB profile node so other users can see this identity in real-time
-      FirebaseChatService.instance.writeMyProfile(
-        displayName: _nicknameCtrl.text.trim(),
-        countryCode: _selectedCountry!.countryCode,
-        language: _selectedLanguage!,
-      );
-      if (mounted) widget.onComplete();
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  void _pickCountry() {
-    showCountryPicker(
-      context: context,
-      showPhoneCode: false,
-      countryListTheme: CountryListThemeData(
-        backgroundColor: const Color(0xFF1C1C2E),
-        textStyle: const TextStyle(color: Colors.white),
-        searchTextStyle: const TextStyle(color: Colors.white),
-        inputDecoration: InputDecoration(
-          hintText: 'Search country',
-          hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-          prefixIcon: const Icon(Icons.search, color: Colors.white54),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          filled: true,
-          fillColor: Colors.white.withOpacity(0.1),
-        ),
-      ),
-      onSelect: (Country country) {
-        setState(() => _selectedCountry = country);
-      },
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final bottomPad = MediaQuery.of(context).padding.bottom;
+    return Scaffold(
+      backgroundColor: const Color(0xFF0D0D0D),
+      body: SafeArea(
+        child: PageView(
+          controller: _pageCtrl,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            _buildGenderPage(),
+            _buildLanguagePage(),
+          ],
+        ),
+      ),
+    );
+  }
 
-    return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: Scaffold(
-        backgroundColor: const Color(0xFF150805),
-        body: SafeArea(
-          child: CustomScrollView(
-          slivers: [
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-              const SizedBox(height: 48),
-              const Text(
-                'Welcome to Zephyr',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
+  // ─── Page 1: Gender ───────────────────────────────────────────────────────
+
+  Widget _buildGenderPage() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        children: [
+          const Spacer(flex: 2),
+          const Text(
+            'I am',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 34,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Select your gender to get started',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.5),
+              fontSize: 15,
+            ),
+          ),
+          const Spacer(),
+          Row(
+            children: [
+              Expanded(
+                child: _buildGenderCard(
+                  'Male',
+                  Icons.face_5_rounded,
+                  const Color(0xFF4A90D9),
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Set up your profile to get started',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                  fontSize: 16,
+              const SizedBox(width: 20),
+              Expanded(
+                child: _buildGenderCard(
+                  'Female',
+                  Icons.face_3_rounded,
+                  const Color(0xFFE84393),
                 ),
               ),
-              const SizedBox(height: 40),
-
-              // Nickname
-              const Text(
-                'Nickname',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _nicknameCtrl,
-                maxLength: 20,
-                style: const TextStyle(color: Colors.white),
-                inputFormatters: [
-                  FilteringTextInputFormatter.deny(RegExp(r'[\x00-\x1F]')),
-                ],
-                decoration: InputDecoration(
-                  hintText: 'Enter your nickname',
-                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
-                  counterStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.08),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 20),
-
-              // Country
-              const Text(
-                'Country',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-              const SizedBox(height: 8),
-              Semantics(
-                label: 'Country picker',
-                button: true,
-                child: GestureDetector(
-                  onTap: _pickCountry,
-                  child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: _selectedCountry == null
-                      ? Text(
-                          'Select your country',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
-                            fontSize: 16,
-                          ),
-                        )
-                      : Row(
-                          children: [
-                            Text(
-                              _selectedCountry!.flagEmoji,
-                              style: const TextStyle(fontSize: 22),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                _selectedCountry!.name,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                            const Icon(
-                              Icons.chevron_right,
-                              color: Colors.white38,
-                            ),
-                          ],
-                        ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Language
-              const Text(
-                'Language',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-              const SizedBox(height: 8),
-              Semantics(
-                label: 'Language selector',
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedLanguage,
-                    hint: Text(
-                      'Select your language',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.4),
-                        fontSize: 16,
-                      ),
-                    ),
-                    dropdownColor: const Color(0xFF2D2D44),
-                    isExpanded: true,
-                    icon: const Icon(
-                      Icons.keyboard_arrow_down,
-                      color: Colors.white38,
-                    ),
-                    items: _languages
-                        .map(
-                          (lang) => DropdownMenuItem<String>(
-                            value: lang['code'],
-                            child: Text(
-                              lang['label']!,
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _selectedLanguage = value),
-                  ),
-                ),
-              ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Gender
-              const Text(
-                'I am',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedGender = 'Male'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: _selectedGender == 'Male'
-                              ? const Color(0xFFFF8F00)
-                              : Colors.white.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: _selectedGender == 'Male'
-                              ? null
-                              : Border.all(color: Colors.white12),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.male, color: _selectedGender == 'Male' ? Colors.white : Colors.white54, size: 20),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Male',
-                              style: TextStyle(
-                                color: _selectedGender == 'Male' ? Colors.white : Colors.white54,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _selectedGender = 'Female'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: _selectedGender == 'Female'
-                              ? const Color(0xFFFF8F00)
-                              : Colors.white.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: _selectedGender == 'Female'
-                              ? null
-                              : Border.all(color: Colors.white12),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.female, color: _selectedGender == 'Female' ? Colors.white : Colors.white54, size: 20),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Female',
-                              style: TextStyle(
-                                color: _selectedGender == 'Female' ? Colors.white : Colors.white54,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const Spacer(),
-
-              // Error
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-                  ),
-                ),
-
-              // Continue button
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: _isValid && !_saving ? _save : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF8F00),
-                    disabledBackgroundColor: const Color(0xFFFF8F00).withOpacity(0.3),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: _saving
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text(
-                          'Continue',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                ),
-              ),
-              SizedBox(height: bottomPad + 16),
             ],
           ),
+          const Spacer(flex: 3),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGenderCard(String gender, IconData icon, Color color) {
+    final bool selected = _selectedGender == gender;
+    return GestureDetector(
+      onTap: () => _selectGender(gender),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(vertical: 36),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: selected
+                ? [color, color.withValues(alpha: 0.7)]
+                : [color.withValues(alpha: 0.12), color.withValues(alpha: 0.06)],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: selected ? color : color.withValues(alpha: 0.3),
+            width: selected ? 2 : 1,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : null,
         ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 64,
+              color: selected
+                  ? Colors.white
+                  : color.withValues(alpha: 0.8),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              gender,
+              style: TextStyle(
+                color: selected
+                    ? Colors.white
+                    : Colors.white.withValues(alpha: 0.8),
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  // ─── Page 2: Language ─────────────────────────────────────────────────────
+
+  void _goBackToGender() {
+    _pageCtrl.previousPage(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Widget _buildLanguagePage() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: IconButton(
+              onPressed: _goBackToGender,
+              icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 20),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Your language',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 34,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'We\'ll translate messages for you',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.5),
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 32),
+          Expanded(
+            child: GridView.builder(
+              padding: const EdgeInsets.only(bottom: 32),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 2.4,
+              ),
+              itemCount: _languages.length,
+              itemBuilder: (context, index) {
+                final lang = _languages[index];
+                final bool selected = _selectedLanguage == lang['code'];
+                return GestureDetector(
+                  onTap: _saving
+                      ? null
+                      : () => _selectLanguage(lang['code']!),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? const Color(0xFFFF8F00)
+                          : Colors.white.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: selected
+                            ? const Color(0xFFFF8F00)
+                            : Colors.white.withValues(alpha: 0.1),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          lang['flag']!,
+                          style: const TextStyle(fontSize: 22),
+                        ),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            lang['label']!,
+                            style: TextStyle(
+                              color: selected
+                                  ? Colors.white
+                                  : Colors.white.withValues(alpha: 0.8),
+                              fontSize: 15,
+                              fontWeight: selected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          if (_saving)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 32),
+              child: Center(
+                child: CircularProgressIndicator(color: Color(0xFFFF8F00)),
+              ),
+            ),
+        ],
       ),
     );
   }
