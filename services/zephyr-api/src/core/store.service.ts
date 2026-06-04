@@ -432,7 +432,7 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE id = $1
@@ -590,7 +590,7 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE id = $1
@@ -674,7 +674,7 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.bio, u.gender, u.birthday,
+          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.cover_url, u.bio, u.gender, u.birthday,
                  u.country_code, u.language, u.is_admin, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at
           FROM sessions s
           INNER JOIN users u ON u.id = s.user_id
@@ -1234,7 +1234,7 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users WHERE id = $1 LIMIT 1
         `,
@@ -1272,7 +1272,7 @@ export class StoreService implements OnModuleInit {
         onboarded_at: string | null;
         created_at: string;
       }>(
-        `SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+        `SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
                 country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
          FROM users WHERE id IN (${placeholders})`,
         userIds,
@@ -1302,7 +1302,7 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users WHERE public_id = $1 LIMIT 1
         `,
@@ -1341,7 +1341,7 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE display_name ILIKE $1
