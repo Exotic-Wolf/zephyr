@@ -27,6 +27,7 @@ export interface UserProfile {
   publicId: string | null;
   displayName: string;
   avatarUrl: string | null;
+  coverUrl: string | null;
   bio: string | null;
   gender: string | null;
   birthday: string | null;
@@ -710,6 +711,7 @@ export class StoreService implements OnModuleInit {
     updates: {
       displayName?: string;
       avatarUrl?: string | null;
+      coverUrl?: string | null;
       bio?: string | null;
       gender?: string | null;
       birthday?: string | null;
@@ -728,6 +730,7 @@ export class StoreService implements OnModuleInit {
         id: string;
         display_name: string;
         avatar_url: string | null;
+        cover_url: string | null;
         bio: string | null;
         gender: string | null;
         birthday: string | null;
@@ -740,7 +743,7 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT id, public_id, display_name, avatar_url, bio, gender, birthday,
+          SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
                  country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
           FROM users
           WHERE id = $1
@@ -756,6 +759,7 @@ export class StoreService implements OnModuleInit {
       const currentUser = this.toUserProfile(currentResult.rows[0]);
       const nextDisplayName = updates.displayName?.trim() || currentUser.displayName;
       const nextAvatarUrl = updates.avatarUrl !== undefined ? updates.avatarUrl : currentUser.avatarUrl;
+      const nextCoverUrl = updates.coverUrl !== undefined ? updates.coverUrl : currentUser.coverUrl;
       const nextBio = updates.bio !== undefined ? updates.bio : currentUser.bio;
       const nextGender = updates.gender !== undefined ? updates.gender : currentUser.gender;
       const nextBirthday = updates.birthday !== undefined ? updates.birthday : currentUser.birthday;
@@ -769,6 +773,7 @@ export class StoreService implements OnModuleInit {
         public_id: string | null;
         display_name: string;
         avatar_url: string | null;
+        cover_url: string | null;
         bio: string | null;
         gender: string | null;
         birthday: string | null;
@@ -781,15 +786,15 @@ export class StoreService implements OnModuleInit {
       }>(
         `
           UPDATE users
-          SET display_name = $2, avatar_url = $3, bio = $4,
-              gender = $5, birthday = $6, country_code = $7, language = $8,
-              call_rate_coins_per_minute = $9, public_id = $10,
+          SET display_name = $2, avatar_url = $3, cover_url = $4, bio = $5,
+              gender = $6, birthday = $7, country_code = $8, language = $9,
+              call_rate_coins_per_minute = $10, public_id = $11,
               onboarded_at = COALESCE(onboarded_at, NOW())
           WHERE id = $1
-          RETURNING id, public_id, display_name, avatar_url, bio, gender, birthday,
+          RETURNING id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
                     country_code, language, is_admin, call_rate_coins_per_minute, onboarded_at, created_at
         `,
-        [userId, nextDisplayName, nextAvatarUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate, nextPublicId],
+        [userId, nextDisplayName, nextAvatarUrl, nextCoverUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate, nextPublicId],
       );
 
       return this.toUserProfile(updatedResult.rows[0]);
@@ -804,6 +809,7 @@ export class StoreService implements OnModuleInit {
       ...user,
       displayName: updates.displayName?.trim() || user.displayName,
       avatarUrl: updates.avatarUrl !== undefined ? updates.avatarUrl : user.avatarUrl,
+      coverUrl: updates.coverUrl !== undefined ? updates.coverUrl : user.coverUrl,
       bio: updates.bio !== undefined ? updates.bio : user.bio,
       gender: updates.gender !== undefined ? updates.gender : user.gender,
       birthday: updates.birthday !== undefined ? updates.birthday : user.birthday,
@@ -3254,6 +3260,7 @@ export class StoreService implements OnModuleInit {
     public_id?: string | null;
     display_name: string;
     avatar_url: string | null;
+    cover_url?: string | null;
     bio: string | null;
     gender?: string | null;
     birthday?: string | Date | null;
@@ -3269,6 +3276,7 @@ export class StoreService implements OnModuleInit {
       publicId: row.public_id ?? null,
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
+      coverUrl: row.cover_url ?? null,
       bio: row.bio,
       gender: row.gender ?? null,
       birthday: row.birthday ? new Date(row.birthday).toISOString().split('T')[0] : null,

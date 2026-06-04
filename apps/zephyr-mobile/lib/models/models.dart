@@ -331,6 +331,7 @@ class UserProfile {
     required this.createdAt,
     String? publicId,
     this.isAdmin = false,
+    this.coverUrl,
     this.gender,
     this.birthday,
     this.countryCode,
@@ -345,6 +346,7 @@ class UserProfile {
   final bool isAdmin;
   final String displayName;
   final String? avatarUrl;
+  final String? coverUrl;
   final String? bio;
   final String? gender;
   final String? birthday;   // ISO date string e.g. "1995-06-15"
@@ -366,6 +368,7 @@ class UserProfile {
       isAdmin: (json['isAdmin'] as bool?) ?? false,
       displayName: json['displayName'] as String,
       avatarUrl: json['avatarUrl'] as String?,
+      coverUrl: json['coverUrl'] as String?,
       bio: json['bio'] as String?,
       gender: json['gender'] as String?,
       birthday: json['birthday'] as String?,

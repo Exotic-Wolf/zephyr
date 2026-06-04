@@ -27,6 +27,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   late final TextEditingController _nicknameCtrl;
   Country? _selectedCountry;
   String? _selectedLanguage;
+  String? _selectedGender;
   bool _saving = false;
   String? _error;
 
@@ -63,7 +64,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   bool get _isValid =>
       _nicknameCtrl.text.trim().length >= 2 &&
       _selectedCountry != null &&
-      _selectedLanguage != null;
+      _selectedLanguage != null &&
+      _selectedGender != null;
 
   Future<void> _save() async {
     if (!_isValid) return;
@@ -77,6 +79,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         displayName: _nicknameCtrl.text.trim(),
         countryCode: _selectedCountry!.countryCode,
         language: _selectedLanguage,
+        gender: _selectedGender,
       );
       // Write RTDB profile node so other users can see this identity in real-time
       FirebaseChatService.instance.writeMyProfile(
@@ -286,6 +289,84 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   ),
                 ),
               ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Gender
+              const Text(
+                'I am',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedGender = 'Male'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: _selectedGender == 'Male'
+                              ? const Color(0xFFFF8F00)
+                              : Colors.white.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: _selectedGender == 'Male'
+                              ? null
+                              : Border.all(color: Colors.white12),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.male, color: _selectedGender == 'Male' ? Colors.white : Colors.white54, size: 20),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Male',
+                              style: TextStyle(
+                                color: _selectedGender == 'Male' ? Colors.white : Colors.white54,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedGender = 'Female'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: _selectedGender == 'Female'
+                              ? const Color(0xFFFF8F00)
+                              : Colors.white.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: _selectedGender == 'Female'
+                              ? null
+                              : Border.all(color: Colors.white12),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.female, color: _selectedGender == 'Female' ? Colors.white : Colors.white54, size: 20),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Female',
+                              style: TextStyle(
+                                color: _selectedGender == 'Female' ? Colors.white : Colors.white54,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
 
               const Spacer(),

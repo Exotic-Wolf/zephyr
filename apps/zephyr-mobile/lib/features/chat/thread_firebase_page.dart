@@ -14,6 +14,7 @@ import '../../services/firebase_chat_service.dart';
 import '../../services/translation_service.dart';
 import '../call/direct_call_screen.dart';
 import '../live/viewer_live_screen.dart';
+import '../profile/profile_page.dart';
 import 'live_preview_widget.dart';
 
 /// Firebase-backed thread page — completely isolated from the custom thread.
@@ -301,6 +302,34 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     );
   }
 
+  void _openProfile(String name, String? avatar) {
+    final profile = FirebaseChatService.instance.profileCached(widget.otherUserId);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ProfilePage(
+          feedCard: LiveFeedCard(
+            roomId: null,
+            title: '',
+            audienceCount: 0,
+            hostUserId: widget.otherUserId,
+            hostDisplayName: name,
+            hostAvatarUrl: avatar,
+            hostCountryCode: profile?.countryCode ?? '',
+            hostLanguage: profile?.language ?? '',
+            hostStatus: FirebaseChatService.instance.presenceStateCached(widget.otherUserId) ?? 'offline',
+            startedAt: DateTime.now(),
+          ),
+          apiClient: ZephyrApiClient.instance,
+          accessToken: ZephyrApiClient.accessToken,
+          myUserId: widget.myUserId,
+          myDisplayName: widget.myDisplayName,
+          myAvatarUrl: widget.myAvatarUrl,
+          onMessage: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
+  }
+
   void _initiateCall() async {
     final api = ZephyrApiClient.instance;
     final token = ZephyrApiClient.accessToken;
@@ -556,7 +585,10 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
             final profile = FirebaseChatService.instance.profileCached(widget.otherUserId);
             final String name = profile?.displayName ?? widget.otherDisplayName;
             final String? avatar = profile?.avatarUrl ?? widget.otherAvatarUrl;
-            return Row(
+            return GestureDetector(
+              onTap: () => _openProfile(name, avatar),
+              behavior: HitTestBehavior.opaque,
+              child: Row(
           children: [
             CircleAvatar(
               radius: 18,
@@ -617,7 +649,8 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
               ),
             ),
           ],
-        );
+        ),
+            );
           },
         ),
         actions: [

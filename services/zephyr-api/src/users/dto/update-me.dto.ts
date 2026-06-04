@@ -48,6 +48,10 @@ export class UpdateMeDto {
   language?: string | null;
 
   @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsUrl()
+  coverUrl?: string | null;
+
+  @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsIn([2100, 3200, 4200, 5400, 6400, 8000, 27000])
   callRateCoinsPerMinute?: number | null;
 

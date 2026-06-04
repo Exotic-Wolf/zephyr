@@ -38,6 +38,7 @@ export class UsersController {
     return this.storeService.updateUser(user.id, {
       displayName: body?.displayName,
       avatarUrl: body?.avatarUrl,
+      coverUrl: body?.coverUrl,
       bio: body?.bio,
       gender: body?.gender,
       birthday: body?.birthday,
@@ -86,6 +87,32 @@ export class UsersController {
       });
       await this.storeService.updateUser(user.id, { avatarUrl: result.secure_url });
       return { avatarUrl: result.secure_url };
+    } finally {
+      if (file.path) unlink(file.path, () => {});
+    }
+  }
+
+  @Post('me/cover')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  async uploadCover(
+    @Headers('authorization') authorization: string | undefined,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<{ coverUrl: string }> {
+    if (!file) throw new BadRequestException('No file provided');
+    const user = await this.storeService.getUserFromAuthHeader(authorization);
+    const source = file.buffer
+      ? `data:${file.mimetype};base64,${file.buffer.toString('base64')}`
+      : file.path;
+    if (!source) throw new BadRequestException('File data missing');
+    try {
+      const result = await cloudinary.uploader.upload(source, {
+        folder: 'zephyr/covers',
+        public_id: `cover_${user.id}`,
+        overwrite: true,
+        transformation: [{ width: 800, height: 400, crop: 'fill', gravity: 'auto' }],
+      });
+      await this.storeService.updateUser(user.id, { coverUrl: result.secure_url });
+      return { coverUrl: result.secure_url };
     } finally {
       if (file.path) unlink(file.path, () => {});
     }

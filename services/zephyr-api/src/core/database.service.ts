@@ -103,7 +103,8 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ADD COLUMN IF NOT EXISTS language TEXT,
       ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE,
       ADD COLUMN IF NOT EXISTS call_rate_coins_per_minute INT,
-      ADD COLUMN IF NOT EXISTS public_id TEXT;
+      ADD COLUMN IF NOT EXISTS public_id TEXT,
+      ADD COLUMN IF NOT EXISTS cover_url TEXT;
     `);
 
     await this.pool.query(`

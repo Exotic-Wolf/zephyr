@@ -35,7 +35,9 @@ class _MyProfilePageState extends State<MyProfilePage> {
   bool _editing = false;
   bool _saving = false;
   bool _uploadingAvatar = false;
+  bool _uploadingCover = false;
   String? _avatarUrl;
+  String? _coverUrl;
   UserProfile? _pendingReturn;
 
   String _gender = 'Prefer not to say';
@@ -63,6 +65,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
     final UserProfile? me = widget.me;
     _nicknameCtrl = TextEditingController(text: me?.displayName ?? '');
     _avatarUrl = me?.avatarUrl;
+    _coverUrl = me?.coverUrl;
     if (me?.gender != null) _gender = me!.gender!;
     if (me?.birthday != null) {
       _birthday = DateTime.tryParse(me!.birthday!);
@@ -158,6 +161,54 @@ class _MyProfilePageState extends State<MyProfilePage> {
       ));
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
+    }
+  }
+
+  Future<void> _pickAndUploadCover() async {
+    final ImageSource? source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded),
+              title: Text(AppLocalizations.of(ctx)!.takePhoto),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: Text(AppLocalizations.of(ctx)!.chooseFromLibrary),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+    final XFile? picked = await ImagePicker().pickImage(source: source, imageQuality: 85, maxWidth: 1200);
+    if (picked == null || !mounted) return;
+    setState(() => _uploadingCover = true);
+    try {
+      final String url = await widget.apiClient.uploadCover(widget.accessToken, File(picked.path), mimeType: picked.mimeType);
+      if (!mounted) return;
+      setState(() => _coverUrl = url);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Cover photo updated'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Cover upload failed: $e'),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+      ));
+    } finally {
+      if (mounted) setState(() => _uploadingCover = false);
     }
   }
 
@@ -267,8 +318,63 @@ class _MyProfilePageState extends State<MyProfilePage> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.zero,
         children: <Widget>[
+
+          // ── Cover Photo ──────────────────────────────────────
+          GestureDetector(
+            onTap: _uploadingCover ? null : _pickAndUploadCover,
+            child: Container(
+              height: 160,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E1E2E) : Colors.grey.shade200,
+                image: _coverUrl != null
+                    ? DecorationImage(
+                        image: CachedNetworkImageProvider(_coverUrl!),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
+              ),
+              child: Stack(
+                children: [
+                  if (_coverUrl == null)
+                    const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.panorama_outlined, size: 36, color: Colors.white38),
+                          SizedBox(height: 6),
+                          Text('Tap to add cover photo',
+                              style: TextStyle(color: Colors.white38, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                  if (_uploadingCover)
+                    const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    ),
+                  Positioned(
+                    bottom: 8, right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              children: <Widget>[
 
           // ── Avatar ───────────────────────────────────────────
           Center(
@@ -546,6 +652,9 @@ class _MyProfilePageState extends State<MyProfilePage> {
             ),
           ),
           const SizedBox(height: 12),
+        ],
+            ),
+          ),
         ],
       ),
     );

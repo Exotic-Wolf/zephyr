@@ -71,8 +71,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   StreamSubscription<RemoteMessage>? _fcmSub;
   StreamSubscription<List<dynamic>>? _convoDeliverySub;
+  StreamSubscription<List<FirebaseConversation>>? _inboxBadgeSub;
   String? _joiningRoomId;
   String? _error;
+  int _inboxUnreadTotal = 0;
 
   // ── Incoming call state ───────────────────────────────────────────────────
   StreamSubscription<DatabaseEvent>? _incomingCallSub;
@@ -265,6 +267,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _idleTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _convoDeliverySub?.cancel();
+    _inboxBadgeSub?.cancel();
     _fcmSub?.cancel();
     widget.tabNotifier?.removeListener(_onTabNotify);
     FirebaseChatService.instance.presenceVersion.removeListener(_onPresenceChanged);
@@ -372,6 +375,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       }
     });
+
+    // Bottom tab badge: keep a real-time aggregate unread count.
+    _inboxBadgeSub?.cancel();
+    _inboxBadgeSub = FirebaseChatService.instance.watchConversations().listen((convos) {
+      final int nextTotal = convos.fold<int>(0, (sum, c) => sum + c.unreadCount);
+      debugPrint('[InboxBadge] convos=${convos.length} unread=$nextTotal');
+      if (!mounted || nextTotal == _inboxUnreadTotal) return;
+      setState(() => _inboxUnreadTotal = nextTotal);
+    });
   }
 
   Future<void> _refreshApiStatus() async {
@@ -473,6 +485,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _activeFeedIndex = _feedCards.isEmpty
         ? 0
         : _activeFeedIndex.clamp(0, _feedCards.length - 1);
+  }
+
+  Widget _buildInboxNavIcon({required bool selected, required bool isDark}) {
+    final Color baseColor = selected
+        ? const Color(0xFFFF8F00)
+        : (isDark ? const Color(0xFF6B6B6B) : Colors.black54);
+
+    final Widget bubble = Container(
+      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFF3B30),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        _inboxUnreadTotal > 99 ? '99+' : '$_inboxUnreadTotal',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          height: 1.0,
+        ),
+      ),
+    );
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        Icon(Icons.chat_bubble_rounded, color: baseColor),
+        if (_inboxUnreadTotal > 0)
+          Positioned(
+            right: -7,
+            top: -6,
+            child: bubble,
+          ),
+      ],
+    );
   }
 
   Future<void> _enterRoomWithEngine(
@@ -1007,8 +1057,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             label: l10n.explore,
           ),
           NavigationDestination(
-            icon: Icon(Icons.chat_bubble_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
-            selectedIcon: const Icon(Icons.chat_bubble_rounded, color: Color(0xFFFF8F00)),
+            icon: _buildInboxNavIcon(selected: false, isDark: isDark),
+            selectedIcon: _buildInboxNavIcon(selected: true, isDark: isDark),
             label: l10n.inbox,
           ),
           NavigationDestination(
