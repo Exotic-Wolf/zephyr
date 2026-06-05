@@ -46,7 +46,94 @@ cd apps/zephyr-mobile && flutter build apk --debug --dart-define=ENVIRONMENT=dev
 
 # Run API locally (hits real production DB via .env)
 pnpm --filter zephyr-api start:dev
+
+# Run API against local Postgres (Docker)
+pnpm --filter zephyr-api db:up
+pnpm --filter zephyr-api start:dev:localdb
+pnpm --filter zephyr-api db:down
+
+# Test and build (backend)
+pnpm --filter zephyr-api test
+pnpm --filter zephyr-api build
+pnpm --filter zephyr-api smoke
+pnpm --filter zephyr-api smoke:db
+
+# Test (Flutter)
+cd apps/zephyr-mobile && flutter test
 ```
+
+---
+
+## Environment Variables (Backend)
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `DATABASE_URL` | Yes | Postgres connection string |
+| `JWT_SECRET` | Production | Optional in local dev |
+| `DB_SSL` | No | `true` for managed Postgres requiring SSL |
+| `NODE_ENV` | Production | Set `production` in deploy |
+| `PORT` | Deploy | Platform usually injects this |
+| `CORS_ORIGINS` | Production | Comma-separated allowed origins |
+| `GOOGLE_CLIENT_IDS` | Yes | Comma-separated Google client IDs (iOS + Android) |
+| `APPLE_CLIENT_ID` | Yes | e.g. `com.zephyr.zephyrMobile` |
+| `AGORA_APP_ID` | Yes | Agora RTC app ID |
+| `AGORA_APP_CERTIFICATE` | Yes | Agora RTC certificate |
+| `DIRECT_CALL_ALLOWED_RATES` | No | Comma-separated coins/min (default: `2100,3200,4200,5400,6400,8000,27000`) |
+| `ALLOW_FAKE_PURCHASES` | No | `true` in dev only — enables direct coin credit |
+
+Tables are auto-created on startup when `DATABASE_URL` is set.
+
+---
+
+## Security Defaults (Backend)
+
+- Global DTO validation (`whitelist`, `forbidNonWhitelisted`)
+- Global rate limiting (120 requests / 60s per IP)
+- Unified JSON error envelope on all failures
+- Google token verified server-side with audience check
+- Apple token verified via JWKS
+- IAP receipts verified cryptographically (Apple JWS + Google Publisher API)
+- Internal endpoints protected by `X-Service-Key` header
+
+---
+
+## Deploy Checklist (Render)
+
+**Target:** Render Web Service + managed Postgres. Blueprint: `render.yaml` at repo root.
+
+**Pre-deploy:**
+
+```bash
+pnpm install
+pnpm --filter zephyr-api test
+pnpm --filter zephyr-api build
+```
+
+**Render setup:**
+
+1. Push branch to GitHub
+2. Create Blueprint from repo — Render detects `render.yaml`, creates `zephyr-api`
+3. Set secret env values: `JWT_SECRET`, `DATABASE_URL` (internal URL), `CORS_ORIGINS`, `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE`, `GOOGLE_CLIENT_IDS`, `APPLE_CLIENT_ID`
+4. Trigger deploy
+
+**Start command** (already in blueprint): `pnpm --filter zephyr-api start:prod`
+
+**Post-deploy smoke test:**
+
+```bash
+cd services/zephyr-api
+BASE_URL=https://your-api-domain.com node scripts/smoke.mjs
+```
+
+**Rollback:** Keep previous deployment available. If smoke fails, roll back immediately. Confirm `/v1/auth/google-login` and `/v1/rooms` before reopening traffic.
+
+**Mobile switch:** `flutter run --dart-define=API_BASE_URL=https://your-api-domain.com`
+
+**Security baseline:**
+- Strong random `JWT_SECRET` (32+ chars)
+- `CORS_ORIGINS` strict — never `*`
+- Service visibility private to repo/team
+- Rotate secrets if exposed
 
 ---
 
@@ -62,10 +149,11 @@ pnpm --filter zephyr-api start:dev
 | `pages/home_screen.dart` | Feed, socket connection, inbox badge, 5s poll fallback, RTDB listener for incoming direct calls |
 | `features/call/direct_call_screen.dart` | Reusable Agora video call screen (direct + random), remote mute detection, PIP |
 | `features/call/incoming_call_overlay.dart` | Incoming call overlay — accept/decline, caller info |
-| `pages/host_live_screen.dart` | Host live stream, heartbeat timer (15s) |
-| `pages/go_live_countdown_page.dart` | 3-2-1 countdown, creates room |
-| `pages/viewer_live_screen.dart` | Viewer live stream, reactions, comments |
-| `pages/onboarding_page.dart` | Google Sign-In, Apple Sign-In, guest login |
+| `features/live/host_live_screen.dart` | Host live stream, heartbeat timer (15s) |
+| `features/live/go_live_countdown_page.dart` | 3-2-1 countdown, creates room |
+| `features/live/viewer_live_screen.dart` | Viewer live stream, reactions, comments |
+| `features/onboarding/onboarding_page.dart` | Login screen — Google Sign-In + Apple Sign-In, API offline check, legal links ||
+| `features/onboarding/profile_setup_screen.dart` | Post-login setup — gender picker → language picker (2-page PageView), auto-detects country, writes profile to RTDB |
 | `pages/explore_page.dart` | Search users by name or 8-digit public ID |
 | `pages/inbox_firebase_page.dart` | Conversation list (real-time Firestore), presence dots, unread badges |
 | `pages/thread_firebase_page.dart` | DM chat — real-time messages, read/delivered receipts (✓✓), images, translate, delete, anti-spam |
@@ -107,7 +195,7 @@ Key columns:
 
 ```
 GET  /v1/health/live, /v1/health/ready
-POST /v1/auth/guest-login, /google-login, /apple-login
+POST /v1/auth/google-login, /apple-login
 GET  /v1/users/me
 PATCH /v1/users/me
 GET  /v1/users/by-public-id/:publicId
@@ -132,10 +220,6 @@ GET  /v1/messages/conversations
 GET  /v1/messages/conversations/:userId
 PATCH /v1/messages/:messageId/read
 ```
-
-WebSocket namespaces:
-- `/feed` — live room events (`feed:room-created`, `feed:room-ended`, `feed:room-updated`)
-- `/call` — random call matchmaking (`call:join_queue`, `call:leave_queue`, `call:next`, `call:end`, `call:matched`, `call:partner_left`)
 
 Firebase Chat:
 - Backend: `GET /v1/auth/firebase-token` → custom token for Firebase Auth
@@ -197,7 +281,7 @@ Firebase Chat:
 
 | Area | Status | % |
 |------|--------|---|
-| Auth (Google / Apple / Guest) | ✅ Done | 100% |
+| Auth (Google / Apple) | ✅ Done | 100% |
 | Home feed (cards, status, real-time) | ✅ Done | 90% |
 | Go Live / Host screen (Agora) | ✅ Done | 85% |
 | Viewer screen (Agora) | ✅ Done | 80% |
@@ -217,7 +301,7 @@ Firebase Chat:
 | Direct call (signaling + video) | ✅ Done | 95% |
 | Cloud Functions (call + live + reaper) | ✅ Done | 100% |
 | App icon + splash | ✅ Done | 100% |
-| Onboarding flow | ❌ Missing | 0% |
+| Onboarding flow | ✅ Done | 100% |
 
 ---
 
@@ -404,6 +488,26 @@ Random calls are priced cheap intentionally (600 coins/min = ~$0.11/min to calle
 
 ## Screens & UI
 
+### Onboarding (`features/onboarding/`)
+
+Two screens, one flow:
+
+**1. Login — `onboarding_page.dart`**
+- Dark background (`#150805`) with mascot branding (60% of screen)
+- Apple Sign-In button (iOS only, shown first) + Google Sign-In button
+- No guest login — real identity required
+- API offline warning banner (checks `/health/live` on init)
+- Buttons disabled during loading, error text below
+- Legal links at bottom: Terms of Service + Privacy Policy (opens in browser)
+- On success: checks `user.onboardedAt` — if null → profile setup, else → home
+
+**2. Profile Setup — `profile_setup_screen.dart`**
+- 2-page horizontal PageView (no swipe — programmatic navigation only)
+- **Page 1 — Gender:** "I am" heading, two large gradient cards (Male / Female). Tap auto-advances after 300ms
+- **Page 2 — Language:** Grid of 12 languages (EN, AR, PT, ES, FIL, HI, ID, TH, VI, ZH, FR, RU) with flag emoji. Back button to return to gender
+- On language select: calls `PATCH /v1/users/me` (gender + language + auto-detected country), writes profile to RTDB `profiles/{userId}`, then navigates to home
+- `onboardedAt` set server-side via `COALESCE(onboarded_at, NOW())` — idempotent
+
 ### App Shell
 
 5-tab bottom navigation bar (accent `#FF8F00` amber):
@@ -522,7 +626,7 @@ Centered screen with:
 
 ### 🟠 2. First Impression
 
-- [ ] Onboarding flow — first-launch screen: set nickname, pick country/language
+- [x] Onboarding flow — login (Google + Apple) → profile setup (gender → language), auto-detect country, writes to RTDB profiles
 - [ ] Follow / unfollow UI — Follow button on ProfilePage, follower/following counts (backend done, no UI)
 - [ ] Empty feed state — "Find people" prompt or curated suggestions when following 0 people
 - [ ] Optimistic message send — bubble appears instantly before server ACK (~8% messaging gap)
@@ -599,7 +703,7 @@ Centered screen with:
 - [x] Avatar image caching — `CachedNetworkImageProvider` across all screens
 - [x] Persistent HttpClient — single client reused across all API calls
 - [x] Sentry Flutter + NestJS — uncaught exceptions captured
-- [x] Auth — Google, Apple, Guest (iOS + Android)
+- [x] Auth — Google, Apple (iOS + Android)
 - [x] Home feed — live cards, user cards, real-time socket
 - [x] Inbox — conversation list, unread badges, timestamps
 - [x] Thread (DM) — chat bubbles, send, mark-read, auto-scroll
@@ -612,3 +716,89 @@ Centered screen with:
 - [x] Mock data removed — mock feed cards, mock followingIds, debug logs gone
 - [x] Direct call — RTDB signaling (`/direct_calls/{receiverUserId}`), incoming call overlay (accept/decline), Agora video screen with remote mute detection, camera-off PIP placeholder, dispose cleanup
 - [x] Direct call camera-off handling — remote mute detected via `onRemoteVideoStateChanged` (reason-based, not state-based), camera flip no longer triggers false "camera off" on remote side
+
+---
+
+## Audit Log
+
+Quality grades (A+ to F) recorded after each feature audit. This is our history of quality.
+
+### Live Streaming — 29 May 2026 — Overall: A+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | A+ | Agora RTC + RTDB signaling, Cloud Function auto-ends on disconnect. Zero dead code — backend is pure REST (create/join/leave/end/gift/token), all real-time flows through RTDB directly. |
+| Reconnection | A | `onConnectionStateChanged` with overlay, token refresh handler |
+| Rate limiting | A | 500ms throttle on reactions/comments |
+| Error handling | A | User-facing snackbars, graceful fallback |
+| Resource cleanup | A | `_ending` guard prevents double-end, proper dispose |
+| Code quality | A+ | ValueNotifier for comments, isolated state, no leaks, zero dead endpoints or unused dependencies |
+
+### Messaging / Inbox — 29 May 2026 — Overall: A-
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | A | Firestore messages, RTDB presence, Cloud Function PG sync. Zero polling. |
+| Presence | A- | LRU cache (50 cap), 5 states, correct colors |
+| Security | A | Block check both directions, anti-spam (5msg/10s + duplicate cooldown) |
+| Calling | A- | Full signaling from thread, 30s timeout. Missing: rate preview in thread |
+| Performance | A | No polling, debounced search, proper listener cleanup |
+| Code quality | A | Dead code gone, clean modules, proper dispose |
+| UX | A- | Search for new chat, live preview, inline translation, read receipts. Missing: typing indicator, message reactions |
+
+### Call (Direct + Random) — 29 May 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | A+ | REST matchmaking + RTDB signaling + Agora RTC. Socket.IO fully purged from codebase (packages removed). Random inherits from Direct (shared DirectCallScreen). |
+| Signaling | A | writeRinging → listen accept/decline → 30s timeout → Agora. Block check both directions. Cloud Function safety net on signal deletion. |
+| Economy/Billing | A- | Tick every 15s, billing starts only when partner joins, insufficient balance auto-ends call |
+| Reconnection | A | `onConnectionStateChanged` with overlay, `onTokenPrivilegeWillExpire` with renewal |
+| Error handling | A | User-facing snackbars (balance, connection, Agora errors), graceful fallback, tick retries silently |
+| Resource cleanup | A- | `_disposed` guard, engine release in dispose, timers cancelled. `_leaveWithResult` for random mode. |
+| Security | A | Block check both directions, backend validates all billing, service key on internals |
+| Code quality | A+ | Random = thin matchmaking layer inheriting DirectCallScreen. Zero duplication. Zero dead code. |
+
+### IAP / Billing — 2 Jun 2026 — Overall: A+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | A+ | Flutter `in_app_purchase` → backend verify-purchase → credit coins. StoreKit 2 + Google Play Billing. Direct credit endpoint blocked in production. |
+| Apple verification | A+ | Full JWS certificate chain verified against Apple G3 root CA via `decodeTransaction()`. Forged receipts detected as `CertificateValidationError`. Validates bundleId + productId cryptographically. Rejects revoked transactions. |
+| Google verification | A+ | Publisher API token verification via `google-auth-library`. Validates packageName + productId. Checks `purchaseState === 0` (purchased) and `consumptionState === 0` (unconsumed). |
+| Refund handling | A+ | Apple ASNS V2 webhook + Google RTDN webhook. `processRefund()` deducts coins immediately, records `iap_refund` transaction. Idempotent (skips if already refunded). Balance can go negative (fraud protection). |
+| Idempotency | A+ | `iap_purchases.transaction_id` UNIQUE constraint. Check-before-insert prevents double-credit. Race conditions caught by PostgreSQL. |
+| Retry safety | A+ | `completePurchase()` only called after backend confirms credit. Failed verifications retry on next app launch automatically. |
+| Production hardening | A+ | `POST /v1/economy/purchase-coins` blocked unless `ALLOW_FAKE_PURCHASES=true`. Flutter fallback restricted to `kDebugMode`. |
+| Code quality | A+ | Singleton `IapService.instance`. Clean separation: Flutter handles store interaction, backend handles all validation + crediting. Zero trust on client. |
+
+### Onboarding — 2 Jun 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Architecture | A | Google + Apple login → `onboardedAt` null-check → profile setup or straight to home. Backend `COALESCE(onboarded_at, NOW())` on PATCH /me. No guest login. |
+| Login flow | A | Google Sign-In + Apple Sign-In. Buttons disabled during loading. Proper error display. API offline warning on startup. |
+| Profile setup | A | Nickname (2-20 chars, control chars blocked, emoji allowed), country picker, language dropdown. Keyboard dismiss on tap. Semantics labels. |
+| Backend | A | `issueGoogleSession` / `issueAppleSession` → find-or-create user → JWT. `updateMe` sets `onboarded_at` via COALESCE on first profile save. Backfill migration for existing users. |
+| Session restore | A | `main.dart` checks `profile.onboardedAt != null` — already-onboarded users skip setup on re-login. |
+| Security | A | Google token verified server-side with audience check. Apple token verified via JWKS. No client-side trust. |
+| Code quality | A | Clean separation: `onboarding_page.dart` (login), `profile_setup_screen.dart` (setup). No dead code. Proper dispose. |
+
+### RTDB Architecture & Data Modeling — 3 Jun 2026 — Overall: A-
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Data model | A+ | 4 clean root nodes only: `presence`, `profiles`, `direct_calls`, `live_rooms`. Flat, predictable paths. |
+| Normalization | A+ | Identity is centralized in `profiles/{userId}`. No broad denormalized name fan-out in persistent docs. |
+| Presence robustness | A+ | `onDisconnect` + Cloud Function sync/reaper gives strong crash/offline recovery. |
+| Client caching | A | LRU subscription cache (50 cap) for presence and profiles. RTDB remains source of truth. |
+| Security rules | B- | `direct_calls` and `live_rooms/status` are too permissive; need stricter writer validation. |
+| Indexing | C | Missing `.indexOn` for `comments.ts`, `reactions.ts`, `gifts.ts`; add indexes to avoid scans/warnings. |
+| Scale posture | A- | Current approach is strong for MVP and early growth; scheduled global presence scan should evolve later at very high scale. |
+
+### Full Solution Audit — 5 Jun 2026 — Overall: B-
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Product architecture | A- | Strong Flutter + NestJS + Postgres + Firebase RTDB/Firestore + Agora split. Clear source-of-truth intent and good MVP focus. |
+| Hard-rule compliance | B | Source mostly avoids Socket.IO and centralizes RTDB in `FirebaseChatService.instance`; docs/comments still contain socket/polling drift, and API room heartbeat/cleanup uses periodic HTTP/timers. |
+| Backend money safety | C | IAP and call/gift billing need real PostgreSQL transactions/idempotency. `IapService` uses `BEGIN`/`COMMIT` through pooled queries, so it is not a guaranteed transaction; call ticks can double-charge or lose session totals under retry/concurrency. |
+| Random call flow | C | Backend matches live/online hosts, but only `RandomCallScreen` consumes `event: matched`. Hosts on Home/Live do not auto-join, so the core revenue flow can create sessions where the caller waits and the receiver never enters. |
+| Firebase security | C+ | Firestore/Storage are reasonable for MVP, but RTDB `direct_calls`, `live_rooms/status`, and gift/comment/reaction writes are too permissive. UI events can be spoofed even when backend balances are safe. |
+| IAP production readiness | C | Apple path is stronger, but Android passes purchase ID/order ID while backend treats it as Google purchase token; Google verification/refund correlation likely breaks in production. |
+| Mobile architecture | B+ | Good singleton services, Agora screens, lifecycle cleanup, LRU presence/profile caches, and real-time UX. Needs stronger testability, random-match receiver handling, and fewer stale assumptions. |
+| Test posture | C | Backend build passes and Functions build passes; backend unit tests, backend e2e, and Flutter widget tests currently fail due stale expectations/harnesses. No Postgres race/idempotency tests cover the highest-risk paths. |
+| Documentation accuracy | C+ | `PRODUCT.md`, READMEs, tests, and instructions disagree on guest login, WebSocket/socket language, and some completion claims. Product direction is strong, but operating docs need cleanup. |
