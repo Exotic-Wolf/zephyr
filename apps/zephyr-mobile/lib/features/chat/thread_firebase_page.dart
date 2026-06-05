@@ -965,18 +965,18 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     final token = ZephyrApiClient.accessToken;
     if (api == null || token == null) return;
 
-    final _p = FirebaseChatService.instance.profileCached(widget.otherUserId);
-    final _name = _p?.displayName ?? widget.otherDisplayName;
-    final _avatar = _p?.avatarUrl ?? widget.otherAvatarUrl;
+    final p = FirebaseChatService.instance.profileCached(widget.otherUserId);
+    final name = p?.displayName ?? widget.otherDisplayName;
+    final avatar = p?.avatarUrl ?? widget.otherAvatarUrl;
 
     final feedCard = LiveFeedCard(
       roomId: roomId,
-      title: '$_name\'s live',
+      title: '$name\'s live',
       audienceCount: 0,
       hostUserId: widget.otherUserId,
-      hostDisplayName: _name,
-      hostAvatarUrl: _avatar,
-      hostCountryCode: _p?.countryCode ?? '',
+      hostDisplayName: name,
+      hostAvatarUrl: avatar,
+      hostCountryCode: p?.countryCode ?? '',
       hostLanguage: '',
       hostStatus: 'live',
       startedAt: DateTime.now(),

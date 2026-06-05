@@ -458,8 +458,8 @@ class FirebaseChatService {
     final String cId = chatId(_myUserId!, otherUserId);
     await _fs.collection('chats').doc(cId).set({
       'participants': [_myUserId, otherUserId],
-      if (myDisplayName != null) 'name_${_myUserId}': myDisplayName,
-      if (myAvatarUrl != null) 'avatar_${_myUserId}': myAvatarUrl,
+      if (myDisplayName != null) 'name_$_myUserId': myDisplayName,
+      if (myAvatarUrl != null) 'avatar_$_myUserId': myAvatarUrl,
       if (otherDisplayName != null) 'name_$otherUserId': otherDisplayName,
       if (otherAvatarUrl != null) 'avatar_$otherUserId': otherAvatarUrl,
     }, SetOptions(merge: true));
@@ -656,8 +656,8 @@ class FirebaseChatService {
       'lastMessageAt': now,
       'lastSenderId': _myUserId,
       'unread_$otherUserId': FieldValue.increment(1),
-      'name_${_myUserId}': myDisplayName,
-      if (myAvatarUrl != null) 'avatar_${_myUserId}': myAvatarUrl,
+      'name_$_myUserId': myDisplayName,
+      if (myAvatarUrl != null) 'avatar_$_myUserId': myAvatarUrl,
     }, SetOptions(merge: true));
 
     // Send push notification to recipient (fire-and-forget)

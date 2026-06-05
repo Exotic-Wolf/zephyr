@@ -359,7 +359,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
                     child: Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.5),
+                        color: Colors.black.withValues(alpha: 0.5),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white),

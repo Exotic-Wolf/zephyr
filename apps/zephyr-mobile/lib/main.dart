@@ -7,7 +7,6 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
