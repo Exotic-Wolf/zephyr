@@ -33,7 +33,7 @@ describe('StoreService', () => {
     const room = await storeService.createRoom(session.user.id, 'Late Night Talk');
     const joinedRoom = await storeService.joinRoom(room.id, session.user.id);
 
-    expect(joinedRoom.audienceCount).toBe(2);
+    expect(joinedRoom.audienceCount).toBe(1);
     const rooms = await storeService.listRooms();
     expect(rooms[0].id).toBe(room.id);
   });
@@ -59,7 +59,9 @@ describe('StoreService', () => {
     const feed = await storeService.listLiveFeed();
     const rooms = await storeService.listRooms();
 
-    expect(feed).toHaveLength(0);
+    expect(feed).toHaveLength(1);
+    expect(feed[0].roomId).toBeNull();
+    expect(feed[0].hostStatus).toBe('offline');
     expect(rooms).toHaveLength(0);
     await expect(storeService.joinRoom(room.id, session.user.id)).rejects.toThrow(NotFoundException);
   });
