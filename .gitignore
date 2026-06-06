@@ -6,3 +6,4 @@ functions/lib/
 .DS_Store
 .env
 **/.env
+.firebase-config/

@@ -17,6 +17,12 @@
     "dev:up": "pnpm dev:api:db:up && pnpm dev:api",
     "check": "pnpm -r --if-present run check",
     "build": "pnpm -r --if-present run build",
-    "test": "pnpm -r --if-present run test"
+    "test": "pnpm -r --if-present run test",
+    "test:rtdb:rules": "XDG_CONFIG_HOME=.firebase-config firebase emulators:exec --project zephyr-rtdb-rules-test --only database \"node --test tests/rtdb/rules.test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "firebase": "^12.14.0",
+    "firebase-tools": "^14.27.0"
   }
 }

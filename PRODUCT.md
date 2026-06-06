@@ -32,20 +32,20 @@ Every meaningful work slice must update this file before commit/push:
 
 | Priority | Status | Owner | Item | Why it matters |
 |---|---|---|---|---|
-| P0 | Blocked on user | User | Install Java 17 JDK for Apple Silicon/M4 Mac | Required to run Firebase RTDB emulator and prove rules/security automatically |
-| P0 | Next | Codex | Add executable RTDB emulator tests after Java works | Proves canonical presence, profile ownership, direct-call ownership, live-room host ownership, and event validation |
-| P0 | Next | Codex | Run RTDB emulator rules suite and record results in Audit Log | Moves RTDB rules from "tightened" to proven |
+| P0 | Done | User | Install Java 17 JDK for Apple Silicon/M4 Mac | Verified locally with Temurin `17.0.19`; Firebase RTDB emulator can run through repo-local `firebase-tools@14` |
+| P0 | Done | Codex | Add executable RTDB emulator tests | `tests/rtdb/rules.test.mjs` proves canonical presence, profile ownership, direct-call ownership, live-room host ownership, and event validation |
+| P0 | Done | Codex | Run RTDB emulator rules suite and record results in Audit Log | `pnpm test:rtdb:rules` passed 5/5 tests on 6 Jun 2026 |
+| P0 | Next | Codex | Wire RTDB rules suite into normal check/CI path | Prevents future rules drift from silently weakening ownership/security |
 | P1 | Planned | Codex | Implement premium live lifecycle | Free live -> premium, start premium directly, paid entry, per-minute billing, lock screen, cleanup |
 | P1 | Planned | Codex | Add `PremiumLiveRealtime` module once lifecycle exists | Keeps premium live non-interruptible and owned by a dedicated realtime module |
 | P1 | Planned | Codex | Replace live audience counter with per-viewer presence/count derivation | Prevents inaccurate counts from duplicate joins/disconnect edge cases |
 | P2 | Planned | Codex | Move trusted gift event fan-out toward backend/Admin SDK confirmation | Prevents spoofed gift display events while keeping gift economy reusable |
 
-Immediate user action:
+Immediate next work:
 
-1. Install **Eclipse Temurin JDK 17** for macOS Apple Silicon / `aarch64`.
-2. Restart Terminal and VS Code.
-3. Confirm with `java -version`.
-4. Tell Codex, then run the RTDB emulator tests.
+1. Add RTDB rules suite to the default local/CI check path.
+2. Implement premium live lifecycle and `PremiumLiveRealtime`.
+3. Move trusted gift fan-out behind backend confirmation.
 
 ---
 
@@ -1176,15 +1176,24 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Direct-call routeability | A | Profile/chat UI and backend direct-call creation reject offline, busy, and premium-live receivers using canonical availability/routing. |
 | Random-call routeability | A | Live-host and online fallback matchmaking require `presence_availability='available'` and `can_random_call=true`; away, busy, offline, and premium-live users are skipped. |
 | Compatibility | A | Existing UI readers still work through legacy `state`, while new readers prefer `displayStatus`. This allows gradual module extraction without breaking current screens. |
-| Remaining A+ gates | B+ | Premium-live enter/exit transitions still need end-to-end implementation; RTDB emulator execution is blocked locally until Java is installed. |
+| Remaining A+ gates | A- | RTDB emulator suite now passes locally (`pnpm test:rtdb:rules`, 5/5). Premium-live enter/exit transitions still need end-to-end implementation. |
 
 ### RTDB Module Ownership — 6 Jun 2026 — Overall: A
 | Aspect | Grade | Notes |
 |--------|-------|-------|
 | Presence module | A+ | `PresenceRealtime` owns `presence/{userId}` payloads, onDisconnect, local LRU cache, foreground/background/live/call transitions, and display-status derivation. |
 | Profile module | A+ | `ProfilesRealtime` owns `profiles/{userId}` writes, profile cache, and profile listener lifecycle. |
-| Direct-call signals | A | `DirectCallSignals` owns `direct_calls/{userId}` ringing/status/remove/listen behavior. Rules now restrict caller/receiver ownership and validate payload shape. |
+| Direct-call signals | A+ | `DirectCallSignals` owns `direct_calls/{userId}` ringing/status/remove/listen behavior. Rules restrict caller/receiver ownership, validate payload shape, and keep caller/session metadata immutable after creation. |
 | Live-room realtime | A- | `LiveRoomRealtime` owns comments, reactions, gifts, audience count, status listen/end, and room initialization. Room nodes now include `hostUserId` for host-owned status writes. |
 | Facade compatibility | A+ | `FirebaseChatService.instance` remains as the stable app-facing facade, forwarding to modules so existing screens do not churn. |
-| Rules enforcement | A- | RTDB rules validate canonical presence, profiles, direct-call signals, live-room host ownership, status enums, event shapes, and reaction sender identity. Emulator load could not run locally because Java is not installed. |
-| Remaining A+ gates | B+ | Add executable RTDB emulator tests once Java/test tooling is available, then implement premium-live transition methods and rules. |
+| Rules enforcement | A+ | RTDB rules validate canonical presence, profiles, direct-call signals, live-room host ownership, status enums, event shapes, reaction sender identity, gift shape limits, and direct-call metadata immutability. Emulator suite passes locally. |
+| Remaining A+ gates | A- | Module ownership is now proven by executable rules tests. Product-level A+ still needs premium-live transition methods/rules and backend-confirmed trusted gift fan-out. |
+
+### RTDB Rules Emulator Suite — 6 Jun 2026 — Overall: A+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Test harness | A+ | Added repo-local `test:rtdb:rules` using Firebase Database emulator + `@firebase/rules-unit-testing`. |
+| Coverage | A | Covers presence owner/schema, profile owner/shape, direct-call caller/receiver access, immutable call metadata, live-room host ownership, viewer comments/reactions, audience count validation, and gift payload bounds. |
+| Execution | A+ | `pnpm test:rtdb:rules` passed 5 tests / 0 failures on 6 Jun 2026. |
+| Tooling stability | A | Pinned repo-local `firebase-tools@14` so Java 17 works today. Future Firebase CLI v15+ requires Java 21, so plan that upgrade deliberately. |
+| Remaining risk | B+ | Gift display fan-out is still client-written after backend charge success; move trusted fan-out to backend/Admin SDK before larger scale. |
