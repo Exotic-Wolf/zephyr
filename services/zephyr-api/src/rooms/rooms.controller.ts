@@ -14,6 +14,7 @@ import { StoreService } from '../core/store.service';
 import type { Room, GiftSendResult } from '../core/store.service';
 import { RtcService } from '../core/rtc.service';
 import type { RtcJoinTokenResult } from '../core/rtc.service';
+import { FcmService } from '../core/fcm.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 
 @Controller('v1/rooms')
@@ -21,6 +22,7 @@ export class RoomsController {
   constructor(
     private readonly storeService: StoreService,
     private readonly rtcService: RtcService,
+    private readonly fcmService: FcmService,
   ) {}
 
   @Get()
@@ -69,7 +71,10 @@ export class RoomsController {
   async getRoomViewers(
     @Headers('authorization') authorization: string | undefined,
     @Param('roomId', new ParseUUIDPipe()) roomId: string,
-  ): Promise<{ viewers: { displayName: string; avatarUrl: string | null }[]; total: number }> {
+  ): Promise<{
+    viewers: { displayName: string; avatarUrl: string | null }[];
+    total: number;
+  }> {
     await this.storeService.getUserFromAuthHeader(authorization);
     const viewers = await this.storeService.getRoomViewers(roomId, 50);
     // Get the total from the room's audienceCount
@@ -106,7 +111,11 @@ export class RoomsController {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     const hostUserId = await this.storeService.getRoomHostUserId(roomId);
     const role = hostUserId === user.id ? 'host' : 'viewer';
-    return this.rtcService.createLiveRoomToken({ roomId, userId: user.id, role });
+    return this.rtcService.createLiveRoomToken({
+      roomId,
+      userId: user.id,
+      role,
+    });
   }
 
   @Post(':roomId/gift')
@@ -114,18 +123,32 @@ export class RoomsController {
     @Headers('authorization') authorization: string | undefined,
     @Headers('x-idempotency-key') idempotencyKeyHeader: string | undefined,
     @Param('roomId', new ParseUUIDPipe()) roomId: string,
-    @Body() body: {
+    @Body()
+    body: {
       giftId?: string;
       quantity?: number;
       idempotencyKey?: string;
     },
   ): Promise<GiftSendResult> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
-    return this.storeService.sendGiftInRoom(user.id, {
+    const idempotencyKey = idempotencyKeyHeader ?? body?.idempotencyKey;
+    const result = await this.storeService.sendGiftInRoom(user.id, {
       roomId,
       giftId: body?.giftId ?? '',
       quantity: body?.quantity,
-      idempotencyKey: idempotencyKeyHeader ?? body?.idempotencyKey,
+      idempotencyKey,
     });
+
+    await this.fcmService.writeLiveGiftEvent(roomId, {
+      senderUserId: user.id,
+      senderName: user.displayName,
+      giftId: result.giftId,
+      giftName: result.giftName,
+      quantity: result.quantity,
+      totalGiftCoins: result.totalGiftCoins,
+      idempotencyKey,
+    });
+
+    return result;
   }
 }

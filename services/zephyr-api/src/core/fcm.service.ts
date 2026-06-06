@@ -9,7 +9,9 @@ export class FcmService implements OnModuleInit {
   onModuleInit() {
     const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
     if (!serviceAccountJson) {
-      this.logger.warn('FIREBASE_SERVICE_ACCOUNT_JSON not set — push notifications disabled');
+      this.logger.warn(
+        'FIREBASE_SERVICE_ACCOUNT_JSON not set — push notifications disabled',
+      );
       return;
     }
     try {
@@ -28,7 +30,12 @@ export class FcmService implements OnModuleInit {
     }
   }
 
-  async sendPush(tokens: string[], title: string, body: string, data?: Record<string, string>): Promise<void> {
+  async sendPush(
+    tokens: string[],
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<void> {
     if (!this.initialized || tokens.length === 0) return;
     try {
       // tag = senderId so messages from the same person replace each other (no spam)
@@ -55,7 +62,11 @@ export class FcmService implements OnModuleInit {
     }
   }
 
-  async sendReadReceiptPush(tokens: string[], messageId: string, readAt: string): Promise<void> {
+  async sendReadReceiptPush(
+    tokens: string[],
+    messageId: string,
+    readAt: string,
+  ): Promise<void> {
     if (!this.initialized || tokens.length === 0) return;
     try {
       await admin.messaging().sendEachForMulticast({
@@ -78,7 +89,10 @@ export class FcmService implements OnModuleInit {
   }
 
   /** Write a call signal to RTDB at direct_calls/{userId}. */
-  async writeCallSignal(userId: string, data: Record<string, unknown>): Promise<void> {
+  async writeCallSignal(
+    userId: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
     if (!this.initialized) return;
     await admin.database().ref(`direct_calls/${userId}`).set(data);
   }
@@ -87,6 +101,51 @@ export class FcmService implements OnModuleInit {
   async removeCallSignal(userId: string): Promise<void> {
     if (!this.initialized) return;
     await admin.database().ref(`direct_calls/${userId}`).remove();
+  }
+
+  /**
+   * Publish a trusted live-room gift event after the backend economy ledger
+   * has already succeeded. Firebase Admin bypasses client RTDB rules; clients
+   * can read this fan-out but cannot forge it.
+   */
+  async writeLiveGiftEvent(
+    roomId: string,
+    data: {
+      senderUserId: string;
+      senderName: string;
+      giftId: string;
+      giftName: string;
+      quantity: number;
+      totalGiftCoins: number;
+      idempotencyKey?: string | null;
+    },
+  ): Promise<void> {
+    if (!this.initialized) return;
+
+    try {
+      const giftsRef = admin.database().ref(`live_rooms/${roomId}/gifts`);
+      const eventKey = this.toRealtimeKey(data.idempotencyKey);
+      const eventRef = eventKey ? giftsRef.child(eventKey) : giftsRef.push();
+      await eventRef.set({
+        senderUserId: data.senderUserId,
+        senderName: data.senderName,
+        giftId: data.giftId,
+        giftName: data.giftName,
+        quantity: data.quantity,
+        totalGiftCoins: data.totalGiftCoins,
+        trusted: true,
+        eventId: eventRef.key,
+        ts: admin.database.ServerValue.TIMESTAMP,
+      });
+    } catch (err) {
+      this.logger.error('Failed to write live gift event', err);
+    }
+  }
+
+  private toRealtimeKey(value?: string | null): string | null {
+    if (!value) return null;
+    const normalized = value.replace(/[.#$\/\[\]]/g, '_').slice(0, 180);
+    return normalized.length > 0 ? normalized : null;
   }
 
   /**
@@ -99,18 +158,24 @@ export class FcmService implements OnModuleInit {
     // RTDB: remove direct user-owned nodes
     let roomIdFromPresence: string | null = null;
     try {
-      const presenceSnap = await admin.database().ref(`presence/${userId}`).get();
+      const presenceSnap = await admin
+        .database()
+        .ref(`presence/${userId}`)
+        .get();
       const presence = presenceSnap.val() as { roomId?: string } | null;
       roomIdFromPresence = presence?.roomId ?? null;
     } catch {
       roomIdFromPresence = null;
     }
 
-    await admin.database().ref().update({
-      [`presence/${userId}`]: null,
-      [`profiles/${userId}`]: null,
-      [`direct_calls/${userId}`]: null,
-    });
+    await admin
+      .database()
+      .ref()
+      .update({
+        [`presence/${userId}`]: null,
+        [`profiles/${userId}`]: null,
+        [`direct_calls/${userId}`]: null,
+      });
 
     // RTDB: remove incoming call nodes where this user is caller
     try {

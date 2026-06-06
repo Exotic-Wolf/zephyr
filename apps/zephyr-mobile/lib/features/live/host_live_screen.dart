@@ -182,7 +182,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     final fcs = FirebaseChatService.instance;
 
     // Initialize the live room node in RTDB
-    fcs.initLiveRoom(roomId, hostUserId: widget.room.hostUserId);
+    unawaited(fcs.initLiveRoom(roomId, hostUserId: widget.room.hostUserId));
 
     // Audience count
     _rtdbSubs.add(

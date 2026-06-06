@@ -92,6 +92,31 @@ class FirebaseChatService {
   /// Restore current user to "online" (call when ending a live stream).
   void clearLiveStatus() => presence.clearLive();
 
+  /// Mark free live as paused while a non-interruptible call/premium flow owns UX.
+  void pauseLiveStatus() => presence.pauseLive();
+
+  /// Resume a paused free live state.
+  void resumeLiveStatus() => presence.resumeLive();
+
+  /// Mark current user as non-interruptible premium live host.
+  void setPremiumLiveHostStatus({required String roomId}) {
+    presence.setPremiumLiveHost(roomId: roomId);
+  }
+
+  /// Mark current user as non-interruptible premium live viewer.
+  void setPremiumLiveViewerStatus({
+    required String roomId,
+    String? premiumRoomSessionId,
+  }) {
+    presence.setPremiumLiveViewer(
+      roomId: roomId,
+      premiumRoomSessionId: premiumRoomSessionId,
+    );
+  }
+
+  /// Clear premium live state and return to normal availability.
+  void clearPremiumLiveStatus() => presence.clearPremiumLive();
+
   /// Mark current user as "away" (idle in foreground for 60s, no touches).
   void setAwayStatus() => presence.setAway();
 
@@ -543,15 +568,15 @@ class FirebaseChatService {
 
   // ── Live Room (RTDB) ────────────────────────────────────────────────────────
 
-  /// Write audience_count and set onDisconnect to decrement.
+  /// Write this user's audience presence and set onDisconnect cleanup.
   Future<void> joinLiveRoom(String roomId) =>
       liveRooms.joinAudience(roomId, _myUserId ?? '');
 
-  /// Decrement audience_count and cancel onDisconnect.
+  /// Remove this user's audience presence and cancel onDisconnect cleanup.
   Future<void> leaveLiveRoom(String roomId) =>
       liveRooms.leaveAudience(roomId, _myUserId ?? '');
 
-  /// Listen to audience_count changes.
+  /// Listen to derived audience count changes.
   StreamSubscription<DatabaseEvent> listenAudienceCount(
     String roomId,
     void Function(int count) onCount,
@@ -559,7 +584,7 @@ class FirebaseChatService {
 
   /// Push a comment to the room.
   void writeLiveComment(String roomId, String displayName, String text) {
-    liveRooms.writeComment(roomId, displayName, text);
+    liveRooms.writeComment(roomId, _myUserId ?? '', displayName, text);
   }
 
   /// Listen for new comments (child_added).
@@ -580,17 +605,6 @@ class FirebaseChatService {
     void Function(String emoji) onReaction,
   ) => liveRooms.listenReactions(roomId, myUserId, onReaction);
 
-  /// Push a gift event (called after backend confirms economy).
-  void writeLiveGift(
-    String roomId,
-    String senderName,
-    String giftId,
-    String giftName,
-    int quantity,
-  ) {
-    liveRooms.writeGift(roomId, senderName, giftId, giftName, quantity);
-  }
-
   /// Listen for new gifts.
   StreamSubscription<DatabaseEvent> listenLiveGifts(
     String roomId,
@@ -609,9 +623,8 @@ class FirebaseChatService {
   ) => liveRooms.listenEnded(roomId, onEnded);
 
   /// Initialize a room node when going live.
-  void initLiveRoom(String roomId, {required String hostUserId}) {
-    liveRooms.initRoom(roomId, hostUserId: hostUserId);
-  }
+  Future<void> initLiveRoom(String roomId, {required String hostUserId}) =>
+      liveRooms.initRoom(roomId, hostUserId: hostUserId);
 }
 
 // ── Models ────────────────────────────────────────────────────────────────────

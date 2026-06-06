@@ -49,6 +49,7 @@ const liveRoom = (overrides = {}) => ({
   status: 'live',
   hostUserId: 'host',
   audience_count: 0,
+  audience: {},
   started_at: 1760000000000,
   ...overrides,
 });
@@ -82,6 +83,94 @@ describe('presence rules', () => {
     await assertFails(set(ref(db('alice'), 'presence/bob'), presence()));
     await assertFails(
       set(ref(db('alice'), 'presence/alice'), presence({ state: 'busy' })),
+    );
+    await assertFails(
+      set(
+        ref(db('alice'), 'presence/alice'),
+        presence({
+          activity: 'premium_live_host',
+          displayStatus: 'premium_live',
+          state: 'premium_live',
+          roomId: 'room-1',
+          roomMode: 'premium_live',
+        }),
+      ),
+    );
+  });
+
+  test('enforce coherent canonical availability transitions', async () => {
+    await assertSucceeds(
+      set(
+        ref(db('host'), 'presence/host'),
+        presence({
+          activity: 'free_live_host',
+          displayStatus: 'live',
+          state: 'live',
+          roomId: 'room-1',
+          roomMode: 'free_live',
+        }),
+      ),
+    );
+    await assertSucceeds(
+      set(
+        ref(db('host'), 'presence/host'),
+        presence({
+          activity: 'live_paused',
+          availability: 'unavailable',
+          routing: { directCall: false, randomCall: false },
+          displayStatus: 'busy',
+          interruptible: false,
+          state: 'busy',
+          roomId: 'room-1',
+          roomMode: 'free_live',
+        }),
+      ),
+    );
+    await assertSucceeds(
+      set(
+        ref(db('host'), 'presence/host'),
+        presence({
+          activity: 'premium_live_host',
+          availability: 'busy',
+          routing: { directCall: false, randomCall: false },
+          displayStatus: 'premium_live',
+          interruptible: false,
+          state: 'premium_live',
+          roomId: 'room-1',
+          roomMode: 'premium_live',
+        }),
+      ),
+    );
+    await assertSucceeds(
+      set(
+        ref(db('viewer'), 'presence/viewer'),
+        presence({
+          activity: 'premium_live_viewer',
+          availability: 'busy',
+          routing: { directCall: false, randomCall: false },
+          displayStatus: 'busy',
+          interruptible: false,
+          state: 'busy',
+          roomId: 'room-1',
+          roomMode: 'premium_live',
+          premiumRoomSessionId: 'premium-session-1',
+        }),
+      ),
+    );
+    await assertFails(
+      set(
+        ref(db('host'), 'presence/host'),
+        presence({
+          activity: 'premium_live_host',
+          availability: 'busy',
+          routing: { directCall: false, randomCall: true },
+          displayStatus: 'premium_live',
+          interruptible: false,
+          state: 'premium_live',
+          roomId: 'room-1',
+          roomMode: 'premium_live',
+        }),
+      ),
     );
   });
 });
@@ -155,6 +244,15 @@ describe('live room rules', () => {
     );
     await assertSucceeds(
       set(ref(db('viewer'), 'live_rooms/room-1/comments/comment-1'), {
+        userId: 'viewer',
+        name: 'Viewer',
+        text: 'Hi',
+        ts: 1760000000000,
+      }),
+    );
+    await assertFails(
+      set(ref(db('viewer'), 'live_rooms/room-1/comments/comment-2'), {
+        userId: 'host',
         name: 'Viewer',
         text: 'Hi',
         ts: 1760000000000,
@@ -174,19 +272,33 @@ describe('live room rules', () => {
         ts: 1760000000000,
       }),
     );
-    await assertSucceeds(
+    await assertFails(
       set(ref(db('viewer'), 'live_rooms/room-1/audience_count'), 1),
     );
+    await assertSucceeds(
+      set(ref(db('viewer'), 'live_rooms/room-1/audience/viewer'), {
+        joinedAt: 1760000000000,
+        lastSeen: 1760000000000,
+      }),
+    );
+    await assertFails(
+      set(ref(db('viewer'), 'live_rooms/room-1/audience/host'), {
+        joinedAt: 1760000000000,
+        lastSeen: 1760000000000,
+      }),
+    );
+    await assertSucceeds(remove(ref(db('viewer'), 'live_rooms/room-1/audience/viewer')));
     await assertFails(remove(ref(db('viewer'), 'live_rooms/room-1')));
     await assertSucceeds(
       set(ref(db('host'), 'live_rooms/room-1/status'), 'ended'),
     );
   });
 
-  test('validate gift event shape until backend fan-out owns trusted gifts', async () => {
+  test('block client gift fan-out while backend/admin trusted gifts remain readable', async () => {
     await assertSucceeds(set(ref(db('host'), 'live_rooms/room-1'), liveRoom()));
-    await assertSucceeds(
+    await assertFails(
       set(ref(db('viewer'), 'live_rooms/room-1/gifts/gift-1'), {
+        senderUserId: 'viewer',
         senderName: 'Viewer',
         giftId: 'rose',
         giftName: 'Rose',
@@ -194,13 +306,33 @@ describe('live room rules', () => {
         ts: 1760000000000,
       }),
     );
-    await assertFails(
-      set(ref(db('viewer'), 'live_rooms/room-1/gifts/gift-2'), {
+
+    await env.withSecurityRulesDisabled(async (context) => {
+      await set(ref(context.database(), 'live_rooms/room-1/gifts/gift-1'), {
+        trusted: true,
+        senderUserId: 'viewer',
         senderName: 'Viewer',
         giftId: 'rose',
         giftName: 'Rose',
-        quantity: 100,
+        quantity: 1,
+        totalGiftCoins: 99,
         ts: 1760000000000,
+      });
+    });
+
+    await assertSucceeds(get(ref(db('viewer'), 'live_rooms/room-1/gifts/gift-1')));
+    await assertFails(
+      set(ref(db('host'), 'live_rooms/room-2'), {
+        ...liveRoom(),
+        gifts: {
+          forged: {
+            senderName: 'Viewer',
+            giftId: 'rose',
+            giftName: 'Rose',
+            quantity: 1,
+            ts: 1760000000000,
+          },
+        },
       }),
     );
   });
