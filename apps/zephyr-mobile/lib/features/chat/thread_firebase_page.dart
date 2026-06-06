@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../models/models.dart';
+import '../../services/api_error_messages.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import '../../services/translation_service.dart';
@@ -415,14 +416,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _calling = false);
-      final msg = e.toString();
-      if (msg.contains('busy')) {
-        _showSnack('They are on another call');
-      } else if (msg.contains('Cannot call')) {
-        _showSnack('Cannot call this user');
-      } else {
-        _showSnack('Call failed');
-      }
+      _showSnack(directCallFailureMessage(e));
     }
   }
 

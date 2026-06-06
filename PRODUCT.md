@@ -41,6 +41,8 @@ Every meaningful work slice must update this file before commit/push:
 | P0 | Action required | User | Manual simulator smoke test | Check login/onboarding/feed/inbox/presence/direct call/random call/live basics while Render billing is fixed |
 | P0 | Done | Codex | Generate Android internal testing AAB `1.0.4+5` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab`; manifest verifies version name `1.0.4`, version code `5` |
 | P0 | Done | Codex | Promote Android internal testing build `1.0.4+5` to `main` | PR #3 carries the Play version bump and release tracker to `main` so Render/GitHub state matches the upload build |
+| P0 | Done | Codex | Fix direct-call `API 400` user experience | Mobile now parses backend error envelopes into product messages; Firebase `onPresenceChanged` now mirrors RTDB create/update/delete writes into Postgres availability and was deployed on 6 Jun 2026 |
+| P0 | Action required | User | Retest direct call with two online accounts | Open/log in both accounts after the Functions deploy so each account rewrites presence, then call only when the receiver badge is online/live and not busy |
 | P0 | Next | Codex | Wire RTDB rules suite into normal check/CI path | Prevents future rules drift from silently weakening ownership/security |
 | P1 | Planned | Codex | Implement premium live lifecycle | Free live -> premium, start premium directly, paid entry, per-minute billing, lock screen, cleanup |
 | P1 | Planned | Codex | Add `PremiumLiveRealtime` module once lifecycle exists | Keeps premium live non-interruptible and owned by a dedicated realtime module |
@@ -51,7 +53,7 @@ Immediate next work:
 
 1. Add RTDB rules suite to the default local/CI check path.
 2. Update Render billing, then verify post-deploy health at `https://zephyr-api-wr1s.onrender.com/v1/health/ready`.
-3. Smoke-test login/onboarding/feed/inbox/presence/direct call/random call/live on iPhone simulator.
+3. Retest direct call with two online accounts after the deployed presence-sync trigger.
 4. Implement premium live lifecycle and `PremiumLiveRealtime`.
 5. Move trusted gift fan-out behind backend confirmation.
 
@@ -1185,6 +1187,13 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Random-call routeability | A | Live-host and online fallback matchmaking require `presence_availability='available'` and `can_random_call=true`; away, busy, offline, and premium-live users are skipped. |
 | Compatibility | A | Existing UI readers still work through legacy `state`, while new readers prefer `displayStatus`. This allows gradual module extraction without breaking current screens. |
 | Remaining A+ gates | A- | RTDB emulator suite now passes locally (`pnpm test:rtdb:rules`, 5/5). Premium-live enter/exit transitions still need end-to-end implementation. |
+
+### Direct Call Availability Hotfix — 6 Jun 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Error UX | A | Mobile parses backend error envelopes and maps direct-call failures to product messages instead of raw `API 400` transport text. |
+| Presence projection | A | `onPresenceChanged` now uses RTDB written events, so first-time presence creates, updates, and deletes all mirror into Postgres availability. Deployed to Firebase project `zephyr-495115` on 6 Jun 2026. |
+| Remaining risk | B+ | Manual two-account call retest is still required. Existing online users may need app foreground/login after deploy to rewrite their presence. |
 
 ### RTDB Module Ownership — 6 Jun 2026 — Overall: A
 | Aspect | Grade | Notes |

@@ -1,4 +1,4 @@
-import { onValueDeleted, onValueUpdated } from "firebase-functions/v2/database";
+import { onValueDeleted, onValueWritten } from "firebase-functions/v2/database";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineString } from "firebase-functions/params";
 import { logger } from "firebase-functions";
@@ -159,7 +159,7 @@ export const onCallSignalDeleted = onValueDeleted(
 );
 
 // ── Cloud Function: Sync presence to PG + auto-end live room ─────────────────
-export const onPresenceChanged = onValueUpdated(
+export const onPresenceChanged = onValueWritten(
   {
     ref: "presence/{userId}",
     region: "asia-southeast1",
