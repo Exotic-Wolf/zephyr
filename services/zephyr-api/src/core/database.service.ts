@@ -504,8 +504,20 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     await this.pool.query(`
+      ALTER TABLE iap_purchases
+      ADD COLUMN IF NOT EXISTS store_order_id TEXT,
+      ADD COLUMN IF NOT EXISTS package_name TEXT;
+    `);
+
+    await this.pool.query(`
       CREATE INDEX IF NOT EXISTS iap_purchases_user_idx
       ON iap_purchases(user_id, verified_at DESC)
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS iap_purchases_store_order_idx
+      ON iap_purchases(store, store_order_id)
+      WHERE store_order_id IS NOT NULL
     `);
 
     this.logger.log('Database schema is ready.');
