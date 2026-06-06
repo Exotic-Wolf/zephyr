@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -36,9 +38,11 @@ class _BalancePageState extends State<BalancePage> {
 
   void _initIap() {
     final iap = IapService.instance;
-    iap.initialize(
-      apiClient: widget.apiClient,
-      accessToken: widget.accessToken,
+    unawaited(
+      iap.initialize(
+        apiClient: widget.apiClient,
+        accessToken: widget.accessToken,
+      ),
     );
     iap.onPurchaseSuccess = (int coinsAwarded) {
       if (!mounted) return;
@@ -69,7 +73,8 @@ class _BalancePageState extends State<BalancePage> {
       if (!mounted) return;
       final WalletSummary wallet = results[0] as WalletSummary;
       final List<CoinPack> packs = results[1] as List<CoinPack>;
-      final List<WalletTransaction> txns = results[2] as List<WalletTransaction>;
+      final List<WalletTransaction> txns =
+          results[2] as List<WalletTransaction>;
       setState(() {
         _coinBalance = wallet.coinBalance;
         _coinPacks = packs;
@@ -82,12 +87,9 @@ class _BalancePageState extends State<BalancePage> {
   }
 
   Future<void> _buyCoins(CoinPack pack) async {
-    // Find matching store product
     final iap = IapService.instance;
-    final storeProducts = iap.products.value;
-    final ProductDetails? product = storeProducts
-        .where((p) => p.id == pack.id)
-        .firstOrNull;
+    final IapCatalogState catalog = iap.catalog.value;
+    final ProductDetails? product = catalog.productFor(pack.id);
 
     if (product != null) {
       // Use real IAP flow
@@ -95,40 +97,50 @@ class _BalancePageState extends State<BalancePage> {
       await iap.buyProduct(product);
     } else {
       if (!mounted) return;
-      Navigator.of(context).pop(); // Close bottom sheet
+
+      debugPrint(
+        '[IAP] Store product unavailable for ${pack.id}; '
+        'loaded=${catalog.products.map((p) => p.id).join(',')}; '
+        'notFound=${catalog.notFoundIds.join(',')}',
+      );
 
       if (kDebugMode) {
         // Dev-only fallback for local testing without store products.
+        Navigator.of(context).pop(); // Close bottom sheet
         try {
-          final WalletSummary wallet =
-              await widget.apiClient.purchaseCoins(widget.accessToken, pack.id);
+          final WalletSummary wallet = await widget.apiClient.purchaseCoins(
+            widget.accessToken,
+            pack.id,
+          );
           if (!mounted) return;
           setState(() {
             _coinBalance = wallet.coinBalance;
           });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('+${_formatNumber(pack.coins)} coins added! (DEV MODE)'),
+              content: Text(
+                '+${_formatNumber(pack.coins)} coins added! (DEV MODE)',
+              ),
               behavior: SnackBarBehavior.floating,
             ),
           );
-          widget.apiClient
-              .getTransactionHistory(widget.accessToken)
-              .then((txns) {
+          widget.apiClient.getTransactionHistory(widget.accessToken).then((
+            txns,
+          ) {
             if (mounted) setState(() => _transactions = txns);
           });
         } catch (error) {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Purchase failed: $error')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Purchase failed: $error')));
         }
         return;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Purchases are temporarily unavailable. Please try again in a moment.'),
+        SnackBar(
+          content: Text(_storeProductUnavailableMessage(catalog, pack)),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -140,11 +152,35 @@ class _BalancePageState extends State<BalancePage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _CoinPackSheet(
-        packs: _coinPacks,
-        onBuy: _buyCoins,
+      builder: (_) => ValueListenableBuilder<IapCatalogState>(
+        valueListenable: IapService.instance.catalog,
+        builder: (context, catalog, _) => _CoinPackSheet(
+          packs: _coinPacks,
+          catalog: catalog,
+          onBuy: _buyCoins,
+          onRetry: () => unawaited(IapService.instance.reloadProducts()),
+        ),
       ),
     );
+  }
+
+  String _storeProductUnavailableMessage(
+    IapCatalogState catalog,
+    CoinPack pack,
+  ) {
+    if (catalog.loading) {
+      return 'Store products are still loading. Please try again in a moment.';
+    }
+    if (!catalog.storeAvailable) {
+      return 'Google Play Billing is not available on this device.';
+    }
+    if (catalog.error != null) {
+      return 'Store catalog could not load. Please retry.';
+    }
+    if (catalog.notFoundIds.contains(pack.id)) {
+      return '${pack.label} is not active in the store yet.';
+    }
+    return 'This coin pack is not available in the store yet.';
   }
 
   @override
@@ -152,10 +188,7 @@ class _BalancePageState extends State<BalancePage> {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Wallet'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('My Wallet'), centerTitle: true),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -166,7 +199,10 @@ class _BalancePageState extends State<BalancePage> {
                   // ── Balance Card ──────────────────────────────────
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 28,
+                      horizontal: 24,
+                    ),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
                       gradient: const LinearGradient(
@@ -215,7 +251,10 @@ class _BalancePageState extends State<BalancePage> {
                             icon: const Icon(Icons.add_rounded, size: 20),
                             label: const Text(
                               'Top Up',
-                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                              ),
                             ),
                             onPressed: _showCoinPackSheet,
                           ),
@@ -230,7 +269,10 @@ class _BalancePageState extends State<BalancePage> {
                     children: <Widget>[
                       const Text(
                         'Recent Activity',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       const Spacer(),
                       Text(
@@ -256,7 +298,9 @@ class _BalancePageState extends State<BalancePage> {
                       ),
                     )
                   else
-                    ..._transactions.map((tx) => _TransactionTile(transaction: tx)),
+                    ..._transactions.map(
+                      (tx) => _TransactionTile(transaction: tx),
+                    ),
                 ],
               ),
             ),
@@ -275,101 +319,240 @@ class _BalancePageState extends State<BalancePage> {
 class _CoinPackSheet extends StatelessWidget {
   const _CoinPackSheet({
     required this.packs,
+    required this.catalog,
     required this.onBuy,
+    required this.onRetry,
   });
 
   final List<CoinPack> packs;
+  final IapCatalogState catalog;
   final ValueChanged<CoinPack> onBuy;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
+    final double maxHeight = MediaQuery.sizeOf(context).height * 0.85;
+
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).scaffoldBackgroundColor,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       padding: EdgeInsets.fromLTRB(
-        16, 12, 16, MediaQuery.of(context).padding.bottom + 16,
+        16,
+        12,
+        16,
+        MediaQuery.of(context).padding.bottom + 16,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          // Handle bar
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade600,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Buy Coins',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 16),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 1.5,
-            children: packs.map((pack) {
-              return GestureDetector(
-                onTap: () => onBuy(pack),
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFFFFD95A).withValues(alpha: 0.4),
-                    ),
-                    color: const Color(0xFFFFD95A).withValues(alpha: 0.06),
-                  ),
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: <Widget>[
-                          const CoinIcon(size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            pack.label,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFD95A),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          '\$${pack.priceUsd.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              // Handle bar
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade600,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-              );
-            }).toList(),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Buy Coins',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              _CatalogStatusBanner(catalog: catalog, onRetry: onRetry),
+              if (packs.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 32),
+                  child: Text(
+                    'No coin packs available',
+                    style: TextStyle(
+                      color: Theme.of(context).textTheme.bodySmall?.color,
+                    ),
+                  ),
+                )
+              else
+                GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 1.42,
+                  children: packs.map((pack) {
+                    final ProductDetails? product = catalog.productFor(pack.id);
+                    final bool available =
+                        product != null &&
+                        catalog.storeAvailable &&
+                        !catalog.loading;
+                    final Color accent = available
+                        ? const Color(0xFFFFD95A)
+                        : Theme.of(context).disabledColor;
+                    final String priceLabel =
+                        product?.price ??
+                        (catalog.loading ? 'Loading' : 'Store pending');
+
+                    return Opacity(
+                      opacity: available ? 1 : 0.58,
+                      child: GestureDetector(
+                        onTap: available ? () => onBuy(pack) : null,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: accent.withValues(alpha: 0.4),
+                            ),
+                            color: accent.withValues(alpha: 0.06),
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: <Widget>[
+                                  const CoinIcon(size: 18),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      pack.label,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: available
+                                      ? const Color(0xFFFFD95A)
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  priceLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: available
+                                        ? Colors.black87
+                                        : Theme.of(context).disabledColor,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+            ],
           ),
-        ],
+        ),
       ),
     );
+  }
+}
+
+class _CatalogStatusBanner extends StatelessWidget {
+  const _CatalogStatusBanner({required this.catalog, required this.onRetry});
+
+  final IapCatalogState catalog;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final String? message = _message;
+    if (message == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Icon(
+                  catalog.loading
+                      ? Icons.sync_rounded
+                      : Icons.info_outline_rounded,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (!catalog.loading)
+                  TextButton(
+                    onPressed: onRetry,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    child: const Text('Retry'),
+                  ),
+              ],
+            ),
+            if (catalog.loading) ...<Widget>[
+              const SizedBox(height: 10),
+              const LinearProgressIndicator(minHeight: 3),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String? get _message {
+    if (catalog.loading) {
+      return 'Loading store products...';
+    }
+    if (!catalog.storeAvailable) {
+      return 'Google Play Billing is not available on this device.';
+    }
+    if (catalog.error != null) {
+      return 'Store catalog could not load. Please retry.';
+    }
+    if (catalog.products.isEmpty) {
+      return 'No active store products yet. Publish pack_299 in Play Console.';
+    }
+    if (catalog.notFoundIds.isNotEmpty) {
+      return '${catalog.notFoundIds.length} coin packs are not active in the store yet.';
+    }
+    return null;
   }
 }
 
@@ -404,8 +587,8 @@ class _TransactionTile extends StatelessWidget {
     final Color amountColor = isCredit
         ? const Color(0xFF4CAF50)
         : isDebit
-            ? const Color(0xFFEF5350)
-            : (isDark ? Colors.white54 : Colors.black54);
+        ? const Color(0xFFEF5350)
+        : (isDark ? Colors.white54 : Colors.black54);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
@@ -421,7 +604,10 @@ class _TransactionTile extends StatelessWidget {
           ),
           child: Icon(icon, size: 18, color: amountColor),
         ),
-        title: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        title: Text(
+          label,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+        ),
         subtitle: Text(
           _formatDate(transaction.createdAt),
           style: TextStyle(

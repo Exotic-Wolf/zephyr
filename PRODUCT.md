@@ -52,8 +52,10 @@ Every meaningful work slice must update this file before commit/push:
 | P0 | Done | Codex | Promote Google Play IAP hardening to `main` | PR #5 merged `dev` into `main` on 6 Jun 2026; Render readiness endpoint returned `ok` with Postgres storage after merge |
 | P0 | Done | Codex | Generate Android IAP smoke AAB `1.0.5+6` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab` after the purchase-token fix; generated manifest verifies package `com.zephyr.zephyr_mobile`, version name `1.0.5`, version code `6` |
 | P0 | Done | User | Upload Android IAP smoke AAB `1.0.5+6` to internal testing | User confirmed the fresh AAB was uploaded and published on 6 Jun 2026; earlier `1.0.4+5` does not contain the mobile purchase-token/consume fix |
+| P0 | Done | Codex | Harden wallet IAP catalog UX | Wallet top-up now reads explicit Play/App Store catalog state, shows loading/retry/status copy, disables inactive products, displays store-localized prices when active, and logs missing product IDs for setup debugging |
+| P0 | Done | Codex | Generate Android wallet/IAP AAB `1.0.6+7` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab` after catalog UX hardening; Gradle `bundleRelease` passed on 7 Jun 2026, package remains `com.zephyr.zephyr_mobile`, version name `1.0.6`, version code `7` |
 | P0 | Pending review | Google | Google Play merchant/bank verification | User submitted the Play payments profile and SBM bank statement on 7 Jun 2026; one-time product creation and catalog visibility are blocked until Google completes or accepts verification |
-| P0 | Blocked | User | Manual Google Play internal-test purchase smoke | Current tester build shows "Purchases are temporarily unavailable" because no matching Play one-time products exist/are visible yet; after merchant verification, create/publish `pack_299`, wait for catalog propagation, then retry backend credit/consume/refund smoke |
+| P0 | Blocked | User | Manual Google Play internal-test purchase smoke | Current tester build cannot buy because no matching Play one-time products exist/are visible yet; after merchant verification, upload/use `1.0.6+7`, create/publish `pack_299`, wait for catalog propagation, then retry backend credit/consume/refund smoke |
 | P0 | Audit finding | Codex | Replace stale Flutter widget test harness | `flutter test` currently pumps Firebase-backed `MyApp` without Firebase init and still expects removed guest onboarding copy |
 | P0 | Next | Codex | Wire RTDB rules suite into normal check/CI path | Prevents future rules drift from silently weakening ownership/security |
 | P1 | Audit finding | Codex | Wire follow/profile/feed host model end-to-end | Profile follow is local-only, following list parsing is wrong, and live feed should filter canonical host accounts |
@@ -67,7 +69,7 @@ Every meaningful work slice must update this file before commit/push:
 Immediate next work:
 
 1. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
-2. Wait for Google Play merchant/bank verification, create/publish `pack_299`, then smoke one purchase from the published `1.0.5+6` internal testing build.
+2. Wait for Google Play merchant/bank verification, upload/use the `1.0.6+7` wallet build, create/publish `pack_299`, then smoke one purchase from internal testing.
 3. Replace stale Flutter widget tests with Firebase-mocked or dependency-injected tests that match current onboarding.
 4. Add RTDB rules suite and DB race suite to the default local/CI check path.
 5. Retest direct call with two online accounts after the deployed presence-sync trigger.
@@ -495,7 +497,7 @@ Product law:
 | Push notifications (FCM) | ✅ Done (Android + iOS) | 90% |
 | Report system (chat) | ✅ Done | 100% |
 | Follow/unfollow UI | ❌ Partial | 20% |
-| Wallet / coins UI | ❌ Partial | 30% |
+| Wallet / coins UI | ⚠️ Partial | 55% |
 | Gifts during live | ❌ Not started | 0% |
 | Report system (calls) | ❌ Not started | 0% |
 | Direct call (signaling + video) | ✅ Done | 95% |
@@ -1149,6 +1151,7 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Idempotency | A+ | `iap_purchases.transaction_id` UNIQUE constraint. Check-before-insert prevents double-credit. Race conditions caught by PostgreSQL. |
 | Retry safety | A+ | Store completion happens only after backend confirms credit. Android consumable coin packs are consumed after credit, so users can rebuy the same pack safely. Failed verifications retry on next app launch automatically. |
 | Production hardening | A+ | `POST /v1/economy/purchase-coins` blocked unless `ALLOW_FAKE_PURCHASES=true`. Flutter fallback restricted to `kDebugMode`. |
+| Store catalog UX | A+ | Mobile now keeps explicit `IapCatalogState`, disables unavailable packs, shows loading/retry/status copy, displays Play/App Store localized prices for active products, and logs missing product IDs so Play Console setup issues are obvious during smoke testing. |
 | Code quality | A+ | Singleton `IapService.instance`. Clean separation: Flutter handles store interaction, backend handles all validation + crediting. Zero trust on client. |
 
 ### Onboarding — 2 Jun 2026 — Overall: A
@@ -1263,7 +1266,7 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Mobile entrances | B+ | Login, onboarding, feed, explore, inbox, direct call, random call, live, profile, wallet, and settings are present. Several entrances are still shallow or disconnected: feed call routing, profile follow, Explore caller identity, and premium live. |
 | Realtime availability | A- | Canonical RTDB presence is a strong cell and backend matchmaking reads the projection. Product-level A+ is blocked by premium live transitions and manual two-account random/direct call smoke. |
 | Backend economy | A | Paid call ticks and gifts now have transaction-safe row locks, idempotency replay, and real Postgres race tests. IAP credit/refund is transactional, and Android token verification contract is fixed. Remaining economy gap is backend-confirmed trusted gift fan-out. |
-| IAP production readiness | A | Android code/backend contract now matches Google Play token verification and real app IDs, Render production env is set, and PR #5 promoted the backend path to `main`. Remaining sign-off: Google Play merchant/bank verification, one-time product catalog visibility, and one internal-test purchase/refund smoke. |
+| IAP production readiness | A | Android code/backend contract now matches Google Play token verification and real app IDs, Render production env is set, and wallet catalog UX now exposes unavailable Play products cleanly. Remaining sign-off: Google Play merchant/bank verification, one-time product catalog visibility, and one internal-test purchase/refund smoke. |
 | Firebase ownership | A- | RTDB rules and module ownership improved a lot. Remaining trust gap is client-written gift/audience visual state and block/report split between Firestore and backend. |
 | Premium live | C | Product model is documented, but implementation is not present yet: no paid-entry transition, host caps, per-minute premium-room billing, lock screen, or premium realtime module. |
 | Test posture | B+ | Backend unit tests/build, Flutter analyze, RTDB emulator rules, and opt-in Postgres DB race tests pass. Flutter widget tests are stale, and RTDB/DB race suites still need CI/default check wiring. |
