@@ -36,7 +36,9 @@ Every meaningful work slice must update this file before commit/push:
 | P0 | Done | Codex | Add executable RTDB emulator tests | `tests/rtdb/rules.test.mjs` proves canonical presence, profile ownership, direct-call ownership, live-room host ownership, and event validation |
 | P0 | Done | Codex | Run RTDB emulator rules suite and record results in Audit Log | `pnpm test:rtdb:rules` passed 5/5 tests on 6 Jun 2026 |
 | P0 | Action required | User | Update Render billing payment method | Render reported invalid payment info on 6 Jun 2026; service is healthy now but can be suspended if payment fails again |
-| P0 | In progress | Codex | Deploy `dev` to Render backend through `main` | Render auto-deploys `zephyr-api` from `main`; current deploy candidate passed backend tests/build and RTDB rules suite locally |
+| P0 | Done | Codex | Deploy `dev` to Render backend through `main` | PR #2 merged on 6 Jun 2026; Render health returned `ok` after merge |
+| P0 | Done | Codex | Launch iPhone 17 Pro Max simulator against Render API | `com.zephyr.zephyrMobile` launched on simulator with `API_BASE_URL=https://zephyr-api-wr1s.onrender.com` |
+| P0 | Action required | User | Manual simulator smoke test | Check login/onboarding/feed/inbox/presence/direct call/random call/live basics while Render billing is fixed |
 | P0 | Next | Codex | Wire RTDB rules suite into normal check/CI path | Prevents future rules drift from silently weakening ownership/security |
 | P1 | Planned | Codex | Implement premium live lifecycle | Free live -> premium, start premium directly, paid entry, per-minute billing, lock screen, cleanup |
 | P1 | Planned | Codex | Add `PremiumLiveRealtime` module once lifecycle exists | Keeps premium live non-interruptible and owned by a dedicated realtime module |
@@ -47,7 +49,7 @@ Immediate next work:
 
 1. Add RTDB rules suite to the default local/CI check path.
 2. Update Render billing, then verify post-deploy health at `https://zephyr-api-wr1s.onrender.com/v1/health/ready`.
-3. Run iPhone simulator against Render API and smoke-test login/onboarding/feed/calls.
+3. Smoke-test login/onboarding/feed/inbox/presence/direct call/random call/live on iPhone simulator.
 4. Implement premium live lifecycle and `PremiumLiveRealtime`.
 5. Move trusted gift fan-out behind backend confirmation.
 
