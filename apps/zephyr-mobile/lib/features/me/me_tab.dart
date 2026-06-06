@@ -29,7 +29,7 @@ class MeTab extends StatelessWidget {
   final UserProfile? me;
   final ZephyrApiClient apiClient;
   final String accessToken;
-  final VoidCallback onLogout;
+  final Future<void> Function() onLogout;
   final Future<void> Function() onDeleteAccount;
   final Locale? locale;
   final ValueChanged<Locale?> onLocaleChanged;
@@ -91,8 +91,10 @@ class MeTab extends StatelessWidget {
                 if (me?.isAdmin == true) ...<Widget>[
                   const SizedBox(width: 6),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
                         colors: <Color>[Color(0xFFFFD700), Color(0xFFFF8C00)],

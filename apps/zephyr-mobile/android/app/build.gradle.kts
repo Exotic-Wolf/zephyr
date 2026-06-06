@@ -1,5 +1,6 @@
 import java.util.Properties
 import java.io.FileInputStream
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -21,12 +22,8 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     defaultConfig {
@@ -42,6 +39,9 @@ android {
 
     packaging {
         jniLibs {
+            // The local Apple Silicon Android SDK is missing the NDK strip tool.
+            // Keep symbols so release app bundles can still be generated for internal testing.
+            keepDebugSymbols += listOf("**/*.so")
             // Strip non-arm64 arches
             excludes += listOf("lib/x86_64/**", "lib/armeabi-v7a/**", "lib/x86/**", "lib/armeabi/**")
             // Strip unused Agora RTC extensions (saves ~45MB) — we only need core RTC for video calls
@@ -78,6 +78,12 @@ android {
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 

@@ -58,6 +58,12 @@ jobs:
       - name: RTDB rules emulator suite
         run: pnpm test:rtdb:rules
 
+      - name: Firestore rules emulator suite
+        run: pnpm test:firestore:rules
+
+      - name: Storage rules emulator suite
+        run: pnpm test:storage:rules
+
       - name: Backend unit tests
         run: pnpm --filter zephyr-api test
 

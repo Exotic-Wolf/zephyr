@@ -83,9 +83,91 @@ export class FcmService implements OnModuleInit {
     }
   }
 
+  async sendCommittedChatMessagePush(input: {
+    tokens: string[];
+    senderId: string;
+    senderDisplayName: string;
+    recipientId: string;
+    chatId: string;
+    messageId: string;
+  }): Promise<boolean> {
+    if (!this.initialized || input.tokens.length === 0) return false;
+
+    try {
+      const chatRef = admin.firestore().collection('chats').doc(input.chatId);
+      const [chatSnap, messageSnap] = await Promise.all([
+        chatRef.get(),
+        chatRef.collection('messages').doc(input.messageId).get(),
+      ]);
+
+      const participants = chatSnap.data()?.participants;
+      if (
+        !Array.isArray(participants) ||
+        !participants.includes(input.senderId) ||
+        !participants.includes(input.recipientId)
+      ) {
+        return false;
+      }
+
+      const message = messageSnap.data();
+      if (!message || message.senderId !== input.senderId) {
+        return false;
+      }
+
+      const type = typeof message.type === 'string' ? message.type : 'text';
+      const body =
+        type === 'image'
+          ? 'Photo'
+          : String(message.body ?? '').trim().slice(0, 200);
+      if (!body) return false;
+
+      await this.sendPush(
+        input.tokens,
+        input.senderDisplayName,
+        body,
+        {
+          type: 'chat_message',
+          source: 'firestore',
+          senderId: input.senderId,
+          chatId: input.chatId,
+          messageId: input.messageId,
+        },
+      );
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to verify/send Firestore chat push', err);
+      return false;
+    }
+  }
+
   async createCustomToken(userId: string): Promise<string | null> {
     if (!this.initialized) return null;
     return admin.auth().createCustomToken(userId);
+  }
+
+  async writeBlockProjection(blockerId: string, blockedId: string): Promise<void> {
+    if (!this.initialized) return;
+    await admin
+      .firestore()
+      .collection('blocks')
+      .doc(`${blockerId}_${blockedId}`)
+      .set({
+        blockedBy: blockerId,
+        blockedUser: blockedId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+  }
+
+  async removeBlockProjection(
+    blockerId: string,
+    blockedId: string,
+  ): Promise<void> {
+    if (!this.initialized) return;
+    await admin
+      .firestore()
+      .collection('blocks')
+      .doc(`${blockerId}_${blockedId}`)
+      .delete();
   }
 
   /** Write a call signal to RTDB at direct_calls/{userId}. */

@@ -9,14 +9,17 @@ service firebase.storage {
     }
 
     // ── Chat images ────────────────────────────────────────────────────────
-    // Path: chats/{chatId}/{filename}
-    // chatId = "userId1_userId2" (sorted). Both participants can read/write.
-    match /chats/{chatId}/{fileName} {
+    // Path: chats/{chatId}/{uploaderId}/{fileName}
+    // chatId = "userId1_userId2" (sorted). Uploads are owner-scoped and
+    // immutable; participants can read, only the uploader can create.
+    match /chats/{chatId}/{uploaderId}/{fileName} {
       allow read: if request.auth != null
         && request.auth.uid in chatId.split('_');
 
       allow write: if request.auth != null
         && request.auth.uid in chatId.split('_')
+        && request.auth.uid == uploaderId
+        && resource == null
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
     }

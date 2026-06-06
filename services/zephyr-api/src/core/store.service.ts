@@ -1702,6 +1702,41 @@ export class StoreService implements OnModuleInit {
     return result.rows[0]?.exists ?? false;
   }
 
+  async reportUser(
+    reporterId: string,
+    reportedId: string,
+    reason?: string,
+  ): Promise<void> {
+    if (reporterId === reportedId) {
+      throw new BadRequestException('Cannot report yourself');
+    }
+    if (!this.databaseService?.isEnabled()) return;
+
+    await this.databaseService.query(
+      `
+        INSERT INTO user_reports (reporter_id, reported_id, reason)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (reporter_id, reported_id)
+        DO UPDATE SET reason = EXCLUDED.reason, created_at = NOW()
+      `,
+      [reporterId, reportedId, reason?.trim() || null],
+    );
+
+    const countResult = await this.databaseService.query<{ cnt: string }>(
+      `
+        SELECT COUNT(*) AS cnt FROM user_reports
+        WHERE reported_id = $1
+          AND created_at > NOW() - INTERVAL '7 days'
+      `,
+      [reportedId],
+    );
+    const count = Number.parseInt(countResult.rows[0]?.cnt ?? '0', 10);
+    await this.databaseService.query(
+      `UPDATE users SET report_count = $1 WHERE id = $2`,
+      [count, reportedId],
+    );
+  }
+
   async reportCall(
     reporterId: string,
     sessionId: string,

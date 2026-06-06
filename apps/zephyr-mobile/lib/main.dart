@@ -34,6 +34,7 @@ const String googleServerClientId = String.fromEnvironment(
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   // ACK delivery immediately so sender gets ✓✓ even while app is backgrounded
+  if (message.data['source'] == 'firestore') return;
   final String? messageId = message.data['messageId'];
   if (messageId == null || messageId.isEmpty) return;
   const storage = FlutterSecureStorage();
@@ -56,13 +57,11 @@ void main() async {
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await SentryFlutter.init(
-    (options) {
-      options.dsn = 'https://72291af0e04cf5281a0224c462ba5f59@o4511418834354176.ingest.us.sentry.io/4511418852638720';
-      options.tracesSampleRate = 0.2;
-    },
-    appRunner: () => runApp(const MyApp()),
-  );
+  await SentryFlutter.init((options) {
+    options.dsn =
+        'https://72291af0e04cf5281a0224c462ba5f59@o4511418834354176.ingest.us.sentry.io/4511418852638720';
+    options.tracesSampleRate = 0.2;
+  }, appRunner: () => runApp(const MyApp()));
 }
 
 class MyApp extends StatefulWidget {
@@ -74,7 +73,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final ZephyrApiClient _apiClient = ZephyrApiClient(baseUrl: apiBaseUrl);
-  
+
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   static const String _tokenKey = 'access_token';
   static const String _themeModeKey = 'theme_mode';
@@ -96,11 +95,15 @@ class _MyAppState extends State<MyApp> {
 
   void _setupFcmHandlers() {
     // App launched from terminated state by tapping a notification
-    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+    FirebaseMessaging.instance.getInitialMessage().then((
+      RemoteMessage? message,
+    ) {
       if (message != null && mounted) _tabNotifier.value = 3;
     });
     // App in background, user taps notification
-    _fcmOpenSub = FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    _fcmOpenSub = FirebaseMessaging.onMessageOpenedApp.listen((
+      RemoteMessage message,
+    ) {
       if (mounted) _tabNotifier.value = 3;
     });
   }
@@ -114,7 +117,9 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _restoreSession() async {
     FlutterNativeSplash.remove(); // Show Flutter splash immediately
-    final Future<void> minDelay = Future<void>.delayed(const Duration(seconds: 2));
+    final Future<void> minDelay = Future<void>.delayed(
+      const Duration(seconds: 2),
+    );
     try {
       final String? saved = await _storage.read(key: _tokenKey);
       if (saved != null && saved.isNotEmpty) {
@@ -174,14 +179,36 @@ class _MyAppState extends State<MyApp> {
     } catch (_) {}
   }
 
-  void _onLogout() {
-    FirebaseChatService.instance.setOfflineStatus();
-    FirebaseChatService.instance.clearSession();
+  Future<void> _onLogout() async {
     final token = _accessToken;
-    _storage.delete(key: _tokenKey);
+
+    try {
+      await FirebaseChatService.instance.setOfflineStatus().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
+    } catch (_) {}
+
+    if (token != null) {
+      try {
+        await _unregisterFcmToken(
+          token,
+        ).timeout(const Duration(seconds: 3), onTimeout: () {});
+      } catch (_) {}
+    }
+
+    try {
+      await FirebaseChatService.instance.clearSession().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
+    } catch (_) {}
+
+    await _storage.delete(key: _tokenKey);
     ZephyrApiClient.accessToken = null;
-    setState(() => _accessToken = null);
-    if (token != null) _unregisterFcmToken(token);
+    if (mounted) {
+      setState(() => _accessToken = null);
+    }
   }
 
   Future<void> _onDeleteAccount() async {
@@ -202,21 +229,23 @@ class _MyAppState extends State<MyApp> {
 
     // Everything below is best-effort cleanup — never hang.
     try {
-      await FirebaseChatService.instance
-          .setOfflineStatus()
-          .timeout(const Duration(seconds: 3), onTimeout: () {});
-    } catch (_) {}
-
-    try {
-      await _unregisterFcmToken(token).timeout(
+      await FirebaseChatService.instance.setOfflineStatus().timeout(
         const Duration(seconds: 3),
         onTimeout: () {},
       );
     } catch (_) {}
 
     try {
-      await _clearLocalAppData()
-          .timeout(const Duration(seconds: 10), onTimeout: () {});
+      await _unregisterFcmToken(
+        token,
+      ).timeout(const Duration(seconds: 3), onTimeout: () {});
+    } catch (_) {}
+
+    try {
+      await _clearLocalAppData().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {},
+      );
     } catch (_) {}
 
     ZephyrApiClient.accessToken = null;
@@ -229,12 +258,14 @@ class _MyAppState extends State<MyApp> {
     // Terminate Firestore FIRST — while auth is still valid.
     // This drops all snapshot listeners cleanly before sign-out.
     try {
-      await FirebaseFirestore.instance
-          .terminate()
-          .timeout(const Duration(seconds: 5), onTimeout: () {});
-      await FirebaseFirestore.instance
-          .clearPersistence()
-          .timeout(const Duration(seconds: 3), onTimeout: () {});
+      await FirebaseFirestore.instance.terminate().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {},
+      );
+      await FirebaseFirestore.instance.clearPersistence().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
     } catch (_) {}
 
     try {
@@ -242,8 +273,10 @@ class _MyAppState extends State<MyApp> {
     } catch (_) {}
 
     try {
-      await FirebaseChatService.instance.clearSession()
-          .timeout(const Duration(seconds: 3), onTimeout: () {});
+      await FirebaseChatService.instance.clearSession().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
     } catch (_) {}
 
     // Clear Flutter image cache held in memory.
@@ -266,7 +299,9 @@ class _MyAppState extends State<MyApp> {
     // Wipe any extra cache-like folders under app support used by plugins.
     try {
       final Directory supportDir = await getApplicationSupportDirectory();
-      final Directory supportCache = Directory(p.join(supportDir.path, 'cache'));
+      final Directory supportCache = Directory(
+        p.join(supportDir.path, 'cache'),
+      );
       if (await supportCache.exists()) {
         await _deleteDirectoryContents(supportCache);
       }
@@ -301,9 +336,7 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     if (_restoringSession) {
-      return const MaterialApp(
-        home: SplashScreen(),
-      );
+      return const MaterialApp(home: SplashScreen());
     }
     return MaterialApp(
       title: 'Zephyr',
@@ -339,11 +372,14 @@ class _MyAppState extends State<MyApp> {
               tabNotifier: _tabNotifier,
               themeMode: _themeMode,
               onThemeModeChanged: (ThemeMode mode) {
-                _storage.write(key: _themeModeKey, value: switch (mode) {
-                  ThemeMode.light => 'light',
-                  ThemeMode.system => 'system',
-                  ThemeMode.dark => 'dark',
-                });
+                _storage.write(
+                  key: _themeModeKey,
+                  value: switch (mode) {
+                    ThemeMode.light => 'light',
+                    ThemeMode.system => 'system',
+                    ThemeMode.dark => 'dark',
+                  },
+                );
                 setState(() => _themeMode = mode);
               },
               locale: _locale,

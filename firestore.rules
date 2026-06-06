@@ -9,59 +9,222 @@ service cloud.firestore {
     }
 
     // ── Chats ──────────────────────────────────────────────────────────────
-    // Chat doc ID = sorted "userId1_userId2"
-    // Only participants can read/write their conversation.
+    // Chat doc ID = sorted "userId1_userId2".
+    // Clients may only mutate narrow conversation/message fields. Backend/Admin
+    // owns block projections and can bypass these rules.
     match /chats/{chatId} {
+      function signedIn() {
+        return request.auth != null;
+      }
+
+      function hasTwoParticipants(data) {
+        return data.participants is list
+          && data.participants.size() == 2
+          && data.participants[0] is string
+          && data.participants[1] is string
+          && data.participants[0] != data.participants[1];
+      }
+
       function isParticipant() {
-        return request.auth != null
+        return signedIn()
+          && hasTwoParticipants(resource.data)
           && request.auth.uid in resource.data.participants;
       }
 
       function isParticipantOnCreate() {
-        return request.auth != null
+        return signedIn()
+          && hasTwoParticipants(request.resource.data)
           && request.auth.uid in request.resource.data.participants;
       }
 
+      function firstParticipant(data) {
+        return data.participants[0];
+      }
+
+      function secondParticipant(data) {
+        return data.participants[1];
+      }
+
+      function otherParticipant(data) {
+        return firstParticipant(data) == request.auth.uid
+          ? secondParticipant(data)
+          : firstParticipant(data);
+      }
+
+      function blockId(blockerId, blockedId) {
+        return blockerId + '_' + blockedId;
+      }
+
+      function notBlocked(data) {
+        let otherId = otherParticipant(data);
+        return !exists(/databases/$(database)/documents/blocks/$(blockId(request.auth.uid, otherId)))
+          && !exists(/databases/$(database)/documents/blocks/$(blockId(otherId, request.auth.uid)));
+      }
+
+      function chatKeys(data) {
+        let a = firstParticipant(data);
+        let b = secondParticipant(data);
+        return [
+          'participants',
+          'lastMessage',
+          'lastMessageAt',
+          'lastSenderId',
+          'unread_' + a,
+          'unread_' + b,
+          'name_' + a,
+          'name_' + b,
+          'avatar_' + a,
+          'avatar_' + b,
+        ];
+      }
+
+      function validNullableString(value, maxLength) {
+        return value == null || (value is string && value.size() <= maxLength);
+      }
+
+      function validChatData(data) {
+        let a = firstParticipant(data);
+        let b = secondParticipant(data);
+        return hasTwoParticipants(data)
+          && data.keys().hasOnly(chatKeys(data))
+          && (!('lastMessage' in data.keys()) || (data.lastMessage is string && data.lastMessage.size() <= 2000))
+          && (!('lastMessageAt' in data.keys()) || data.lastMessageAt is timestamp)
+          && (!('lastSenderId' in data.keys()) || data.lastSenderId in data.participants)
+          && (!('unread_' + a in data.keys()) || (data['unread_' + a] is int && data['unread_' + a] >= 0))
+          && (!('unread_' + b in data.keys()) || (data['unread_' + b] is int && data['unread_' + b] >= 0))
+          && (!('name_' + a in data.keys()) || validNullableString(data['name_' + a], 80))
+          && (!('name_' + b in data.keys()) || validNullableString(data['name_' + b], 80))
+          && (!('avatar_' + a in data.keys()) || validNullableString(data['avatar_' + a], 1000))
+          && (!('avatar_' + b in data.keys()) || validNullableString(data['avatar_' + b], 1000));
+      }
+
+      function validChatUpdate() {
+        return isParticipant()
+          && request.resource.data.participants == resource.data.participants
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(chatKeys(resource.data))
+          && validChatData(request.resource.data)
+          && notBlocked(resource.data);
+      }
+
       allow read: if isParticipant();
-      allow create: if isParticipantOnCreate();
-      allow update: if isParticipant();
+      allow create: if isParticipantOnCreate()
+        && validChatData(request.resource.data)
+        && notBlocked(request.resource.data);
+      allow update: if validChatUpdate();
 
       // Messages subcollection
       match /messages/{messageId} {
-        allow read: if request.auth != null
-          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        function chatAfter() {
+          return getAfter(/databases/$(database)/documents/chats/$(chatId)).data;
+        }
 
-        allow create: if request.auth != null
-          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-          && request.resource.data.senderId == request.auth.uid;
+        function chatBefore() {
+          return get(/databases/$(database)/documents/chats/$(chatId)).data;
+        }
 
-        allow update: if request.auth != null
-          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        function isChatParticipant(data) {
+          return signedIn()
+            && hasTwoParticipants(data)
+            && request.auth.uid in data.participants;
+        }
+
+        function validMessageCreate() {
+          return request.resource.data.keys().hasOnly([
+              'senderId',
+              'body',
+              'type',
+              'imageUrl',
+              'idempotencyKey',
+              'createdAt',
+              'deliveredAt',
+              'readAt',
+            ])
+            && request.resource.data.senderId == request.auth.uid
+            && request.resource.data.body is string
+            && request.resource.data.body.size() <= 2000
+            && request.resource.data.type in ['text', 'image']
+            && (!('imageUrl' in request.resource.data.keys())
+              || validNullableString(request.resource.data.imageUrl, 1000))
+            && (!('idempotencyKey' in request.resource.data.keys())
+              || (request.resource.data.idempotencyKey is string
+                && request.resource.data.idempotencyKey.size() >= 8
+                && request.resource.data.idempotencyKey.size() <= 160))
+            && request.resource.data.createdAt is timestamp
+            && request.resource.data.deliveredAt == null
+            && request.resource.data.readAt == null;
+        }
+
+        function receiptUpdateOnly() {
+          return resource.data.senderId != request.auth.uid
+            && request.resource.data.senderId == resource.data.senderId
+            && request.resource.data.body == resource.data.body
+            && request.resource.data.type == resource.data.type
+            && request.resource.data.createdAt == resource.data.createdAt
+            && (!('imageUrl' in resource.data.keys())
+              || request.resource.data.imageUrl == resource.data.imageUrl)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deliveredAt', 'readAt'])
+            && (!('deliveredAt' in request.resource.data.keys())
+              || request.resource.data.deliveredAt == null
+              || request.resource.data.deliveredAt is timestamp)
+            && (!('readAt' in request.resource.data.keys())
+              || request.resource.data.readAt == null
+              || request.resource.data.readAt is timestamp);
+        }
+
+        function deleteForMeOnly() {
+          return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedFor'])
+            && request.resource.data.deletedFor is list
+            && request.resource.data.deletedFor.hasAll([request.auth.uid]);
+        }
+
+        function deleteForEveryoneBySender() {
+          return resource.data.senderId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedFor', 'body', 'imageUrl', 'type'])
+            && request.resource.data.deletedFor == 'all'
+            && request.resource.data.body == ''
+            && request.resource.data.imageUrl == null
+            && request.resource.data.type == 'deleted';
+        }
+
+        allow read: if isChatParticipant(chatBefore());
+
+        allow create: if isChatParticipant(chatAfter())
+          && notBlocked(chatAfter())
+          && validMessageCreate();
+
+        allow update: if isChatParticipant(chatBefore())
+          && notBlocked(chatBefore())
+          && request.resource.data.keys().hasOnly([
+            'senderId',
+            'body',
+            'type',
+            'imageUrl',
+            'idempotencyKey',
+            'createdAt',
+            'deliveredAt',
+            'readAt',
+            'deletedFor',
+          ])
+          && (receiptUpdateOnly() || deleteForMeOnly() || deleteForEveryoneBySender());
       }
     }
 
     // ── Blocks ─────────────────────────────────────────────────────────────
-    // Doc ID = "blockerId_blockedId"
-    // Only the blocker can create/delete. Both parties can read (for block checks).
+    // Doc ID = "blockerId_blockedId". Backend/Admin owns writes through the
+    // Postgres block API; clients can only read projections involving them so
+    // Firestore rules can block chat sends.
     match /blocks/{blockId} {
       allow read: if request.auth != null
         && (request.auth.uid == resource.data.blockedBy
             || request.auth.uid == resource.data.blockedUser);
 
-      allow create: if request.auth != null
-        && request.auth.uid == request.resource.data.blockedBy;
-
-      allow delete: if request.auth != null
-        && request.auth.uid == resource.data.blockedBy;
+      allow create, update, delete: if false;
     }
 
     // ── Reports ────────────────────────────────────────────────────────────
-    // Anyone authenticated can create a report. Only admins (backend) can read.
+    // Reports are backend-owned. Clients report through authenticated API.
     match /reports/{reportId} {
-      allow create: if request.auth != null
-        && request.resource.data.reportedBy == request.auth.uid;
-
-      allow read, update, delete: if false;
+      allow read, write: if false;
     }
   }
 }

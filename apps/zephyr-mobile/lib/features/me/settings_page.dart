@@ -15,7 +15,7 @@ class SettingsPage extends StatefulWidget {
     required this.onThemeModeChanged,
   });
 
-  final VoidCallback onLogout;
+  final Future<void> Function() onLogout;
   final Future<void> Function() onDeleteAccount;
   final Locale? locale;
   final ValueChanged<Locale?> onLocaleChanged;
@@ -75,9 +75,9 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (error) {
       debugPrint('Delete account UI error: $error');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete account failed: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Delete account failed: $error')));
       setState(() => _deletingAccount = false);
     }
   }
@@ -137,13 +137,19 @@ class _SettingsPageState extends State<SettingsPage> {
             leading: const Icon(Icons.description_outlined),
             title: const Text('Privacy Policy'),
             trailing: const Icon(Icons.open_in_new, size: 18),
-            onTap: () => launchUrl(Uri.parse('$apiBaseUrl/legal/privacy'), mode: LaunchMode.externalApplication),
+            onTap: () => launchUrl(
+              Uri.parse('$apiBaseUrl/legal/privacy'),
+              mode: LaunchMode.externalApplication,
+            ),
           ),
           ListTile(
             leading: const Icon(Icons.gavel_outlined),
             title: const Text('Terms of Service'),
             trailing: const Icon(Icons.open_in_new, size: 18),
-            onTap: () => launchUrl(Uri.parse('$apiBaseUrl/legal/terms'), mode: LaunchMode.externalApplication),
+            onTap: () => launchUrl(
+              Uri.parse('$apiBaseUrl/legal/terms'),
+              mode: LaunchMode.externalApplication,
+            ),
           ),
           const Divider(height: 1),
           ListTile(
@@ -164,10 +170,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
-            title: Text(
-              l10n.logout,
-              style: const TextStyle(color: Colors.red),
-            ),
+            title: Text(l10n.logout, style: const TextStyle(color: Colors.red)),
             onTap: () async {
               final bool? confirm = await showDialog<bool>(
                 context: context,
@@ -192,7 +195,7 @@ class _SettingsPageState extends State<SettingsPage> {
               if (confirm != true) return;
               if (!context.mounted) return;
               Navigator.of(context).popUntil((route) => route.isFirst);
-              widget.onLogout();
+              await widget.onLogout();
             },
           ),
         ],
@@ -229,7 +232,10 @@ class _LanguagePage extends StatelessWidget {
           final bool selected = lang['code'] == currentCode;
           return ListTile(
             leading: Text(lang['flag']!, style: const TextStyle(fontSize: 28)),
-            title: Text(lang['native']!, style: const TextStyle(fontWeight: FontWeight.w600)),
+            title: Text(
+              lang['native']!,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
             subtitle: Text(lang['name']!),
             trailing: selected
                 ? const Icon(Icons.check_rounded, color: Color(0xFFFF8F00))
@@ -326,8 +332,10 @@ class _AppearanceTile extends StatelessWidget {
       title: Text(label),
       subtitle: Text(subtitle),
       trailing: selected
-          ? Icon(Icons.check_circle_rounded,
-              color: Theme.of(context).colorScheme.primary)
+          ? Icon(
+              Icons.check_circle_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            )
           : const Icon(Icons.radio_button_unchecked_rounded),
       onTap: () => onChanged(mode),
     );

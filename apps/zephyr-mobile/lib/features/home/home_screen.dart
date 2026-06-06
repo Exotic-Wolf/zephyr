@@ -40,7 +40,7 @@ class HomeScreen extends StatefulWidget {
 
   final ZephyrApiClient apiClient;
   final String accessToken;
-  final VoidCallback onLogout;
+  final Future<void> Function() onLogout;
   final Future<void> Function() onDeleteAccount;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
@@ -558,11 +558,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
 
     // Wire push notifications for Firebase chat
-    FirebaseChatService.instance.onSendPush = (recipientId, title, body) async {
-      widget.apiClient
-          .sendPushNotification(widget.accessToken, recipientId, title, body)
-          .ignore();
-    };
+    FirebaseChatService.instance.onSendPush =
+        (recipientId, chatId, messageId) async {
+          widget.apiClient
+              .sendPushNotification(
+                widget.accessToken,
+                recipientId,
+                chatId,
+                messageId,
+              )
+              .ignore();
+        };
 
     // Global delivery receipts — mark messages delivered as soon as app receives them
     _convoDeliverySub?.cancel();

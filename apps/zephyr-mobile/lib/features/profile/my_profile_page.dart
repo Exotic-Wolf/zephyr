@@ -24,7 +24,7 @@ class MyProfilePage extends StatefulWidget {
   final UserProfile? me;
   final ZephyrApiClient apiClient;
   final String accessToken;
-  final VoidCallback onLogout;
+  final Future<void> Function() onLogout;
 
   @override
   State<MyProfilePage> createState() => _MyProfilePageState();
@@ -56,7 +56,10 @@ class _MyProfilePageState extends State<MyProfilePage> {
   }
 
   static const List<String> _genders = <String>[
-    'Male', 'Female', 'Non-binary', 'Prefer not to say',
+    'Male',
+    'Female',
+    'Non-binary',
+    'Prefer not to say',
   ];
 
   @override
@@ -108,11 +111,19 @@ class _MyProfilePageState extends State<MyProfilePage> {
       ),
     );
     if (source == null || !mounted) return;
-    final XFile? picked = await ImagePicker().pickImage(source: source, imageQuality: 85, maxWidth: 800);
+    final XFile? picked = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 800,
+    );
     if (picked == null || !mounted) return;
     setState(() => _uploadingAvatar = true);
     try {
-      final String url = await widget.apiClient.uploadAvatar(widget.accessToken, File(picked.path), mimeType: picked.mimeType);
+      final String url = await widget.apiClient.uploadAvatar(
+        widget.accessToken,
+        File(picked.path),
+        mimeType: picked.mimeType,
+      );
       if (!mounted) return;
       final UserProfile? me = widget.me;
       setState(() {
@@ -137,11 +148,13 @@ class _MyProfilePageState extends State<MyProfilePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(AppLocalizations.of(context)!.avatarUpdated),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.avatarUpdated),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
       // Update RTDB profile with new avatar
       if (me != null) {
         FirebaseChatService.instance.writeMyProfile(
@@ -154,11 +167,15 @@ class _MyProfilePageState extends State<MyProfilePage> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(AppLocalizations.of(context)!.uploadFailed(e.toString())),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!.uploadFailed(e.toString()),
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
     }
@@ -186,27 +203,39 @@ class _MyProfilePageState extends State<MyProfilePage> {
       ),
     );
     if (source == null || !mounted) return;
-    final XFile? picked = await ImagePicker().pickImage(source: source, imageQuality: 85, maxWidth: 1200);
+    final XFile? picked = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 1200,
+    );
     if (picked == null || !mounted) return;
     setState(() => _uploadingCover = true);
     try {
-      final String url = await widget.apiClient.uploadCover(widget.accessToken, File(picked.path), mimeType: picked.mimeType);
+      final String url = await widget.apiClient.uploadCover(
+        widget.accessToken,
+        File(picked.path),
+        mimeType: picked.mimeType,
+      );
       if (!mounted) return;
       setState(() => _coverUrl = url);
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Cover photo updated'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
-        ));
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Cover photo updated'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Cover upload failed: $e'),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cover upload failed: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _uploadingCover = false);
     }
@@ -234,8 +263,8 @@ class _MyProfilePageState extends State<MyProfilePage> {
     try {
       final String? birthdayStr = _birthday != null
           ? '${_birthday!.year.toString().padLeft(4, '0')}-'
-            '${_birthday!.month.toString().padLeft(2, '0')}-'
-            '${_birthday!.day.toString().padLeft(2, '0')}'
+                '${_birthday!.month.toString().padLeft(2, '0')}-'
+                '${_birthday!.day.toString().padLeft(2, '0')}'
           : null;
 
       final UserProfile updated = await widget.apiClient.updateMe(
@@ -261,21 +290,27 @@ class _MyProfilePageState extends State<MyProfilePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(AppLocalizations.of(context)!.profileSaved),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.profileSaved),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
       Navigator.of(context).pop(updated);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(AppLocalizations.of(context)!.failedToSaveProfile(e.toString())),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.red,
-        ));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.failedToSaveProfile(e.toString()),
+            ),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.red,
+          ),
+        );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -284,7 +319,9 @@ class _MyProfilePageState extends State<MyProfilePage> {
   @override
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
-    final Color valueColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+    final Color valueColor = isDark
+        ? Colors.grey.shade400
+        : Colors.grey.shade600;
     final TextStyle valueStyle = TextStyle(fontSize: 14, color: valueColor);
 
     return Scaffold(
@@ -300,7 +337,8 @@ class _MyProfilePageState extends State<MyProfilePage> {
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: Center(
                 child: SizedBox(
-                  width: 20, height: 20,
+                  width: 20,
+                  height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ),
@@ -308,19 +346,24 @@ class _MyProfilePageState extends State<MyProfilePage> {
           else if (_editing)
             TextButton(
               onPressed: _save,
-              child: Text(AppLocalizations.of(context)!.save, style: const TextStyle(fontWeight: FontWeight.w700)),
+              child: Text(
+                AppLocalizations.of(context)!.save,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             )
           else
             TextButton(
               onPressed: () => setState(() => _editing = true),
-              child: Text(AppLocalizations.of(context)!.edit, style: const TextStyle(fontWeight: FontWeight.w700)),
+              child: Text(
+                AppLocalizations.of(context)!.edit,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
         ],
       ),
       body: ListView(
         padding: EdgeInsets.zero,
         children: <Widget>[
-
           // ── Cover Photo ──────────────────────────────────────
           GestureDetector(
             onTap: _uploadingCover ? null : _pickAndUploadCover,
@@ -343,26 +386,43 @@ class _MyProfilePageState extends State<MyProfilePage> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.panorama_outlined, size: 36, color: Colors.white38),
+                          Icon(
+                            Icons.panorama_outlined,
+                            size: 36,
+                            color: Colors.white38,
+                          ),
                           SizedBox(height: 6),
-                          Text('Tap to add cover photo',
-                              style: TextStyle(color: Colors.white38, fontSize: 13)),
+                          Text(
+                            'Tap to add cover photo',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 13,
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   if (_uploadingCover)
                     const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     ),
                   Positioned(
-                    bottom: 8, right: 12,
+                    bottom: 8,
+                    right: 12,
                     child: Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.5),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white),
+                      child: const Icon(
+                        Icons.camera_alt_rounded,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ],
@@ -375,284 +435,385 @@ class _MyProfilePageState extends State<MyProfilePage> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
               children: <Widget>[
-
-          // ── Avatar ───────────────────────────────────────────
-          Center(
-            child: Column(
-              children: <Widget>[
-                Stack(
-                  children: <Widget>[
-                    CircleAvatar(
-                      radius: 48,
-                      backgroundColor: widget.me?.isAdmin == true
-                          ? const Color(0xFFFFD700).withValues(alpha: 0.18)
-                          : const Color(0xFFFF8F00).withValues(alpha: 0.15),
-                      backgroundImage: _avatarUrl != null ? CachedNetworkImageProvider(_avatarUrl!) : null,
-                      child: _avatarUrl == null
-                          ? Text(
-                              (widget.me?.displayName ?? 'M').substring(0, 1).toUpperCase(),
-                              style: TextStyle(
-                                  fontSize: 40, fontWeight: FontWeight.w700,
-                                  color: widget.me?.isAdmin == true
-                                      ? const Color(0xFFB8860B)
-                                      : const Color(0xFFFF8F00)),
-                            )
-                          : null,
-                    ),
-                    if (_uploadingAvatar)
-                      const Positioned.fill(
-                        child: CircleAvatar(
-                          backgroundColor: Colors.black45,
-                          child: SizedBox(
-                            width: 24, height: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                // ── Avatar ───────────────────────────────────────────
+                Center(
+                  child: Column(
+                    children: <Widget>[
+                      Stack(
+                        children: <Widget>[
+                          CircleAvatar(
+                            radius: 48,
+                            backgroundColor: widget.me?.isAdmin == true
+                                ? const Color(
+                                    0xFFFFD700,
+                                  ).withValues(alpha: 0.18)
+                                : const Color(
+                                    0xFFFF8F00,
+                                  ).withValues(alpha: 0.15),
+                            backgroundImage: _avatarUrl != null
+                                ? CachedNetworkImageProvider(_avatarUrl!)
+                                : null,
+                            child: _avatarUrl == null
+                                ? Text(
+                                    (widget.me?.displayName ?? 'M')
+                                        .substring(0, 1)
+                                        .toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 40,
+                                      fontWeight: FontWeight.w700,
+                                      color: widget.me?.isAdmin == true
+                                          ? const Color(0xFFB8860B)
+                                          : const Color(0xFFFF8F00),
+                                    ),
+                                  )
+                                : null,
                           ),
-                        ),
-                      ),
-                    Positioned(
-                      bottom: 0, right: 0,
-                      child: GestureDetector(
-                        onTap: _uploadingAvatar ? null : _pickAndUploadAvatar,
-                        child: Container(
-                          width: 30, height: 30,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Color(0xFFFF8F00),
-                          ),
-                          child: const Icon(Icons.camera_alt_rounded,
-                              size: 16, color: Colors.white),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (widget.me?.isAdmin == true) ...<Widget>[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: <Color>[Color(0xFFFFD700), Color(0xFFFF8C00)],
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      AppLocalizations.of(context)!.ownerBadge,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // ── Fields ───────────────────────────────────────────
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Column(
-              children: <Widget>[
-
-                // ID — always read-only
-                ListTile(
-                  title: Text(AppLocalizations.of(context)!.id),
-                  trailing: GestureDetector(
-                    onTap: () {
-                      Clipboard.setData(ClipboardData(text: _userId));
-                      ScaffoldMessenger.of(context)
-                        ..hideCurrentSnackBar()
-                        ..showSnackBar(SnackBar(
-                          content: Text(AppLocalizations.of(context)!.idCopiedToClipboard),
-                          behavior: SnackBarBehavior.floating,
-                          duration: const Duration(seconds: 2),
-                        ));
-                    },
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(_userId,
-                            style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
-                        const SizedBox(width: 6),
-                        Icon(Icons.copy_rounded, size: 15, color: Colors.grey.shade400),
-                      ],
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
-
-                // Nickname
-                ListTile(
-                  title: Text(AppLocalizations.of(context)!.nickname),
-                  trailing: _editing
-                      ? SizedBox(
-                          width: 160,
-                          child: TextField(
-                            controller: _nicknameCtrl,
-                            textAlign: TextAlign.end,
-                            style: valueStyle,
-                            decoration: InputDecoration(
-                              border: InputBorder.none,
-                              hintText: AppLocalizations.of(context)!.enterNickname,
-                              hintStyle: const TextStyle(color: Colors.grey),
-                              isDense: true,
-                              contentPadding: EdgeInsets.zero,
+                          if (_uploadingAvatar)
+                            const Positioned.fill(
+                              child: CircleAvatar(
+                                backgroundColor: Colors.black45,
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: GestureDetector(
+                              onTap: _uploadingAvatar
+                                  ? null
+                                  : _pickAndUploadAvatar,
+                              child: Container(
+                                width: 30,
+                                height: 30,
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Color(0xFFFF8F00),
+                                ),
+                                child: const Icon(
+                                  Icons.camera_alt_rounded,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
                           ),
-                        )
-                      : Text(_nicknameCtrl.text.isEmpty ? '—' : _nicknameCtrl.text,
-                          style: TextStyle(fontSize: 14, color: valueColor)),
-                ),
-                const Divider(height: 1),
-
-                // Gender
-                ListTile(
-                  title: Text(AppLocalizations.of(context)!.gender),
-                  trailing: _editing
-                      ? DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _gender,
-                            isDense: true,
-                            isExpanded: false,
-                            alignment: AlignmentDirectional.centerEnd,
-                            style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                            selectedItemBuilder: (_) => _genders.map((String g) =>
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: Text(g, style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
-                              ),
-                            ).toList(),
-                            items: _genders.map((String g) => DropdownMenuItem<String>(
-                              value: g, child: Text(g),
-                            )).toList(),
-                            onChanged: (String? v) {
-                              if (v != null) setState(() => _gender = v);
-                            },
+                        ],
+                      ),
+                      if (widget.me?.isAdmin == true) ...<Widget>[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 3,
                           ),
-                        )
-                      : Text(_gender, style: TextStyle(fontSize: 14, color: valueColor)),
-                ),
-                const Divider(height: 1),
-
-                // Birthday
-                ListTile(
-                  title: Text(AppLocalizations.of(context)!.birthday),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(_formatBirthday(),
-                          style: TextStyle(fontSize: 14, color: valueColor)),
-                      if (_editing) ...<Widget>[
-                        const SizedBox(width: 4),
-                        Icon(Icons.edit_calendar_rounded,
-                            size: 16, color: Colors.grey.shade400),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: <Color>[
+                                Color(0xFFFFD700),
+                                Color(0xFFFF8C00),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            AppLocalizations.of(context)!.ownerBadge,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ),
                       ],
                     ],
                   ),
-                  onTap: _pickBirthday,
                 ),
-                const Divider(height: 1),
+                const SizedBox(height: 24),
 
-                // Country
-                ListTile(
-                  title: Text(AppLocalizations.of(context)!.country),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
+                // ── Fields ───────────────────────────────────────────
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
                     children: <Widget>[
-                      _country == null
-                          ? Text(AppLocalizations.of(context)!.notSet, style: TextStyle(fontSize: 14, color: Colors.grey.shade400))
-                          : Text('${_country!.flagEmoji} ${_country!.name}',
-                              style: TextStyle(fontSize: 14, color: valueColor)),
-                      if (_editing) ...<Widget>[
-                        const SizedBox(width: 4),
-                        Icon(Icons.chevron_right_rounded,
-                            size: 18, color: Colors.grey.shade400),
-                      ],
+                      // ID — always read-only
+                      ListTile(
+                        title: Text(AppLocalizations.of(context)!.id),
+                        trailing: GestureDetector(
+                          onTap: () {
+                            Clipboard.setData(ClipboardData(text: _userId));
+                            ScaffoldMessenger.of(context)
+                              ..hideCurrentSnackBar()
+                              ..showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    AppLocalizations.of(
+                                      context,
+                                    )!.idCopiedToClipboard,
+                                  ),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                          },
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Text(
+                                _userId,
+                                style: TextStyle(
+                                  color: Colors.grey.shade500,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Icon(
+                                Icons.copy_rounded,
+                                size: 15,
+                                color: Colors.grey.shade400,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1),
+
+                      // Nickname
+                      ListTile(
+                        title: Text(AppLocalizations.of(context)!.nickname),
+                        trailing: _editing
+                            ? SizedBox(
+                                width: 160,
+                                child: TextField(
+                                  controller: _nicknameCtrl,
+                                  textAlign: TextAlign.end,
+                                  style: valueStyle,
+                                  decoration: InputDecoration(
+                                    border: InputBorder.none,
+                                    hintText: AppLocalizations.of(
+                                      context,
+                                    )!.enterNickname,
+                                    hintStyle: const TextStyle(
+                                      color: Colors.grey,
+                                    ),
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
+                                ),
+                              )
+                            : Text(
+                                _nicknameCtrl.text.isEmpty
+                                    ? '—'
+                                    : _nicknameCtrl.text,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: valueColor,
+                                ),
+                              ),
+                      ),
+                      const Divider(height: 1),
+
+                      // Gender
+                      ListTile(
+                        title: Text(AppLocalizations.of(context)!.gender),
+                        trailing: _editing
+                            ? DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _gender,
+                                  isDense: true,
+                                  isExpanded: false,
+                                  alignment: AlignmentDirectional.centerEnd,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                  selectedItemBuilder: (_) => _genders
+                                      .map(
+                                        (String g) => Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Text(
+                                            g,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.grey.shade700,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                  items: _genders
+                                      .map(
+                                        (String g) => DropdownMenuItem<String>(
+                                          value: g,
+                                          child: Text(g),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (String? v) {
+                                    if (v != null) setState(() => _gender = v);
+                                  },
+                                ),
+                              )
+                            : Text(
+                                _gender,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: valueColor,
+                                ),
+                              ),
+                      ),
+                      const Divider(height: 1),
+
+                      // Birthday
+                      ListTile(
+                        title: Text(AppLocalizations.of(context)!.birthday),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Text(
+                              _formatBirthday(),
+                              style: TextStyle(fontSize: 14, color: valueColor),
+                            ),
+                            if (_editing) ...<Widget>[
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.edit_calendar_rounded,
+                                size: 16,
+                                color: Colors.grey.shade400,
+                              ),
+                            ],
+                          ],
+                        ),
+                        onTap: _pickBirthday,
+                      ),
+                      const Divider(height: 1),
+
+                      // Country
+                      ListTile(
+                        title: Text(AppLocalizations.of(context)!.country),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            _country == null
+                                ? Text(
+                                    AppLocalizations.of(context)!.notSet,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                  )
+                                : Text(
+                                    '${_country!.flagEmoji} ${_country!.name}',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: valueColor,
+                                    ),
+                                  ),
+                            if (_editing) ...<Widget>[
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                size: 18,
+                                color: Colors.grey.shade400,
+                              ),
+                            ],
+                          ],
+                        ),
+                        onTap: _editing
+                            ? () => showCountryPicker(
+                                context: context,
+                                showPhoneCode: false,
+                                onSelect: (Country c) =>
+                                    setState(() => _country = c),
+                              )
+                            : null,
+                      ),
+                      const Divider(height: 1),
+
+                      // Language
+                      ListTile(
+                        title: Text(AppLocalizations.of(context)!.language),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Text(
+                              _language.isEmpty
+                                  ? AppLocalizations.of(context)!.notSet
+                                  : _language,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: _language.isEmpty
+                                    ? Colors.grey.shade400
+                                    : valueColor,
+                              ),
+                            ),
+                            if (_editing) ...<Widget>[
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                size: 18,
+                                color: Colors.grey.shade400,
+                              ),
+                            ],
+                          ],
+                        ),
+                        onTap: _editing ? _pickLanguage : null,
+                      ),
                     ],
                   ),
-                  onTap: _editing
-                      ? () => showCountryPicker(
-                            context: context,
-                            showPhoneCode: false,
-                            onSelect: (Country c) => setState(() => _country = c),
-                          )
-                      : null,
                 ),
-                const Divider(height: 1),
-
-                // Language
-                ListTile(
-                  title: Text(AppLocalizations.of(context)!.language),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(_language.isEmpty ? AppLocalizations.of(context)!.notSet : _language,
-                          style: TextStyle(
-                              fontSize: 14,
-                              color: _language.isEmpty
-                                  ? Colors.grey.shade400
-                                  : valueColor)),
-                      if (_editing) ...<Widget>[
-                        const SizedBox(width: 4),
-                        Icon(Icons.chevron_right_rounded,
-                            size: 18, color: Colors.grey.shade400),
-                      ],
-                    ],
+                const SizedBox(height: 16),
+                Text(
+                  AppLocalizations.of(context)!.yourIdIsPermanent,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
+                const SizedBox(height: 24),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    final UserProfile? me = widget.me;
+                    final LiveFeedCard card = LiveFeedCard(
+                      roomId: '',
+                      title: '',
+                      audienceCount: 0,
+                      hostUserId: me?.id ?? '',
+                      hostDisplayName: me?.displayName ?? '',
+                      hostAvatarUrl: me?.avatarUrl,
+                      hostCountryCode: me?.countryCode ?? '',
+                      hostLanguage: me?.language ?? '',
+                      hostStatus: 'online',
+                      startedAt: DateTime.now(),
+                    );
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ProfilePage(
+                          feedCard: card,
+                          onMessage: () {},
+                          isPreview: true,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.person_search_rounded, size: 18),
+                  label: Text(AppLocalizations.of(context)!.viewPublicProfile),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  onTap: _editing ? _pickLanguage : null,
                 ),
+                const SizedBox(height: 12),
               ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            AppLocalizations.of(context)!.yourIdIsPermanent,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-          ),
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            onPressed: () {
-              final UserProfile? me = widget.me;
-              final LiveFeedCard card = LiveFeedCard(
-                roomId: '',
-                title: '',
-                audienceCount: 0,
-                hostUserId: me?.id ?? '',
-                hostDisplayName: me?.displayName ?? '',
-                hostAvatarUrl: me?.avatarUrl,
-                hostCountryCode: me?.countryCode ?? '',
-                hostLanguage: me?.language ?? '',
-                hostStatus: 'online',
-                startedAt: DateTime.now(),
-              );
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => ProfilePage(
-                    feedCard: card,
-                    onMessage: () {},
-                    isPreview: true,
-                  ),
-                ),
-              );
-            },
-            icon: const Icon(Icons.person_search_rounded, size: 18),
-            label: Text(AppLocalizations.of(context)!.viewPublicProfile),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 48),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
             ),
           ),
         ],
@@ -660,4 +821,3 @@ class _MyProfilePageState extends State<MyProfilePage> {
     );
   }
 }
-

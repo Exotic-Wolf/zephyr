@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -50,15 +51,25 @@ export class MessagesController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async sendPushNotification(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: { recipientId: string; title: string; body: string },
+    @Body() body: { recipientId: string; chatId: string; messageId: string },
   ): Promise<void> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
+    if (!body.recipientId || !body.chatId || !body.messageId) {
+      throw new BadRequestException('recipientId, chatId, and messageId are required');
+    }
     const tokens = await this.storeService.getDeviceTokens(body.recipientId);
     if (tokens.length > 0) {
-      await this.fcmService.sendPush(tokens, body.title, body.body, {
+      const sent = await this.fcmService.sendCommittedChatMessagePush({
+        tokens,
         senderId: me.id,
-        type: 'chat_message',
+        senderDisplayName: me.displayName,
+        recipientId: body.recipientId,
+        chatId: body.chatId,
+        messageId: body.messageId,
       });
+      if (!sent) {
+        throw new BadRequestException('Chat message could not be verified for push');
+      }
     }
   }
 

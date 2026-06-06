@@ -56,14 +56,19 @@ Every meaningful work slice must update this file before commit/push:
 | P0 | Done | Codex | Generate Android wallet/IAP AAB `1.0.6+7` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab` after catalog UX hardening; Gradle `bundleRelease` passed on 7 Jun 2026, package remains `com.zephyr.zephyr_mobile`, version name `1.0.6`, version code `7` |
 | P0 | Pending review | Google | Google Play merchant/bank verification | User submitted the Play payments profile and SBM bank statement on 7 Jun 2026; one-time product creation and catalog visibility are blocked until Google completes or accepts verification |
 | P0 | Blocked | User | Manual Google Play internal-test purchase smoke | Current tester build cannot buy because no matching Play one-time products exist/are visible yet; after merchant verification, upload/use `1.0.6+7`, create/publish `pack_299`, wait for catalog propagation, then retry backend credit/consume/refund smoke |
+| P0 | Done | Codex | Make inbox core messaging A+ | Firestore chat/message writes are rules-constrained, sends are transactional/idempotent, push is backend-verified from committed Firestore data, and block/report ownership moved to backend with Firestore block projections |
+| P0 | Done | Codex | Add Firestore rules emulator suite | `pnpm test:firestore:rules` proves participant-only chat ownership, immutable participants, bounded unread, message immutability, receiver-only receipts, constrained deletes, and block projection denial |
+| P0 | Done | Codex | Add Storage rules emulator suite | `pnpm test:storage:rules` proves participant-only chat image reads, uploader-only image creation, image/type/size bounds, outsider denial, and immutable chat image objects |
+| P0 | Done | Codex | Generate Android inbox A+ AAB `1.0.7+8` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab`; direct Gradle `:app:bundleRelease` passed on 7 Jun 2026 and package remains `com.zephyr.zephyr_mobile` |
 | P0 | Done | Codex | Enforce canonical presence coherence in RTDB rules | Rules now reject incoherent availability cells such as premium live with random routing enabled or display/state mismatch |
 | P0 | Done | Codex | Move live audience ownership to per-viewer RTDB cells | Viewers now own only `live_rooms/{roomId}/audience/{userId}`; shared `audience_count` is no longer client-writable |
 | P0 | Done | Codex | Move live-room gift display fan-out behind backend/Admin SDK | Client gift UI now waits for backend economy success; backend writes trusted RTDB gift events and clients cannot forge them |
-| P0 | Done | Codex | Wire realtime and backend ledger gates into CI/default checks | Root `pnpm check` runs RTDB rules + backend test/build, and GitHub Actions runs RTDB rules, backend tests, DB race tests, and backend build |
+| P0 | Done | Codex | Wire realtime and backend ledger gates into CI/default checks | Root `pnpm check` runs RTDB + Firestore + Storage rules, backend test/build, and GitHub Actions runs RTDB/Firestore/Storage rules, backend tests, DB race tests, and backend build |
 | P0 | Audit finding | Codex | Replace stale Flutter widget test harness | `flutter test` currently pumps Firebase-backed `MyApp` without Firebase init and still expects removed guest onboarding copy |
 | P1 | Audit finding | Codex | Wire follow/profile/feed host model end-to-end | Profile follow is local-only, following list parsing is wrong, and live feed should filter canonical host accounts |
-| P1 | Audit finding | Codex | Unify block/report ownership | Thread chat uses Firestore block/report state while profile uses backend `user_blocks`; product should have one moderation truth |
+| P1 | Done | Codex | Unify block/report ownership | Thread chat and profile moderation now use backend `user_blocks`/`user_reports`; Firestore keeps only backend-written block projections for rules enforcement |
 | P1 | Audit finding | Codex | Refresh stale contracts and instructions | OpenAPI and Copilot instructions still describe old guest/status behavior and do not match the current canonical availability architecture |
+| P1 | Planned | Codex | Build reusable Gift module | One gift catalog/economy surface should plug into inbox, direct call, random call, premium live, and normal live without duplicating payment logic |
 | P1 | Planned | Codex | Implement premium live lifecycle | Free live -> premium, start premium directly, paid entry, per-minute billing, lock screen, cleanup |
 | P1 | Planned | Codex | Add `PremiumLiveRealtime` module once lifecycle exists | Keeps premium live non-interruptible and owned by a dedicated realtime module |
 | P1 | Done | Codex | Replace live audience counter with per-viewer presence/count derivation | Prevents inaccurate counts from duplicate joins/disconnect edge cases |
@@ -72,12 +77,14 @@ Every meaningful work slice must update this file before commit/push:
 Immediate next work:
 
 1. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
-2. Wait for Google Play merchant/bank verification, upload/use the `1.0.6+7` wallet build, create/publish `pack_299`, then smoke one purchase from internal testing.
-3. Replace stale Flutter widget tests with Firebase-mocked or dependency-injected tests that match current onboarding.
-4. Retest direct call with two online accounts after the deployed presence-sync trigger.
-5. Implement premium live lifecycle, paid entry, lock screen, metered billing, and `PremiumLiveRealtime`.
-6. Wire follow/profile/feed host model end-to-end.
-7. Refresh OpenAPI, Copilot instructions, and stale docs so they match canonical availability.
+2. Upload and smoke the inbox-hardened Android AAB `1.0.7+8`: login, inbox, send text, send image, receipts, block, report, logout/offline.
+3. Wait for Google Play merchant/bank verification, create/publish `pack_299`, then smoke one internal-test purchase/refund.
+4. Replace stale Flutter widget tests with Firebase-mocked or dependency-injected tests that match current onboarding.
+5. Retest direct call with two online accounts after the deployed presence-sync trigger.
+6. Implement the reusable Gift module, then wire inbox gifts first and reuse it for call/random call/live/premium live.
+7. Implement premium live lifecycle, paid entry, lock screen, metered billing, and `PremiumLiveRealtime`.
+8. Wire follow/profile/feed host model end-to-end.
+9. Refresh OpenAPI, Copilot instructions, and stale docs so they match canonical availability.
 
 ---
 
@@ -88,7 +95,7 @@ Immediate next work:
 | Mobile | Flutter (Dart) | `apps/zephyr-mobile` |
 | Backend API | NestJS (TypeScript) | `services/zephyr-api` |
 | Database | PostgreSQL (Render) | Singapore region |
-| Messaging | Firebase Firestore + Storage + FCM | `firebase_chat_service.dart` |
+| Messaging | Firebase Firestore + Storage + backend-verified FCM | `firebase_chat_service.dart`, Firestore rules, backend `/v1/messages/push` |
 | Status & Presence | Firebase RTDB (asia-southeast1) | Canonical realtime availability cell: connection, activity, routing, display status, call/live context |
 | User Identity | Firebase RTDB `profiles/{userId}` | displayName, avatarUrl, countryCode, language, birthday — **source of truth for identity**. LRU-cached listeners, reactive via `profileVersion` ValueNotifier |
 | Live Rooms | Firebase RTDB | Host-owned status, per-viewer audience cells, comments, reactions, and backend-trusted gift display events via `live_rooms/{roomId}/` |
@@ -1121,16 +1128,18 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Resource cleanup | A | `_ending` guard prevents double-end, proper dispose |
 | Code quality | A+ | ValueNotifier for comments, isolated state, no leaks, zero dead endpoints or unused dependencies |
 
-### Messaging / Inbox — 29 May 2026 — Overall: A-
+### Messaging / Inbox — 7 Jun 2026 — Overall: A+ core and media, Gift module pending
 | Aspect | Grade | Notes |
 |--------|-------|-------|
-| Architecture | A | Firestore messages, RTDB presence, Cloud Function PG sync. Zero polling. |
-| Presence | A | LRU cache (50 cap), canonical display statuses, live/premium/busy/away colors |
-| Security | A | Block check both directions, anti-spam (5msg/10s + duplicate cooldown) |
-| Calling | A- | Full signaling from thread, 30s timeout. Missing: rate preview in thread |
-| Performance | A | No polling, debounced search, proper listener cleanup |
-| Code quality | A | Dead code gone, clean modules, proper dispose |
-| UX | A- | Search for new chat, live preview, inline translation, read receipts. Missing: typing indicator, message reactions |
+| Architecture | A+ | Firestore owns chat/message state, RTDB owns presence/profile state, Storage owns chat images, backend owns moderation and verified FCM. No polling and no client-owned money/security decisions. |
+| Message correctness | A+ | Text/image sends write message + unread + last-message metadata in one Firestore transaction; idempotency keys use deterministic message IDs so retries cannot double-send. |
+| Firestore rules | A+ | Emulator suite proves participant-only chat creation, immutable participants, bounded unread counters, committed-message shape, receiver-only receipts, constrained delete-for-me/delete-for-everyone, and block projection denial. |
+| Storage rules | A+ | Chat uploads are owner-scoped and immutable under `chats/{chatId}/{uploaderId}/`; emulator suite proves participant reads, outsider denial, uploader-only writes, image/type/size bounds, and no overwrite/delete. |
+| Moderation | A+ | Blocks and reports route through backend `user_blocks`/`user_reports`; backend writes Firestore block projections so message rules can reject blocked conversations. |
+| Push | A+ | Client no longer sends arbitrary notification title/body; backend verifies the committed Firestore chat/message before sending FCM and includes a `source=firestore` marker. |
+| Presence/logout | A+ | Foreground/background availability uses the canonical RTDB cell; logout now awaits offline write, FCM unregister, and chat session cleanup before clearing the API token. |
+| UX | A | Inbox/thread include search, live preview, inline translation, text/image send, read receipts, direct-call entry, block, and report. Missing: typing indicator, message reactions, and the reusable gift picker. |
+| Gift readiness | Pending | Inbox gifts should wait for tomorrow's reusable Gift module so inbox, direct call, random call, premium live, and normal live share one catalog/economy component. |
 
 ### Call (Direct + Random) — 29 May 2026 — Overall: A
 | Aspect | Grade | Notes |
@@ -1274,8 +1283,8 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Realtime availability | A+ | Canonical RTDB presence is now a real source-of-truth cell: coherent rules, premium/free-live transition states, backend projection, and routeability gates are proven by emulator tests and `pnpm check`. |
 | Backend economy | A+ | Paid call ticks and gifts have transaction-safe row locks, idempotency replay, real Postgres race tests, transactional IAP credit/refund, Android token verification, and backend-confirmed live gift fan-out. |
 | IAP production readiness | A | Android code/backend contract now matches Google Play token verification and real app IDs, Render production env is set, and wallet catalog UX now exposes unavailable Play products cleanly. Remaining sign-off: Google Play merchant/bank verification, one-time product catalog visibility, and one internal-test purchase/refund smoke. |
-| Firebase ownership | A | RTDB module ownership is A+: presence, profiles, direct-call signals, live-room per-viewer audience, host-owned status, and backend-owned live gift fan-out are all enforced. Remaining Firebase-adjacent gap is the block/report split between Firestore and backend. |
+| Firebase ownership | A+ | RTDB module ownership is A+: presence, profiles, direct-call signals, live-room per-viewer audience, host-owned status, and backend-owned live gift fan-out are enforced. Firestore/Storage messaging ownership is now A+ core too: participants, receipts, deletes, blocks, committed-message push, and chat image ownership are rules/backend controlled. |
 | Premium live | C | Product model is documented, but implementation is not present yet: no paid-entry transition, host caps, per-minute premium-room billing, lock screen, or premium realtime module. |
-| Test posture | A- | Backend unit tests/build, Flutter analyze, RTDB emulator rules, root `pnpm check`, DB race tests, and GitHub quality gates are in place. Flutter widget tests are still stale and need a Firebase-aware harness. |
+| Test posture | A | Backend unit tests/build, Flutter analyze, RTDB + Firestore + Storage emulator rules, root `pnpm check`, DB race tests, and GitHub quality gates are in place. Flutter widget tests are still stale and need a Firebase-aware harness. |
 | Documentation accuracy | B- | `PRODUCT.md` is current after this audit, but OpenAPI and Copilot instructions still contain old guest/status assumptions and need cleanup. |
-| A+ gates | Pending | Finish manual random/direct call smoke, Google Play internal-test IAP smoke, follow/host feed model, premium live lifecycle, stale widget/contracts/docs, and block/report unification. |
+| A+ gates | Pending | Finish manual random/direct call smoke, Google Play internal-test IAP smoke, follow/host feed model, premium live lifecycle, reusable Gift module, stale widget/contracts/docs, and Firebase-aware Flutter widget tests. |

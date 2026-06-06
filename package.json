@@ -16,11 +16,13 @@
     "dev:mobile:ios": "env -u npm_config_prefix zsh -lc 'cd apps/zephyr-mobile && flutter run --dart-define=API_BASE_URL=http://localhost:3000'",
     "dev:up": "pnpm dev:api:db:up && pnpm dev:api",
     "check": "pnpm check:realtime && pnpm --filter zephyr-api test && pnpm --filter zephyr-api build",
-    "check:realtime": "pnpm test:rtdb:rules",
+    "check:realtime": "pnpm test:rtdb:rules && pnpm test:firestore:rules && pnpm test:storage:rules",
     "check:db:race": "pnpm --filter zephyr-api test:db:race",
     "build": "pnpm -r --if-present run build",
     "test": "pnpm -r --if-present run test",
-    "test:rtdb:rules": "XDG_CONFIG_HOME=.firebase-config firebase emulators:exec --project zephyr-rtdb-rules-test --only database \"node --test tests/rtdb/rules.test.mjs\""
+    "test:rtdb:rules": "XDG_CONFIG_HOME=.firebase-config firebase emulators:exec --project zephyr-rtdb-rules-test --only database \"node --test tests/rtdb/rules.test.mjs\"",
+    "test:firestore:rules": "XDG_CONFIG_HOME=.firebase-config firebase emulators:exec --project zephyr-firestore-rules-test --only firestore \"node --test tests/firestore/rules.test.mjs\"",
+    "test:storage:rules": "XDG_CONFIG_HOME=.firebase-config firebase emulators:exec --project zephyr-storage-rules-test --only storage \"node --test tests/storage/rules.test.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",

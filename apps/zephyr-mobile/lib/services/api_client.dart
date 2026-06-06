@@ -298,8 +298,8 @@ class ZephyrApiClient {
   Future<void> sendPushNotification(
     String accessToken,
     String recipientId,
-    String title,
-    String body,
+    String chatId,
+    String messageId,
   ) async {
     await _request(
       method: 'POST',
@@ -307,8 +307,8 @@ class ZephyrApiClient {
       accessToken: accessToken,
       body: <String, dynamic>{
         'recipientId': recipientId,
-        'title': title,
-        'body': body,
+        'chatId': chatId,
+        'messageId': messageId,
       },
     );
   }
@@ -486,6 +486,21 @@ class ZephyrApiClient {
       method: 'DELETE',
       path: '/v1/users/$userId/block',
       accessToken: accessToken,
+    );
+  }
+
+  Future<void> reportUser(
+    String accessToken,
+    String userId, {
+    String? reason,
+  }) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/users/$userId/report',
+      accessToken: accessToken,
+      body: <String, dynamic>{
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      },
     );
   }
 

@@ -483,8 +483,14 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   }
 
   Future<void> _handleMenuAction(String action) async {
+    final api = ZephyrApiClient.instance;
+    final token = ZephyrApiClient.accessToken;
     switch (action) {
       case 'block':
+        if (api == null || token == null) {
+          _showSnack('Account session unavailable');
+          return;
+        }
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -505,7 +511,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           ),
         );
         if (confirmed == true && mounted) {
-          await FirebaseChatService.instance.blockUser(widget.otherUserId);
+          await api.blockUser(token, widget.otherUserId);
           if (mounted) {
             ScaffoldMessenger.of(
               context,
@@ -513,7 +519,12 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
             Navigator.pop(context);
           }
         }
+        return;
       case 'report':
+        if (api == null || token == null) {
+          _showSnack('Account session unavailable');
+          return;
+        }
         final controller = TextEditingController();
         final reason = await showDialog<String>(
           context: context,
@@ -543,16 +554,14 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           ),
         );
         if (reason != null && reason.isNotEmpty && mounted) {
-          await FirebaseChatService.instance.reportUser(
-            widget.otherUserId,
-            reason,
-          );
+          await api.reportUser(token, widget.otherUserId, reason: reason);
           if (mounted) {
             ScaffoldMessenger.of(
               context,
             ).showSnackBar(const SnackBar(content: Text('Report submitted')));
           }
         }
+        return;
     }
   }
 

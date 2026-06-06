@@ -28,23 +28,23 @@ class FirebaseChatService {
   String? _myUserId;
   String get myUserId => _myUserId!;
 
-  /// Callback to send push notifications via the backend API.
-  Future<void> Function(String recipientId, String title, String body)?
+  /// Callback to send a backend-verified push for a committed Firestore message.
+  Future<void> Function(String recipientId, String chatId, String messageId)?
   onSendPush;
 
   /// Initialize: sign in with custom Firebase token and set up presence.
   /// [zephyrUserId] is the app's user ID (UUID). Safe to call multiple times.
-  /// [firebaseToken] is a custom token from the backend (optional — falls back to anonymous).
+  /// [firebaseToken] is a custom token from the backend. It is required on
+  /// first init so Firebase auth.uid always equals the Zephyr user id.
   Future<void> init(String zephyrUserId, {String? firebaseToken}) async {
     final bool firstInit = _myUserId != zephyrUserId;
     _myUserId = zephyrUserId;
 
     if (firstInit) {
-      if (firebaseToken != null) {
-        await FirebaseAuth.instance.signInWithCustomToken(firebaseToken);
-      } else {
-        await FirebaseAuth.instance.signInAnonymously();
+      if (firebaseToken == null || firebaseToken.isEmpty) {
+        throw StateError('Firebase custom token required for chat init');
       }
+      await FirebaseAuth.instance.signInWithCustomToken(firebaseToken);
       profiles.bindUser(zephyrUserId);
       await presence.bindUser(zephyrUserId);
     } else {
@@ -316,46 +316,30 @@ class FirebaseChatService {
 
   // ── Block / Report ─────────────────────────────────────────────────────────
 
-  /// Block a user. Prevents messaging and hides conversation.
+  /// Block/report are backend-owned. Firestore keeps only backend/Admin block
+  /// projections so rules can reject blocked message sends.
   Future<void> blockUser(String otherUserId) async {
-    await _fs.collection('blocks').doc('${_myUserId}_$otherUserId').set({
-      'blockedBy': _myUserId,
-      'blockedUser': otherUserId,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    throw UnsupportedError('Use backend block API');
   }
 
   /// Unblock a user.
   Future<void> unblockUser(String otherUserId) async {
-    await _fs.collection('blocks').doc('${_myUserId}_$otherUserId').delete();
+    throw UnsupportedError('Use backend unblock API');
   }
 
   /// Check if current user blocked the other user.
   Future<bool> isBlocked(String otherUserId) async {
-    final doc = await _fs
-        .collection('blocks')
-        .doc('${_myUserId}_$otherUserId')
-        .get();
-    return doc.exists;
+    throw UnsupportedError('Use backend block status API');
   }
 
   /// Check if the other user blocked me.
   Future<bool> isBlockedBy(String otherUserId) async {
-    final doc = await _fs
-        .collection('blocks')
-        .doc('${otherUserId}_$_myUserId')
-        .get();
-    return doc.exists;
+    throw UnsupportedError('Use backend block status API');
   }
 
   /// Report a user with reason.
   Future<void> reportUser(String otherUserId, String reason) async {
-    await _fs.collection('reports').add({
-      'reportedBy': _myUserId,
-      'reportedUser': otherUserId,
-      'reason': reason,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    throw UnsupportedError('Use backend report API');
   }
 
   // ── Message Deletion ────────────────────────────────────────────────────────
@@ -412,44 +396,46 @@ class FirebaseChatService {
       'participants': [_myUserId, otherUserId],
     }, SetOptions(merge: true));
 
-    // Duplicate send protection via idempotency key
-    if (idempotencyKey != null) {
-      final existing = await messagesCol
-          .where('idempotencyKey', isEqualTo: idempotencyKey)
-          .limit(1)
-          .get();
-      if (existing.docs.isNotEmpty) return; // Already sent
-    }
-
     final now = FieldValue.serverTimestamp();
+    final String messageId = idempotencyKey ?? messagesCol.doc().id;
+    final DocumentReference messageDoc = messagesCol.doc(messageId);
 
-    // Add the message
-    await messagesCol.add({
-      'senderId': _myUserId,
-      'body': body,
-      'type': type,
-      if (imageUrl != null) 'imageUrl': imageUrl,
-      if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
-      'createdAt': now,
-      'deliveredAt': null,
-      'readAt': null,
+    final bool created = await _fs.runTransaction<bool>((tx) async {
+      if (idempotencyKey != null) {
+        final existing = await tx.get(messageDoc);
+        if (existing.exists) return false;
+      }
+
+      final String preview = type == 'image' ? 'Photo' : body;
+
+      // Keep message body, unread count, and inbox metadata in one commit.
+      tx.set(chatDoc, {
+        'participants': [_myUserId, otherUserId],
+        'lastMessage': preview,
+        'lastMessageAt': now,
+        'lastSenderId': _myUserId,
+        'unread_$otherUserId': FieldValue.increment(1),
+        'name_$_myUserId': myDisplayName,
+        if (myAvatarUrl != null) 'avatar_$_myUserId': myAvatarUrl,
+      }, SetOptions(merge: true));
+
+      tx.set(messageDoc, {
+        'senderId': _myUserId,
+        'body': body,
+        'type': type,
+        if (imageUrl != null) 'imageUrl': imageUrl,
+        if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
+        'createdAt': now,
+        'deliveredAt': null,
+        'readAt': null,
+      });
+      return true;
     });
 
-    final String preview = type == 'image' ? '📷 Photo' : body;
-
-    // Update chat metadata — keep sender name/avatar as inbox fallback
-    // (RTDB profiles remain the primary source via profileCached)
-    await chatDoc.set({
-      'lastMessage': preview,
-      'lastMessageAt': now,
-      'lastSenderId': _myUserId,
-      'unread_$otherUserId': FieldValue.increment(1),
-      'name_$_myUserId': myDisplayName,
-      if (myAvatarUrl != null) 'avatar_$_myUserId': myAvatarUrl,
-    }, SetOptions(merge: true));
-
-    // Send push notification to recipient (fire-and-forget)
-    onSendPush?.call(otherUserId, myDisplayName, preview);
+    // Push is backend-verified against the committed Firestore message.
+    if (created) {
+      onSendPush?.call(otherUserId, cId, messageId);
+    }
   }
 
   /// Upload an image and send it as a message.
@@ -473,7 +459,9 @@ class FirebaseChatService {
     final String cId = chatId(_myUserId!, otherUserId);
     final String fileName =
         '${DateTime.now().millisecondsSinceEpoch}_${imageFile.path.split('/').last}';
-    final Reference ref = FirebaseStorage.instance.ref('chats/$cId/$fileName');
+    final Reference ref = FirebaseStorage.instance.ref(
+      'chats/$cId/$_myUserId/$fileName',
+    );
 
     await ref.putFile(imageFile, SettableMetadata(contentType: 'image/$ext'));
     final String downloadUrl = await ref.getDownloadURL();

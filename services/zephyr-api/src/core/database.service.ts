@@ -429,6 +429,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       )
     `);
 
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS user_reports (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        reporter_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        reported_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (reporter_id, reported_id)
+      )
+    `);
+
     // Random call match history — used for 4h cooldown between same pair
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS random_call_matches (
