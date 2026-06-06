@@ -254,8 +254,8 @@ Firebase Chat:
 - **Firebase RTDB is the single source of truth for real-time availability** — `presence/{userId}` is not a single overloaded status string. It is the canonical availability cell for connection, activity, routing eligibility, display status, and call/live context. RTDB's `onDisconnect` guarantees cleanup even on app kill/crash. All clients listen to RTDB for user availability before initiating calls, routing random calls, or showing status badges.
 - **Firebase Cloud Functions (asia-southeast1)** — 3 deployed functions provide server-side safety nets:
   - `onCallSignalDeleted`: RTDB trigger on `direct_calls/{userId}` deletion → ends Postgres call session via internal API
-  - `onPresenceChanged`: RTDB trigger on `presence/{userId}` update → if state leaves 'live', ends the room in Postgres via internal API
-  - `reapStalePresence`: Scheduled every 5 min → scans all presence nodes, resets stale entries (>5min) to 'offline', ends orphaned live rooms
+  - `onPresenceChanged`: RTDB trigger on `presence/{userId}` update → syncs the canonical display/availability/routing projection to Postgres, and ends the room when `displayStatus` leaves `live`
+  - `reapStalePresence`: Scheduled every 5 min → scans all presence nodes, resets stale entries (>5min) to the canonical offline payload, ends orphaned live rooms
   - Internal endpoints: `POST /v1/internal/end-call-session`, `POST /v1/internal/end-room` (validated via `X-Service-Key` header)
 - **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
 - **Zero Socket.IO** — All real-time is Firebase RTDB. Live room comments/reactions/audience state use RTDB; trusted room status and gift events must be backend-confirmed before fan-out. Random call matchmaking uses REST + RTDB signals. No WebSocket libraries exist in the codebase.
@@ -285,6 +285,7 @@ This section is product law for the realtime cell. The goal is not just "show a 
 
 ```json
 {
+  "schemaVersion": 1,
   "connection": "online",
   "activity": "idle",
   "availability": "available",
@@ -300,6 +301,7 @@ This section is product law for the realtime cell. The goal is not just "show a 
   "premiumRoomSessionId": null,
   "previousActivity": null,
   "previousRoomId": null,
+  "state": "online",
   "updatedAt": 1234567890
 }
 ```
@@ -320,7 +322,24 @@ Allowed values:
 | `callSessionId` | string/null | Present only during direct/random call. |
 | `premiumRoomSessionId` | string/null | Present only during metered premium live participation. |
 | `previousActivity`, `previousRoomId` | string/null | Used for live -> random/direct transitions and safe resume/end decisions. |
+| `state` | same as `displayStatus` | Temporary legacy compatibility field. New code must read/write canonical fields first. |
 | `updatedAt` | server timestamp | Last canonical state write. |
+
+### Backend projection
+
+Postgres stores only a queryable projection of RTDB presence. RTDB remains source of truth.
+
+| Postgres field | Source | Purpose |
+|---|---|---|
+| `users.status` | `displayStatus` | Legacy/UI display fallback |
+| `users.presence_connection` | `connection` | Offline/freshness projection |
+| `users.presence_activity` | `activity` | Current canonical activity |
+| `users.presence_availability` | `availability` | Backend availability guard |
+| `users.can_direct_call` | `routing.directCall` | Direct-call API routeability |
+| `users.can_random_call` | `routing.randomCall` | Random-call matchmaking routeability |
+| `users.presence_updated_at` | `updatedAt` | Last canonical RTDB write mirrored to Postgres |
+
+Backend matching and call creation must use `presence_availability`, `can_direct_call`, and `can_random_call`; they must not infer routeability from `users.status` or UI badge text.
 
 ### Canonical transitions
 
@@ -1035,7 +1054,7 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Aspect | Grade | Notes |
 |--------|-------|-------|
 | Architecture | A | Firestore messages, RTDB presence, Cloud Function PG sync. Zero polling. |
-| Presence | A- | LRU cache (50 cap), 5 states, correct colors |
+| Presence | A | LRU cache (50 cap), canonical display statuses, live/premium/busy/away colors |
 | Security | A | Block check both directions, anti-spam (5msg/10s + duplicate cooldown) |
 | Calling | A- | Full signaling from thread, 30s timeout. Missing: rate preview in thread |
 | Performance | A | No polling, debounced search, proper listener cleanup |
@@ -1112,3 +1131,13 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Counters/idempotency | C | Audience count uses client-side increments/decrements plus `onDisconnect`; duplicate joins, double dispose, or spoofed writes can produce inaccurate counts. Use per-viewer presence nodes or transactions for stronger counts. |
 | Security rules | C- | Rules protect user-owned `presence` and `profiles`, but `direct_calls`, `live_rooms/status`, events, and counters are too broad. Add ownership constraints, field validation, enum checks, and `.indexOn` for timestamped event streams. |
 | Scale posture | B- | Flat root nodes and LRU caches are good for MVP. Scheduled global presence scans and unbounded live event retention should evolve before larger scale. |
+
+### Canonical Realtime Availability — 6 Jun 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Canonical RTDB cell | A | Mobile writes `schemaVersion`, `connection`, `activity`, `availability`, `routing`, `displayStatus`, `interruptible`, context IDs, timestamps, and legacy `state` only for compatibility. |
+| Backend projection | A | Cloud Functions mirror canonical presence into Postgres fields for display, availability, routeability, and freshness. RTDB remains source of truth. |
+| Direct-call routeability | A | Profile/chat UI and backend direct-call creation reject offline, busy, and premium-live receivers using canonical availability/routing. |
+| Random-call routeability | A | Live-host and online fallback matchmaking require `presence_availability='available'` and `can_random_call=true`; away, busy, offline, and premium-live users are skipped. |
+| Compatibility | A | Existing UI readers still work through legacy `state`, while new readers prefer `displayStatus`. This allows gradual module extraction without breaking current screens. |
+| Remaining A+ gates | B | Extract `PresenceRealtime` from the `FirebaseChatService` facade, add RTDB rules/emulator tests for canonical field validation, and implement premium-live enter/exit transitions end-to-end. |

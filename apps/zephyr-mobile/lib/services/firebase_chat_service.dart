@@ -18,7 +18,8 @@ class FirebaseChatService {
   final FirebaseFirestore _fs = FirebaseFirestore.instance;
   final FirebaseDatabase _rtdb = FirebaseDatabase.instanceFor(
     app: Firebase.app(),
-    databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 
   String? _myUserId;
@@ -26,19 +27,25 @@ class FirebaseChatService {
 
   /// Callback to send push notifications via the backend API.
   Future<void> Function(String recipientId, String title, String body)?
-      onSendPush;
+  onSendPush;
 
   // ── Presence cache ──────────────────────────────────────────────────────────
   /// Whether THIS user is currently live-streaming.
   bool _isLive = false;
+  String? _liveRoomId;
+
   /// Whether THIS user is currently in a call.
   bool _isBusy = false;
+  String? _busySessionId;
+  String _busyActivity = 'direct_call';
+
   /// Whether the app is currently in the background.
   bool _isBackground = false;
 
-  /// Cached state per user: 'online', 'away', 'offline', 'busy', or 'live'.
+  /// Cached display status per user: online, away, offline, busy, live, premium_live.
   final Map<String, String> _presenceCache = {};
-  /// Cached roomId per user (only set when state == 'live').
+
+  /// Cached roomId per user (only set when display status is live/premium live).
   final Map<String, String> _presenceRoomCache = {};
   final Map<String, StreamSubscription<DatabaseEvent>> _presenceSubs = {};
   final Map<String, DateTime> _presenceLastAccess = {};
@@ -47,15 +54,15 @@ class FirebaseChatService {
   /// Notifies listeners whenever any user's presence changes.
   final ValueNotifier<int> presenceVersion = ValueNotifier<int>(0);
 
-  /// Whether a user is known to be reachable (from cache). Returns null if unknown.
-  /// Treats 'away' as reachable (push can wake them).
+  /// Whether a user is known to be available for lightweight contact.
+  /// Returns null if unknown. Treats 'away' as reachable (push can wake them).
   bool? isOnlineCached(String userId) {
     final s = _presenceCache[userId];
     if (s == null) return null;
     return s == 'online' || s == 'live' || s == 'away';
   }
 
-  /// Returns the raw presence state: 'online', 'away', 'offline', 'busy', or 'live'. Null if unknown.
+  /// Returns the display presence state. Null if unknown.
   String? presenceStateCached(String userId) => _presenceCache[userId];
 
   /// Returns the roomId for a user who is currently live. Null otherwise.
@@ -91,16 +98,18 @@ class FirebaseChatService {
       _presenceLastAccess[uid] = DateTime.now();
       _presenceSubs[uid] = _rtdb.ref('presence/$uid').onValue.listen((event) {
         final data = event.snapshot.value;
-        final String state =
-            (data is Map ? data['state'] as String? : null) ?? 'offline';
-        final String? roomId =
-            data is Map ? data['roomId'] as String? : null;
+        final String state = data is Map
+            ? ((data['displayStatus'] as String?) ??
+                  (data['state'] as String?) ??
+                  'offline')
+            : 'offline';
+        final String? roomId = data is Map ? data['roomId'] as String? : null;
 
-        final bool changed = _presenceCache[uid] != state ||
-            _presenceRoomCache[uid] != roomId;
+        final bool changed =
+            _presenceCache[uid] != state || _presenceRoomCache[uid] != roomId;
 
         _presenceCache[uid] = state;
-        if (state == 'live' && roomId != null) {
+        if ((state == 'live' || state == 'premium_live') && roomId != null) {
           _presenceRoomCache[uid] = roomId;
         } else {
           _presenceRoomCache.remove(uid);
@@ -206,12 +215,7 @@ class FirebaseChatService {
       _setupPresence(zephyrUserId);
     }
 
-    // Always write presence directly (handles cold start + reconnection)
-    final String initState = _isBackground ? 'offline' : (_isLive ? 'live' : 'online');
-    _rtdb.ref('presence/$zephyrUserId').set({
-      'state': initState,
-      'lastSeen': ServerValue.timestamp,
-    });
+    await _writeMyPresence(_currentPresencePayload());
   }
 
   // ── Presence (RTDB + onDisconnect) ──────────────────────────────────────────
@@ -225,34 +229,166 @@ class FirebaseChatService {
       final bool connected = event.snapshot.value as bool? ?? false;
       if (!connected) return;
 
-      presenceRef.onDisconnect().set({
-        'state': 'offline',
-        'lastSeen': ServerValue.timestamp,
-      });
-
-      // Write current state — respect background/busy/live overrides
-      final String state;
-      if (_isBackground) {
-        state = 'offline';
-      } else if (_isLive) {
-        state = 'live';
-      } else if (_isBusy) {
-        state = 'busy';
-      } else {
-        state = 'online';
-      }
-      presenceRef.set({
-        'state': state,
-        'lastSeen': ServerValue.timestamp,
-      });
+      presenceRef.onDisconnect().set(_offlinePresencePayload());
+      presenceRef.set(_currentPresencePayload());
     });
+  }
+
+  Map<String, dynamic> _presencePayload({
+    required String connection,
+    required String activity,
+    required String availability,
+    required bool directCall,
+    required bool randomCall,
+    required String displayStatus,
+    required bool interruptible,
+    required String legacyState,
+    String? roomId,
+    String? roomMode,
+    String? callSessionId,
+    String? premiumRoomSessionId,
+    String? previousActivity,
+    String? previousRoomId,
+  }) {
+    return <String, dynamic>{
+      'schemaVersion': 1,
+      'connection': connection,
+      'activity': activity,
+      'availability': availability,
+      'routing': <String, bool>{
+        'directCall': directCall,
+        'randomCall': randomCall,
+      },
+      'displayStatus': displayStatus,
+      'interruptible': interruptible,
+      'state': legacyState,
+      'lastSeen': ServerValue.timestamp,
+      'updatedAt': ServerValue.timestamp,
+      if (roomId != null) 'roomId': roomId,
+      if (roomMode != null) 'roomMode': roomMode,
+      if (callSessionId != null) 'callSessionId': callSessionId,
+      if (premiumRoomSessionId != null)
+        'premiumRoomSessionId': premiumRoomSessionId,
+      if (previousActivity != null) 'previousActivity': previousActivity,
+      if (previousRoomId != null) 'previousRoomId': previousRoomId,
+    };
+  }
+
+  Map<String, dynamic> _offlinePresencePayload() {
+    return _presencePayload(
+      connection: 'offline',
+      activity: 'idle',
+      availability: 'unavailable',
+      directCall: false,
+      randomCall: false,
+      displayStatus: 'offline',
+      interruptible: false,
+      legacyState: 'offline',
+    );
+  }
+
+  Map<String, dynamic> _offlinePresenceFallback() {
+    return <String, dynamic>{
+      'schemaVersion': 1,
+      'connection': 'offline',
+      'activity': 'idle',
+      'availability': 'unavailable',
+      'routing': <String, bool>{'directCall': false, 'randomCall': false},
+      'displayStatus': 'offline',
+      'interruptible': false,
+      'state': 'offline',
+      'lastSeen': 0,
+      'updatedAt': 0,
+    };
+  }
+
+  Map<String, dynamic> _idlePresencePayload() {
+    return _presencePayload(
+      connection: 'online',
+      activity: 'idle',
+      availability: 'available',
+      directCall: true,
+      randomCall: true,
+      displayStatus: 'online',
+      interruptible: true,
+      legacyState: 'online',
+    );
+  }
+
+  Map<String, dynamic> _awayPresencePayload() {
+    return _presencePayload(
+      connection: 'online',
+      activity: 'away',
+      availability: 'available',
+      directCall: true,
+      randomCall: false,
+      displayStatus: 'away',
+      interruptible: true,
+      legacyState: 'away',
+    );
+  }
+
+  Map<String, dynamic> _freeLiveHostPresencePayload(String? roomId) {
+    return _presencePayload(
+      connection: 'online',
+      activity: 'free_live_host',
+      availability: 'available',
+      directCall: true,
+      randomCall: true,
+      displayStatus: 'live',
+      interruptible: true,
+      legacyState: 'live',
+      roomId: roomId,
+      roomMode: 'free_live',
+    );
+  }
+
+  Map<String, dynamic> _callPresencePayload({
+    required String activity,
+    String? sessionId,
+  }) {
+    return _presencePayload(
+      connection: 'online',
+      activity: activity,
+      availability: 'busy',
+      directCall: false,
+      randomCall: false,
+      displayStatus: 'busy',
+      interruptible: false,
+      legacyState: 'busy',
+      callSessionId: sessionId,
+      previousActivity: _isLive ? 'free_live_host' : null,
+      previousRoomId: _isLive ? _liveRoomId : null,
+    );
+  }
+
+  Map<String, dynamic> _currentPresencePayload() {
+    if (_isBackground) {
+      return _offlinePresencePayload();
+    }
+    if (_isBusy) {
+      return _callPresencePayload(
+        activity: _busyActivity,
+        sessionId: _busySessionId,
+      );
+    }
+    if (_isLive) {
+      return _freeLiveHostPresencePayload(_liveRoomId);
+    }
+    return _idlePresencePayload();
+  }
+
+  Future<void> _writeMyPresence(Map<String, dynamic> payload) {
+    final uid = _myUserId;
+    if (uid == null) return Future<void>.value();
+    return _rtdb.ref('presence/$uid').set(payload);
   }
 
   /// Listen to a user's presence state.
   Stream<Map<String, dynamic>> watchPresence(String userId) {
     return _rtdb.ref('presence/$userId').onValue.map((DatabaseEvent event) {
       final data = event.snapshot.value;
-      if (data == null) return {'state': 'offline', 'lastSeen': 0};
+      if (data == null) return _offlinePresenceFallback();
       return Map<String, dynamic>.from(data as Map);
     });
   }
@@ -261,40 +397,29 @@ class FirebaseChatService {
   void setLiveStatus({String? roomId}) {
     if (_myUserId == null) return;
     _isLive = true;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'live',
-      'lastSeen': ServerValue.timestamp,
-      if (roomId != null) 'roomId': roomId,
-    });
+    _liveRoomId = roomId;
+    _writeMyPresence(_currentPresencePayload());
   }
 
   /// Restore current user to "online" (call when ending a live stream).
   void clearLiveStatus() {
     if (_myUserId == null) return;
     _isLive = false;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'online',
-      'lastSeen': ServerValue.timestamp,
-    });
+    _liveRoomId = null;
+    _writeMyPresence(_currentPresencePayload());
   }
 
   /// Mark current user as "away" (idle in foreground for 60s, no touches).
   void setAwayStatus() {
     if (_myUserId == null || _isLive || _isBusy || _isBackground) return;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'away',
-      'lastSeen': ServerValue.timestamp,
-    });
+    _writeMyPresence(_awayPresencePayload());
   }
 
   /// Mark current user as offline (app backgrounded / screen locked).
   void setBackgroundOffline() {
     if (_myUserId == null) return;
     _isBackground = true;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'offline',
-      'lastSeen': ServerValue.timestamp,
-    });
+    _writeMyPresence(_currentPresencePayload());
   }
 
   /// Restore current user to "online" (app foregrounded / user active).
@@ -303,30 +428,25 @@ class FirebaseChatService {
     _isBackground = false;
     // Respect current overrides
     if (_isLive || _isBusy) return;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'online',
-      'lastSeen': ServerValue.timestamp,
-    });
+    _writeMyPresence(_currentPresencePayload());
   }
 
   /// Mark current user as "busy" in Firebase RTDB presence.
-  void setBusyStatus() {
+  void setBusyStatus({String? sessionId, String activity = 'direct_call'}) {
     if (_myUserId == null) return;
     _isBusy = true;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'busy',
-      'lastSeen': ServerValue.timestamp,
-    });
+    _busySessionId = sessionId;
+    _busyActivity = activity == 'random_call' ? 'random_call' : 'direct_call';
+    _writeMyPresence(_currentPresencePayload());
   }
 
   /// Clear busy and restore to "online".
   void clearBusyStatus() {
     if (_myUserId == null) return;
     _isBusy = false;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': _isLive ? 'live' : 'online',
-      'lastSeen': ServerValue.timestamp,
-    });
+    _busySessionId = null;
+    _busyActivity = 'direct_call';
+    _writeMyPresence(_currentPresencePayload());
   }
 
   /// Explicitly go offline (logout). Cancels onDisconnect and clears presence.
@@ -335,10 +455,7 @@ class FirebaseChatService {
     if (uid == null) return;
     final ref = _rtdb.ref('presence/$uid');
     await ref.onDisconnect().cancel();
-    await ref.set({
-      'state': 'offline',
-      'lastSeen': ServerValue.timestamp,
-    });
+    await ref.set(_offlinePresencePayload());
     _connectedSub?.cancel();
     _connectedSub = null;
   }
@@ -364,7 +481,10 @@ class FirebaseChatService {
     _profileCache.clear();
 
     _isLive = false;
+    _liveRoomId = null;
     _isBusy = false;
+    _busySessionId = null;
+    _busyActivity = 'direct_call';
     _isBackground = false;
     _myUserId = null;
 
@@ -472,28 +592,35 @@ class FirebaseChatService {
         .where('participants', arrayContains: _myUserId)
         .snapshots()
         .map((QuerySnapshot<Map<String, dynamic>> snap) {
-      final list = snap.docs.map((doc) {
-        final data = doc.data();
-        final List<String> participants =
-            List<String>.from(data['participants'] as List);
-        final String? otherUserId =
-            participants.cast<String?>().firstWhere((id) => id != _myUserId, orElse: () => null);
-        if (otherUserId == null) return null; // self-chat, skip
-        final int unread = (data['unread_$_myUserId'] as int?) ?? 0;
-        return FirebaseConversation(
-          chatId: doc.id,
-          otherUserId: otherUserId,
-          otherDisplayName: (data['name_$otherUserId'] as String?) ?? 'User',
-          otherAvatarUrl: data['avatar_$otherUserId'] as String?,
-          lastMessage: (data['lastMessage'] as String?) ?? '',
-          lastMessageAt: (data['lastMessageAt'] as Timestamp?)?.toDate() ??
-              DateTime.now(),
-          unreadCount: unread,
-        );
-      }).whereType<FirebaseConversation>().toList();
-      list.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
-      return list;
-    });
+          final list = snap.docs
+              .map((doc) {
+                final data = doc.data();
+                final List<String> participants = List<String>.from(
+                  data['participants'] as List,
+                );
+                final String? otherUserId = participants
+                    .cast<String?>()
+                    .firstWhere((id) => id != _myUserId, orElse: () => null);
+                if (otherUserId == null) return null; // self-chat, skip
+                final int unread = (data['unread_$_myUserId'] as int?) ?? 0;
+                return FirebaseConversation(
+                  chatId: doc.id,
+                  otherUserId: otherUserId,
+                  otherDisplayName:
+                      (data['name_$otherUserId'] as String?) ?? 'User',
+                  otherAvatarUrl: data['avatar_$otherUserId'] as String?,
+                  lastMessage: (data['lastMessage'] as String?) ?? '',
+                  lastMessageAt:
+                      (data['lastMessageAt'] as Timestamp?)?.toDate() ??
+                      DateTime.now(),
+                  unreadCount: unread,
+                );
+              })
+              .whereType<FirebaseConversation>()
+              .toList();
+          list.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+          return list;
+        });
   }
 
   // ── Messages (Thread) ──────────────────────────────────────────────────────
@@ -510,29 +637,36 @@ class FirebaseChatService {
         .limitToLast(100)
         .snapshots()
         .map((QuerySnapshot<Map<String, dynamic>> snap) {
-      return snap.docs.map((doc) {
-        final data = doc.data();
-        return FirebaseMessage(
-          id: doc.id,
-          senderId: data['senderId'] as String,
-          body: (data['body'] as String?) ?? '',
-          createdAt: (data['createdAt'] as Timestamp?)?.toDate() ??
-              DateTime.now(),
-          deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
-          readAt: (data['readAt'] as Timestamp?)?.toDate(),
-          type: (data['type'] as String?) ?? 'text',
-          imageUrl: data['imageUrl'] as String?,
-          deletedFor: data['deletedFor'],
-        );
-      }).where((msg) {
-        // Filter deleted messages
-        if (msg.deletedFor == 'all') return true; // Show "deleted" placeholder
-        if (msg.deletedFor is List && (msg.deletedFor as List).contains(_myUserId)) {
-          return false; // Hidden for me
-        }
-        return true;
-      }).toList();
-    });
+          return snap.docs
+              .map((doc) {
+                final data = doc.data();
+                return FirebaseMessage(
+                  id: doc.id,
+                  senderId: data['senderId'] as String,
+                  body: (data['body'] as String?) ?? '',
+                  createdAt:
+                      (data['createdAt'] as Timestamp?)?.toDate() ??
+                      DateTime.now(),
+                  deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
+                  readAt: (data['readAt'] as Timestamp?)?.toDate(),
+                  type: (data['type'] as String?) ?? 'text',
+                  imageUrl: data['imageUrl'] as String?,
+                  deletedFor: data['deletedFor'],
+                );
+              })
+              .where((msg) {
+                // Filter deleted messages
+                if (msg.deletedFor == 'all') {
+                  return true; // Show "deleted" placeholder
+                }
+                if (msg.deletedFor is List &&
+                    (msg.deletedFor as List).contains(_myUserId)) {
+                  return false; // Hidden for me
+                }
+                return true;
+              })
+              .toList();
+        });
   }
 
   // ── Block / Report ─────────────────────────────────────────────────────────
@@ -553,13 +687,19 @@ class FirebaseChatService {
 
   /// Check if current user blocked the other user.
   Future<bool> isBlocked(String otherUserId) async {
-    final doc = await _fs.collection('blocks').doc('${_myUserId}_$otherUserId').get();
+    final doc = await _fs
+        .collection('blocks')
+        .doc('${_myUserId}_$otherUserId')
+        .get();
     return doc.exists;
   }
 
   /// Check if the other user blocked me.
   Future<bool> isBlockedBy(String otherUserId) async {
-    final doc = await _fs.collection('blocks').doc('${otherUserId}_$_myUserId').get();
+    final doc = await _fs
+        .collection('blocks')
+        .doc('${otherUserId}_$_myUserId')
+        .get();
     return doc.exists;
   }
 
@@ -584,12 +724,15 @@ class FirebaseChatService {
         .collection('messages')
         .doc(messageId)
         .update({
-      'deletedFor': FieldValue.arrayUnion([_myUserId]),
-    });
+          'deletedFor': FieldValue.arrayUnion([_myUserId]),
+        });
   }
 
   /// Delete message for everyone (only sender can do this).
-  Future<void> deleteMessageForEveryone(String otherUserId, String messageId) async {
+  Future<void> deleteMessageForEveryone(
+    String otherUserId,
+    String messageId,
+  ) async {
     final String cId = chatId(_myUserId!, otherUserId);
     await _fs
         .collection('chats')
@@ -597,11 +740,11 @@ class FirebaseChatService {
         .collection('messages')
         .doc(messageId)
         .update({
-      'deletedFor': 'all',
-      'body': '',
-      'imageUrl': null,
-      'type': 'deleted',
-    });
+          'deletedFor': 'all',
+          'body': '',
+          'imageUrl': null,
+          'type': 'deleted',
+        });
   }
 
   /// Send a message to another user.
@@ -685,8 +828,7 @@ class FirebaseChatService {
     final String cId = chatId(_myUserId!, otherUserId);
     final String fileName =
         '${DateTime.now().millisecondsSinceEpoch}_${imageFile.path.split('/').last}';
-    final Reference ref =
-        FirebaseStorage.instance.ref('chats/$cId/$fileName');
+    final Reference ref = FirebaseStorage.instance.ref('chats/$cId/$fileName');
 
     await ref.putFile(imageFile, SettableMetadata(contentType: 'image/$ext'));
     final String downloadUrl = await ref.getDownloadURL();
@@ -716,7 +858,9 @@ class FirebaseChatService {
 
     final WriteBatch batch = _fs.batch();
     for (final doc in undelivered.docs) {
-      batch.update(doc.reference, {'deliveredAt': FieldValue.serverTimestamp()});
+      batch.update(doc.reference, {
+        'deliveredAt': FieldValue.serverTimestamp(),
+      });
     }
     await batch.commit();
   }
@@ -727,9 +871,7 @@ class FirebaseChatService {
     final DocumentReference chatDoc = _fs.collection('chats').doc(cId);
 
     // Reset my unread counter
-    await chatDoc.set({
-      'unread_$_myUserId': 0,
-    }, SetOptions(merge: true));
+    await chatDoc.set({'unread_$_myUserId': 0}, SetOptions(merge: true));
 
     // Mark individual unread messages from the other user
     final QuerySnapshot<Map<String, dynamic>> unread = await chatDoc
@@ -750,7 +892,9 @@ class FirebaseChatService {
 
   /// Load older messages (pagination).
   Future<List<FirebaseMessage>> loadMoreMessages(
-      String otherUserId, DateTime before) async {
+    String otherUserId,
+    DateTime before,
+  ) async {
     final String cId = chatId(_myUserId!, otherUserId);
     final QuerySnapshot<Map<String, dynamic>> snap = await _fs
         .collection('chats')
@@ -767,7 +911,8 @@ class FirebaseChatService {
         id: doc.id,
         senderId: data['senderId'] as String,
         body: (data['body'] as String?) ?? '',
-        createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+        createdAt:
+            (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
         deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
         readAt: (data['readAt'] as Timestamp?)?.toDate(),
         type: (data['type'] as String?) ?? 'text',
@@ -826,14 +971,14 @@ class FirebaseChatService {
         .startAt(DateTime.now().millisecondsSinceEpoch)
         .onChildAdded
         .listen((event) {
-      final data = event.snapshot.value;
-      if (data is Map) {
-        onComment(
-          (data['name'] as String?) ?? '',
-          (data['text'] as String?) ?? '',
-        );
-      }
-    });
+          final data = event.snapshot.value;
+          if (data is Map) {
+            onComment(
+              (data['name'] as String?) ?? '',
+              (data['text'] as String?) ?? '',
+            );
+          }
+        });
   }
 
   /// Push a reaction (ephemeral).
@@ -857,15 +1002,21 @@ class FirebaseChatService {
         .startAt(DateTime.now().millisecondsSinceEpoch)
         .onChildAdded
         .listen((event) {
-      final data = event.snapshot.value;
-      if (data is Map && data['userId'] != myUserId) {
-        onReaction((data['emoji'] as String?) ?? '❤️');
-      }
-    });
+          final data = event.snapshot.value;
+          if (data is Map && data['userId'] != myUserId) {
+            onReaction((data['emoji'] as String?) ?? '❤️');
+          }
+        });
   }
 
   /// Push a gift event (called after backend confirms economy).
-  void writeLiveGift(String roomId, String senderName, String giftId, String giftName, int quantity) {
+  void writeLiveGift(
+    String roomId,
+    String senderName,
+    String giftId,
+    String giftName,
+    int quantity,
+  ) {
     _liveRef(roomId).child('gifts').push().set(<String, dynamic>{
       'senderName': senderName,
       'giftId': giftId,
@@ -886,15 +1037,15 @@ class FirebaseChatService {
         .startAt(DateTime.now().millisecondsSinceEpoch)
         .onChildAdded
         .listen((event) {
-      final data = event.snapshot.value;
-      if (data is Map) {
-        onGift(
-          (data['senderName'] as String?) ?? '',
-          (data['giftName'] as String?) ?? '',
-          (data['quantity'] as num?)?.toInt() ?? 1,
-        );
-      }
-    });
+          final data = event.snapshot.value;
+          if (data is Map) {
+            onGift(
+              (data['senderName'] as String?) ?? '',
+              (data['giftName'] as String?) ?? '',
+              (data['quantity'] as num?)?.toInt() ?? 1,
+            );
+          }
+        });
   }
 
   /// Mark room as ended in RTDB (host calls this).
@@ -958,7 +1109,8 @@ class RtdbProfile {
           birthday == other.birthday;
 
   @override
-  int get hashCode => Object.hash(displayName, avatarUrl, countryCode, language, birthday);
+  int get hashCode =>
+      Object.hash(displayName, avatarUrl, countryCode, language, birthday);
 }
 
 class FirebaseConversation {

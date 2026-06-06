@@ -36,6 +36,7 @@ class DirectCallScreen extends StatefulWidget {
   final String partnerName;
   final String partnerId;
   final String? partnerAvatarUrl;
+
   /// 'direct' or 'random'. Random mode adds Next button and pops with result.
   final String mode;
 
@@ -66,67 +67,77 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
 
   Future<void> _init() async {
     await [Permission.camera, Permission.microphone].request();
-    FirebaseChatService.instance.setBusyStatus();
+    FirebaseChatService.instance.setBusyStatus(
+      sessionId: widget.sessionId,
+      activity: widget.isRandom ? 'random_call' : 'direct_call',
+    );
     await _initAgora();
     _startTimers();
   }
 
   Future<void> _initAgora() async {
     final engine = createAgoraRtcEngine();
-    await engine.initialize(RtcEngineContext(
-      appId: widget.appId,
-      channelProfile: ChannelProfileType.channelProfileCommunication,
-    ));
+    await engine.initialize(
+      RtcEngineContext(
+        appId: widget.appId,
+        channelProfile: ChannelProfileType.channelProfileCommunication,
+      ),
+    );
 
-    engine.registerEventHandler(RtcEngineEventHandler(
-      onJoinChannelSuccess: (connection, elapsed) {
-        debugPrint('[DirectCall] joined channel: ${connection.channelId}');
-      },
-      onUserJoined: (connection, remoteUid, elapsed) {
-        if (!_disposed) {
-          setState(() => _remoteUid = remoteUid);
-          _startBillingTimer();
-        }
-      },
-      onUserOffline: (connection, remoteUid, reason) {
-        if (!_disposed) {
-          setState(() => _remoteUid = null);
-          if (widget.isRandom) {
-            // Random mode: partner left → pop with result so search can continue
-            _leaveWithResult('partner_left');
-          } else {
-            _endCall();
+    engine.registerEventHandler(
+      RtcEngineEventHandler(
+        onJoinChannelSuccess: (connection, elapsed) {
+          debugPrint('[DirectCall] joined channel: ${connection.channelId}');
+        },
+        onUserJoined: (connection, remoteUid, elapsed) {
+          if (!_disposed) {
+            setState(() => _remoteUid = remoteUid);
+            _startBillingTimer();
           }
-        }
-      },
-      onLocalVideoStateChanged: (source, state, error) {
-        if (state == LocalVideoStreamState.localVideoStreamStateCapturing ||
-            state == LocalVideoStreamState.localVideoStreamStateEncoding) {
-          if (!_disposed) setState(() => _localVideoReady = true);
-        }
-      },
-      onRemoteVideoStateChanged: (connection, remoteUid, state, reason, elapsed) {
-        if (!_disposed) {
-          if (reason == RemoteVideoStateReason.remoteVideoStateReasonRemoteMuted) {
-            setState(() => _remoteVideoMuted = true);
-          } else if (state == RemoteVideoState.remoteVideoStateDecoding) {
-            setState(() => _remoteVideoMuted = false);
+        },
+        onUserOffline: (connection, remoteUid, reason) {
+          if (!_disposed) {
+            setState(() => _remoteUid = null);
+            if (widget.isRandom) {
+              // Random mode: partner left → pop with result so search can continue
+              _leaveWithResult('partner_left');
+            } else {
+              _endCall();
+            }
           }
-        }
-      },
-      onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
-      onConnectionStateChanged: (connection, state, reason) {
-        if (_disposed) return;
-        final bool lost = state == ConnectionStateType.connectionStateReconnecting;
-        if (lost != _reconnecting) setState(() => _reconnecting = lost);
-      },
-      onError: (err, msg) {
-        debugPrint('[DirectCall] Agora error: $err $msg');
-        if (!_disposed && mounted) {
-          _showSnack('Call error — please try again');
-        }
-      },
-    ));
+        },
+        onLocalVideoStateChanged: (source, state, error) {
+          if (state == LocalVideoStreamState.localVideoStreamStateCapturing ||
+              state == LocalVideoStreamState.localVideoStreamStateEncoding) {
+            if (!_disposed) setState(() => _localVideoReady = true);
+          }
+        },
+        onRemoteVideoStateChanged:
+            (connection, remoteUid, state, reason, elapsed) {
+              if (!_disposed) {
+                if (reason ==
+                    RemoteVideoStateReason.remoteVideoStateReasonRemoteMuted) {
+                  setState(() => _remoteVideoMuted = true);
+                } else if (state == RemoteVideoState.remoteVideoStateDecoding) {
+                  setState(() => _remoteVideoMuted = false);
+                }
+              }
+            },
+        onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
+        onConnectionStateChanged: (connection, state, reason) {
+          if (_disposed) return;
+          final bool lost =
+              state == ConnectionStateType.connectionStateReconnecting;
+          if (lost != _reconnecting) setState(() => _reconnecting = lost);
+        },
+        onError: (err, msg) {
+          debugPrint('[DirectCall] Agora error: $err $msg');
+          if (!_disposed && mounted) {
+            _showSnack('Call error — please try again');
+          }
+        },
+      ),
+    );
 
     await engine.enableVideo();
     await engine.enableAudio();
@@ -148,7 +159,9 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
       );
     } on AgoraRtcException catch (e) {
       if (e.code == -17 && !_disposed) {
-        debugPrint('[DirectCall] joinChannel rejected (-17), retrying in 500ms');
+        debugPrint(
+          '[DirectCall] joinChannel rejected (-17), retrying in 500ms',
+        );
         await Future.delayed(const Duration(milliseconds: 500));
         if (_disposed) return;
         await engine.joinChannel(
@@ -243,11 +256,13 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
 
   void _endCall() {
     if (_disposed) return;
-    widget.apiClient.endCallSession(
-      accessToken: widget.accessToken,
-      sessionId: widget.sessionId,
-      reason: 'user_ended',
-    ).ignore();
+    widget.apiClient
+        .endCallSession(
+          accessToken: widget.accessToken,
+          sessionId: widget.sessionId,
+          reason: 'user_ended',
+        )
+        .ignore();
     if (widget.isRandom) {
       _leaveWithResult('ended');
     } else {
@@ -300,11 +315,13 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   void dispose() {
     if (!_disposed) {
       // End session on server if not already ended
-      widget.apiClient.endCallSession(
-        accessToken: widget.accessToken,
-        sessionId: widget.sessionId,
-        reason: 'disposed',
-      ).ignore();
+      widget.apiClient
+          .endCallSession(
+            accessToken: widget.accessToken,
+            sessionId: widget.sessionId,
+            reason: 'disposed',
+          )
+          .ignore();
       FirebaseChatService.instance.clearBusyStatus();
     }
     _disposed = true;
@@ -353,9 +370,15 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                      CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
                       SizedBox(height: 12),
-                      Text('Reconnecting...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                      Text(
+                        'Reconnecting...',
+                        style: TextStyle(color: Colors.white70, fontSize: 14),
+                      ),
                     ],
                   ),
                 ),
@@ -398,7 +421,9 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
                           ? widget.partnerName[0].toUpperCase()
                           : '?',
                       style: const TextStyle(
-                          fontSize: 36, color: Colors.white70),
+                        fontSize: 36,
+                        color: Colors.white70,
+                      ),
                     )
                   : null,
             ),
@@ -406,7 +431,10 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
             Text(
               widget.partnerName,
               style: const TextStyle(
-                  color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600),
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -436,19 +464,25 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
           ),
           child: _cameraMuted
               ? const Center(
-                  child: Icon(Icons.videocam_off_rounded,
-                      color: Colors.white38, size: 32),
+                  child: Icon(
+                    Icons.videocam_off_rounded,
+                    color: Colors.white38,
+                    size: 32,
+                  ),
                 )
               : _localVideoReady
-                  ? AgoraVideoView(
-                      controller: VideoViewController(
-                        rtcEngine: _engine!,
-                        canvas: const VideoCanvas(uid: 0),
-                      ),
-                    )
-                  : const Center(
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white24)),
+              ? AgoraVideoView(
+                  controller: VideoViewController(
+                    rtcEngine: _engine!,
+                    canvas: const VideoCanvas(uid: 0),
+                  ),
+                )
+              : const Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white24,
+                  ),
+                ),
         ),
       ),
     );
@@ -465,8 +499,10 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
           child: Row(
             children: <Widget>[
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black54,
                   borderRadius: BorderRadius.circular(20),
@@ -479,9 +515,10 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
                     Text(
                       _timerText,
                       style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600),
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
@@ -489,14 +526,18 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
               const Spacer(),
               if (_remoteUid == null)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.orange.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Text('Waiting…',
-                      style: TextStyle(color: Colors.orange, fontSize: 12)),
+                  child: const Text(
+                    'Waiting…',
+                    style: TextStyle(color: Colors.orange, fontSize: 12),
+                  ),
                 ),
             ],
           ),
@@ -519,7 +560,11 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
           ),
         ),
         padding: EdgeInsets.fromLTRB(
-            24, 40, 24, MediaQuery.of(context).padding.bottom + 24),
+          24,
+          40,
+          24,
+          MediaQuery.of(context).padding.bottom + 24,
+        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: <Widget>[
@@ -593,8 +638,10 @@ class _ControlButton extends StatelessWidget {
             child: Icon(icon, color: c, size: 24),
           ),
           const SizedBox(height: 6),
-          Text(label,
-              style: TextStyle(color: c.withValues(alpha: 0.8), fontSize: 11)),
+          Text(
+            label,
+            style: TextStyle(color: c.withValues(alpha: 0.8), fontSize: 11),
+          ),
         ],
       ),
     );

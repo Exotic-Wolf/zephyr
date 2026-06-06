@@ -118,10 +118,7 @@ class CallQuote {
       requiredCoins: (json['requiredCoins'] as num?)?.toInt() ?? 0,
       rateCoinsPerMinute: (json['rateCoinsPerMinute'] as num?)?.toInt() ?? 0,
       directCallAllowedRatesCoinsPerMinute: rawRates is List<dynamic>
-          ? rawRates
-                .whereType<num>()
-                .map((num value) => value.toInt())
-                .toList()
+          ? rawRates.whereType<num>().map((num value) => value.toInt()).toList()
           : <int>[2100, 4200, 8400],
     );
   }
@@ -282,8 +279,12 @@ class ZephyrMessage {
       receiverId: json['receiverId'] as String,
       body: json['body'] as String,
       createdAt: DateTime.parse(json['createdAt'] as String),
-      deliveredAt: json['deliveredAt'] != null ? DateTime.parse(json['deliveredAt'] as String) : null,
-      readAt: json['readAt'] != null ? DateTime.parse(json['readAt'] as String) : null,
+      deliveredAt: json['deliveredAt'] != null
+          ? DateTime.parse(json['deliveredAt'] as String)
+          : null,
+      readAt: json['readAt'] != null
+          ? DateTime.parse(json['readAt'] as String)
+          : null,
     );
   }
 }
@@ -342,6 +343,7 @@ class UserProfile {
   }) : publicId = publicId ?? derivePublicId(id);
 
   final String id;
+
   /// Short 8-digit public ID shown to users. Safe to share; does not expose the DB UUID.
   final String publicId;
   final bool isAdmin;
@@ -351,7 +353,7 @@ class UserProfile {
   final String? coverUrl;
   final String? bio;
   final String? gender;
-  final String? birthday;   // ISO date string e.g. "1995-06-15"
+  final String? birthday; // ISO date string e.g. "1995-06-15"
   final String? countryCode;
   final String? language;
   final int? callRateCoinsPerMinute;
@@ -378,7 +380,9 @@ class UserProfile {
       countryCode: json['countryCode'] as String?,
       language: json['language'] as String?,
       callRateCoinsPerMinute: (json['callRateCoinsPerMinute'] as num?)?.toInt(),
-      onboardedAt: json['onboardedAt'] != null ? DateTime.parse(json['onboardedAt'] as String) : null,
+      onboardedAt: json['onboardedAt'] != null
+          ? DateTime.parse(json['onboardedAt'] as String)
+          : null,
       createdAt: DateTime.parse(json['createdAt'] as String),
     );
   }
@@ -436,7 +440,8 @@ class LiveFeedCard {
   final String? hostAvatarUrl;
   final String hostCountryCode;
   final String hostLanguage;
-  /// 'live' | 'online' | 'busy' | 'offline'
+
+  /// Display status from canonical presence: online, away, live, premium_live, busy, offline.
   final String hostStatus;
   final DateTime startedAt;
   final int? callRateCoinsPerMinute;
@@ -453,13 +458,20 @@ class LiveFeedCard {
           .trim()
           .toUpperCase(),
       hostLanguage: (json['hostLanguage'] as String? ?? 'English').trim(),
-      hostStatus: (json['hostStatus'] as String? ?? 'offline').trim().toLowerCase(),
+      hostStatus: (json['hostStatus'] as String? ?? 'offline')
+          .trim()
+          .toLowerCase(),
       startedAt: DateTime.parse(json['startedAt'] as String),
-      callRateCoinsPerMinute: (json['hostCallRateCoinsPerMinute'] as num?)?.toInt(),
+      callRateCoinsPerMinute: (json['hostCallRateCoinsPerMinute'] as num?)
+          ?.toInt(),
     );
   }
 
-  LiveFeedCard copyWith({String? hostStatus, String? roomId, int? audienceCount}) {
+  LiveFeedCard copyWith({
+    String? hostStatus,
+    String? roomId,
+    int? audienceCount,
+  }) {
     return LiveFeedCard(
       roomId: roomId ?? this.roomId,
       title: title,

@@ -9,6 +9,19 @@ import {
 import { DatabaseService } from '../core/database.service';
 import { StoreService } from '../core/store.service';
 
+interface InternalSyncPresenceBody {
+  userId: string;
+  status: string;
+  connection?: string;
+  activity?: string;
+  availability?: string;
+  routing?: {
+    directCall?: boolean;
+    randomCall?: boolean;
+  };
+  updatedAt?: number;
+}
+
 @Controller('v1')
 export class HealthController {
   constructor(
@@ -115,7 +128,7 @@ export class HealthController {
   @Post('internal/sync-presence')
   async internalSyncPresence(
     @Headers('x-service-key') serviceKey: string | undefined,
-    @Body() body: { userId: string; status: string },
+    @Body() body: InternalSyncPresenceBody,
   ): Promise<{ status: string }> {
     const expectedKey = process.env.SERVICE_KEY;
     if (!expectedKey || serviceKey !== expectedKey) {
@@ -126,7 +139,14 @@ export class HealthController {
       return { status: 'missing_params' };
     }
 
-    await this.storeService.syncPresence(body.userId, body.status);
+    await this.storeService.syncPresence(body.userId, body.status, {
+      connection: body.connection,
+      activity: body.activity,
+      availability: body.availability,
+      directCall: body.routing?.directCall,
+      randomCall: body.routing?.randomCall,
+      updatedAt: body.updatedAt,
+    });
     return { status: 'synced' };
   }
 }

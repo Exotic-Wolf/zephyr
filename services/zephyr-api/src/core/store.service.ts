@@ -206,6 +206,84 @@ export interface CallRateTier {
   sparkPerMinute: number;
 }
 
+export interface PresenceSyncOptions {
+  connection?: string;
+  activity?: string;
+  availability?: string;
+  directCall?: boolean;
+  randomCall?: boolean;
+  updatedAt?: number;
+}
+
+interface NormalizedPresenceSync {
+  status: string;
+  connection: string;
+  activity: string;
+  availability: string;
+  directCall: boolean;
+  randomCall: boolean;
+  updatedAtIso: string | null;
+}
+
+function normalizePresenceSync(
+  status: string,
+  options: PresenceSyncOptions = {},
+): NormalizedPresenceSync {
+  const normalizedStatus = status.trim().toLowerCase() || 'offline';
+  const connection =
+    options.connection === 'online' || options.connection === 'offline'
+      ? options.connection
+      : normalizedStatus === 'offline'
+        ? 'offline'
+        : 'online';
+  const activity =
+    options.activity?.trim().toLowerCase() ||
+    (normalizedStatus === 'away'
+      ? 'away'
+      : normalizedStatus === 'live'
+        ? 'free_live_host'
+        : normalizedStatus === 'premium_live'
+          ? 'premium_live_host'
+          : normalizedStatus === 'busy'
+            ? 'direct_call'
+            : 'idle');
+  const availability =
+    options.availability === 'available' ||
+    options.availability === 'busy' ||
+    options.availability === 'unavailable'
+      ? options.availability
+      : normalizedStatus === 'offline'
+        ? 'unavailable'
+        : normalizedStatus === 'busy' || normalizedStatus === 'premium_live'
+          ? 'busy'
+          : 'available';
+  const directCall =
+    options.directCall ??
+    (normalizedStatus === 'online' ||
+      normalizedStatus === 'away' ||
+      normalizedStatus === 'live');
+  const randomCall =
+    options.randomCall ??
+    (normalizedStatus === 'online' || normalizedStatus === 'live');
+  const updatedAtDate =
+    typeof options.updatedAt === 'number' && options.updatedAt > 0
+      ? new Date(options.updatedAt)
+      : null;
+
+  return {
+    status: normalizedStatus,
+    connection,
+    activity,
+    availability,
+    directCall,
+    randomCall,
+    updatedAtIso:
+      updatedAtDate && !Number.isNaN(updatedAtDate.getTime())
+        ? updatedAtDate.toISOString()
+        : null,
+  };
+}
+
 @Injectable()
 export class StoreService implements OnModuleInit {
   constructor(@Optional() private readonly databaseService?: DatabaseService) {}
@@ -989,7 +1067,7 @@ export class StoreService implements OnModuleInit {
         hostAvatarUrl: row.host_avatar_url,
         hostCountryCode: row.host_country_code ?? 'PH',
         hostLanguage: row.host_language ?? 'English',
-        hostStatus: row.room_id ? 'live' : row.user_status,
+        hostStatus: row.user_status,
         hostCallRateCoinsPerMinute: row.call_rate_coins_per_minute,
         startedAt: row.started_at
           ? new Date(row.started_at).toISOString()
@@ -2237,7 +2315,11 @@ export class StoreService implements OnModuleInit {
     // Step 1: longest live + respect 4h cooldown
     const withCooldown = await this.databaseService.query<{ host_user_id: string }>(
       `SELECT r.host_user_id FROM rooms r
+       JOIN users u ON u.id = r.host_user_id
        WHERE r.status = 'live'
+         AND u.presence_availability = 'available'
+         AND u.can_random_call = TRUE
+         AND u.is_banned = FALSE
          AND r.host_user_id != $1
          ${blockedArr.length > 0 ? `AND r.host_user_id != ALL($2::uuid[])` : ''}
          AND NOT EXISTS (
@@ -2263,7 +2345,11 @@ export class StoreService implements OnModuleInit {
     // Step 2: fallback — ignore cooldown, still pick longest live
     const fallback = await this.databaseService.query<{ host_user_id: string }>(
       `SELECT r.host_user_id FROM rooms r
+       JOIN users u ON u.id = r.host_user_id
        WHERE r.status = 'live'
+         AND u.presence_availability = 'available'
+         AND u.can_random_call = TRUE
+         AND u.is_banned = FALSE
          AND r.host_user_id != $1
          ${blockedArr.length > 0 ? `AND r.host_user_id != ALL($2::uuid[])` : ''}
          AND NOT EXISTS (
@@ -2300,11 +2386,12 @@ export class StoreService implements OnModuleInit {
     const blockedIds = await this.getBlockedIds(callerId);
     const blockedArr = [...blockedIds];
 
-    // Step 1: online/away host, respect 4h cooldown
+    // Step 1: canonically routeable host, respect 4h cooldown
     const withCooldown = await this.databaseService.query<{ id: string }>(
       `SELECT u.id FROM users u
        WHERE u.is_host = TRUE
-         AND u.status IN ('online', 'away')
+         AND u.presence_availability = 'available'
+         AND u.can_random_call = TRUE
          AND u.id != $1
          AND u.is_banned = FALSE
          ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}
@@ -2336,7 +2423,8 @@ export class StoreService implements OnModuleInit {
     const fallback = await this.databaseService.query<{ id: string }>(
       `SELECT u.id FROM users u
        WHERE u.is_host = TRUE
-         AND u.status IN ('online', 'away')
+         AND u.presence_availability = 'available'
+         AND u.can_random_call = TRUE
          AND u.id != $1
          AND u.is_banned = FALSE
          ${blockedArr.length > 0 ? `AND u.id != ALL($2::uuid[])` : ''}
@@ -2378,6 +2466,29 @@ export class StoreService implements OnModuleInit {
     }
 
     if (receiverUserId && receiverUserId !== callerUserId) {
+      if (this.databaseService?.isEnabled()) {
+        const routeability = await this.databaseService.query<{
+          status: string;
+          presence_availability: string;
+          can_direct_call: boolean;
+        }>(
+          `SELECT status, presence_availability, can_direct_call
+           FROM users
+           WHERE id = $1`,
+          [receiverUserId],
+        );
+        const receiverPresence = routeability.rows[0];
+        if (!receiverPresence) {
+          throw new NotFoundException('Receiver not found');
+        }
+        if (
+          receiverPresence.presence_availability !== 'available' ||
+          !receiverPresence.can_direct_call
+        ) {
+          throw new BadRequestException('Receiver is not available');
+        }
+      }
+
       const receiverBusy = await this.hasLiveCallSessionForUser(receiverUserId);
       if (receiverBusy) {
         throw new BadRequestException('Receiver is busy in another live call');
@@ -3468,11 +3579,34 @@ export class StoreService implements OnModuleInit {
     }
   }
 
-  async syncPresence(userId: string, status: string): Promise<void> {
+  async syncPresence(
+    userId: string,
+    status: string,
+    options: PresenceSyncOptions = {},
+  ): Promise<void> {
+    const presence = normalizePresenceSync(status, options);
     if (this.databaseService?.isEnabled()) {
       await this.databaseService.query(
-        `UPDATE users SET status = $1, last_seen_at = NOW() WHERE id = $2`,
-        [status, userId],
+        `UPDATE users
+         SET status = $1,
+             presence_connection = $2,
+             presence_activity = $3,
+             presence_availability = $4,
+             can_direct_call = $5,
+             can_random_call = $6,
+             presence_updated_at = COALESCE($7::timestamptz, NOW()),
+             last_seen_at = COALESCE($7::timestamptz, NOW())
+         WHERE id = $8`,
+        [
+          presence.status,
+          presence.connection,
+          presence.activity,
+          presence.availability,
+          presence.directCall,
+          presence.randomCall,
+          presence.updatedAtIso,
+          userId,
+        ],
       );
     }
   }
