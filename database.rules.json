@@ -7,7 +7,7 @@
       "$userId": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid == $userId",
-        ".validate": "!newData.exists() || (newData.hasChildren(['schemaVersion', 'connection', 'activity', 'availability', 'routing', 'displayStatus', 'interruptible', 'state', 'lastSeen', 'updatedAt']) && newData.child('schemaVersion').val() == 1 && (newData.child('connection').val() == 'online' || newData.child('connection').val() == 'offline') && (newData.child('activity').val() == 'idle' || newData.child('activity').val() == 'away' || newData.child('activity').val() == 'free_live_host' || newData.child('activity').val() == 'free_live_viewer' || newData.child('activity').val() == 'premium_live_host' || newData.child('activity').val() == 'premium_live_viewer' || newData.child('activity').val() == 'live_paused' || newData.child('activity').val() == 'direct_call' || newData.child('activity').val() == 'random_call') && (newData.child('availability').val() == 'available' || newData.child('availability').val() == 'busy' || newData.child('availability').val() == 'unavailable') && newData.child('routing').hasChildren(['directCall', 'randomCall']) && newData.child('routing').child('directCall').isBoolean() && newData.child('routing').child('randomCall').isBoolean() && (newData.child('displayStatus').val() == 'online' || newData.child('displayStatus').val() == 'away' || newData.child('displayStatus').val() == 'live' || newData.child('displayStatus').val() == 'premium_live' || newData.child('displayStatus').val() == 'busy' || newData.child('displayStatus').val() == 'offline') && newData.child('state').val() == newData.child('displayStatus').val() && newData.child('interruptible').isBoolean() && newData.child('lastSeen').isNumber() && newData.child('updatedAt').isNumber() && (newData.child('roomMode').val() == null || newData.child('roomMode').val() == 'free_live' || newData.child('roomMode').val() == 'premium_live'))"
+        ".validate": "!newData.exists() || (newData.hasChildren(['schemaVersion', 'connection', 'activity', 'availability', 'routing', 'displayStatus', 'interruptible', 'state', 'lastSeen', 'updatedAt']) && newData.child('schemaVersion').val() == 1 && newData.child('routing').hasChildren(['directCall', 'randomCall']) && newData.child('routing').child('directCall').isBoolean() && newData.child('routing').child('randomCall').isBoolean() && newData.child('state').val() == newData.child('displayStatus').val() && newData.child('interruptible').isBoolean() && newData.child('lastSeen').isNumber() && newData.child('updatedAt').isNumber() && ((newData.child('connection').val() == 'offline' && newData.child('activity').val() == 'idle' && newData.child('availability').val() == 'unavailable' && newData.child('routing').child('directCall').val() == false && newData.child('routing').child('randomCall').val() == false && newData.child('displayStatus').val() == 'offline' && newData.child('interruptible').val() == false) || (newData.child('connection').val() == 'online' && newData.child('activity').val() == 'idle' && newData.child('availability').val() == 'available' && newData.child('routing').child('directCall').val() == true && newData.child('routing').child('randomCall').val() == true && newData.child('displayStatus').val() == 'online' && newData.child('interruptible').val() == true) || (newData.child('connection').val() == 'online' && newData.child('activity').val() == 'away' && newData.child('availability').val() == 'available' && newData.child('routing').child('directCall').val() == true && newData.child('routing').child('randomCall').val() == false && newData.child('displayStatus').val() == 'away' && newData.child('interruptible').val() == true) || (newData.child('connection').val() == 'online' && newData.child('activity').val() == 'free_live_host' && newData.child('availability').val() == 'available' && newData.child('routing').child('directCall').val() == true && newData.child('routing').child('randomCall').val() == true && newData.child('displayStatus').val() == 'live' && newData.child('interruptible').val() == true && newData.child('roomId').isString() && newData.child('roomMode').val() == 'free_live') || (newData.child('connection').val() == 'online' && newData.child('activity').val() == 'free_live_viewer' && newData.child('availability').val() == 'available' && newData.child('routing').child('directCall').val() == true && newData.child('routing').child('randomCall').val() == true && newData.child('displayStatus').val() == 'online' && newData.child('interruptible').val() == true && newData.child('roomId').isString() && newData.child('roomMode').val() == 'free_live') || (newData.child('connection').val() == 'online' && newData.child('activity').val() == 'premium_live_host' && newData.child('availability').val() == 'busy' && newData.child('routing').child('directCall').val() == false && newData.child('routing').child('randomCall').val() == false && newData.child('displayStatus').val() == 'premium_live' && newData.child('interruptible').val() == false && newData.child('roomId').isString() && newData.child('roomMode').val() == 'premium_live') || (newData.child('connection').val() == 'online' && newData.child('activity').val() == 'premium_live_viewer' && newData.child('availability').val() == 'busy' && newData.child('routing').child('directCall').val() == false && newData.child('routing').child('randomCall').val() == false && newData.child('displayStatus').val() == 'busy' && newData.child('interruptible').val() == false && newData.child('roomId').isString() && newData.child('roomMode').val() == 'premium_live') || (newData.child('connection').val() == 'online' && newData.child('activity').val() == 'live_paused' && newData.child('availability').val() == 'unavailable' && newData.child('routing').child('directCall').val() == false && newData.child('routing').child('randomCall').val() == false && newData.child('displayStatus').val() == 'busy' && newData.child('interruptible').val() == false && newData.child('roomId').isString() && newData.child('roomMode').val() == 'free_live') || (newData.child('connection').val() == 'online' && newData.child('activity').val() == 'direct_call' && newData.child('availability').val() == 'busy' && newData.child('routing').child('directCall').val() == false && newData.child('routing').child('randomCall').val() == false && newData.child('displayStatus').val() == 'busy' && newData.child('interruptible').val() == false) || (newData.child('connection').val() == 'online' && newData.child('activity').val() == 'random_call' && newData.child('availability').val() == 'busy' && newData.child('routing').child('directCall').val() == false && newData.child('routing').child('randomCall').val() == false && newData.child('displayStatus').val() == 'busy' && newData.child('interruptible').val() == false)))"
       }
     },
 
@@ -30,31 +30,40 @@
     "live_rooms": {
       "$roomId": {
         ".read": "auth != null",
-        ".write": "auth != null && ((!data.exists() && newData.child('hostUserId').val() == auth.uid) || (data.exists() && !newData.exists() && data.child('hostUserId').val() == auth.uid) || (data.exists() && data.child('hostUserId').val() == auth.uid && newData.child('hostUserId').val() == data.child('hostUserId').val()))",
+        ".write": "auth != null && ((!data.exists() && newData.exists() && newData.child('hostUserId').val() == auth.uid) || (data.exists() && !newData.exists() && data.child('hostUserId').val() == auth.uid))",
         ".validate": "!newData.exists() || newData.hasChildren(['status', 'hostUserId', 'audience_count', 'started_at'])",
         "hostUserId": {
           ".validate": "newData.isString() && (!data.exists() || newData.val() == data.val())"
         },
         "audience_count": {
-          ".write": "auth != null",
           ".validate": "newData.isNumber() && newData.val() >= 0"
         },
+        "audience": {
+          ".indexOn": ["joinedAt"],
+          "$viewerId": {
+            ".write": "auth != null && auth.uid == $viewerId && (!newData.exists() || data.parent().parent().child('status').val() == 'live')",
+            ".validate": "!newData.exists() || (newData.hasChildren(['joinedAt', 'lastSeen']) && newData.child('joinedAt').isNumber() && newData.child('lastSeen').isNumber())"
+          }
+        },
         "comments": {
+          ".indexOn": ["ts"],
           "$commentId": {
-            ".write": "auth != null",
-            ".validate": "newData.hasChildren(['name', 'text', 'ts']) && newData.child('name').isString() && newData.child('name').val().length <= 80 && newData.child('text').isString() && newData.child('text').val().length <= 500 && newData.child('ts').isNumber()"
+            ".write": "auth != null && data.parent().parent().child('status').val() == 'live'",
+            ".validate": "newData.hasChildren(['userId', 'name', 'text', 'ts']) && newData.child('userId').val() == auth.uid && newData.child('name').isString() && newData.child('name').val().length <= 80 && newData.child('text').isString() && newData.child('text').val().length <= 500 && newData.child('ts').isNumber()"
           }
         },
         "reactions": {
+          ".indexOn": ["ts"],
           "$reactionId": {
-            ".write": "auth != null",
+            ".write": "auth != null && data.parent().parent().child('status').val() == 'live'",
             ".validate": "newData.hasChildren(['userId', 'emoji', 'ts']) && newData.child('userId').val() == auth.uid && newData.child('emoji').isString() && newData.child('emoji').val().length <= 10 && newData.child('ts').isNumber()"
           }
         },
         "gifts": {
-          "$giftId": {
-            ".write": "auth != null",
-            ".validate": "newData.hasChildren(['senderName', 'giftId', 'giftName', 'quantity', 'ts']) && newData.child('senderName').isString() && newData.child('senderName').val().length <= 80 && newData.child('giftId').isString() && newData.child('giftName').isString() && newData.child('giftName').val().length <= 80 && newData.child('quantity').isNumber() && newData.child('quantity').val() >= 1 && newData.child('quantity').val() <= 99 && newData.child('ts').isNumber()"
+          ".indexOn": ["ts"],
+          ".validate": "!newData.exists()",
+          "$giftEventId": {
+            ".write": false
           }
         },
         "status": {
@@ -63,6 +72,9 @@
         },
         "started_at": {
           ".validate": "newData.isNumber()"
+        },
+        "$other": {
+          ".validate": false
         }
       }
     }

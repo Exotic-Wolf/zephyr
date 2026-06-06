@@ -13,7 +13,12 @@ class PresenceRealtime {
   String? _myUserId;
 
   bool _isLive = false;
+  bool _isLivePaused = false;
   String? _liveRoomId;
+  bool _isPremiumLiveHost = false;
+  bool _isPremiumLiveViewer = false;
+  String? _premiumLiveRoomId;
+  String? _premiumRoomSessionId;
   bool _isBusy = false;
   String? _busySessionId;
   String _busyActivity = 'direct_call';
@@ -217,6 +222,57 @@ class PresenceRealtime {
     );
   }
 
+  Map<String, dynamic> _livePausedPresencePayload(String? roomId) {
+    return _presencePayload(
+      connection: 'online',
+      activity: 'live_paused',
+      availability: 'unavailable',
+      directCall: false,
+      randomCall: false,
+      displayStatus: 'busy',
+      interruptible: false,
+      legacyState: 'busy',
+      roomId: roomId,
+      roomMode: 'free_live',
+      previousActivity: 'free_live_host',
+      previousRoomId: roomId,
+    );
+  }
+
+  Map<String, dynamic> _premiumLiveHostPresencePayload(String? roomId) {
+    return _presencePayload(
+      connection: 'online',
+      activity: 'premium_live_host',
+      availability: 'busy',
+      directCall: false,
+      randomCall: false,
+      displayStatus: 'premium_live',
+      interruptible: false,
+      legacyState: 'premium_live',
+      roomId: roomId,
+      roomMode: 'premium_live',
+    );
+  }
+
+  Map<String, dynamic> _premiumLiveViewerPresencePayload({
+    required String? roomId,
+    required String? premiumRoomSessionId,
+  }) {
+    return _presencePayload(
+      connection: 'online',
+      activity: 'premium_live_viewer',
+      availability: 'busy',
+      directCall: false,
+      randomCall: false,
+      displayStatus: 'busy',
+      interruptible: false,
+      legacyState: 'busy',
+      roomId: roomId,
+      roomMode: 'premium_live',
+      premiumRoomSessionId: premiumRoomSessionId,
+    );
+  }
+
   Map<String, dynamic> _callPresencePayload({
     required String activity,
     String? sessionId,
@@ -231,8 +287,8 @@ class PresenceRealtime {
       interruptible: false,
       legacyState: 'busy',
       callSessionId: sessionId,
-      previousActivity: _isLive ? 'free_live_host' : null,
-      previousRoomId: _isLive ? _liveRoomId : null,
+      previousActivity: (_isLive || _isLivePaused) ? 'free_live_host' : null,
+      previousRoomId: (_isLive || _isLivePaused) ? _liveRoomId : null,
     );
   }
 
@@ -245,6 +301,18 @@ class PresenceRealtime {
         activity: _busyActivity,
         sessionId: _busySessionId,
       );
+    }
+    if (_isPremiumLiveHost) {
+      return _premiumLiveHostPresencePayload(_premiumLiveRoomId);
+    }
+    if (_isPremiumLiveViewer) {
+      return _premiumLiveViewerPresencePayload(
+        roomId: _premiumLiveRoomId,
+        premiumRoomSessionId: _premiumRoomSessionId,
+      );
+    }
+    if (_isLivePaused) {
+      return _livePausedPresencePayload(_liveRoomId);
     }
     if (_isLive) {
       return _freeLiveHostPresencePayload(_liveRoomId);
@@ -269,19 +337,81 @@ class PresenceRealtime {
   void setLive({String? roomId}) {
     if (_myUserId == null) return;
     _isLive = true;
+    _isLivePaused = false;
     _liveRoomId = roomId;
+    _isPremiumLiveHost = false;
+    _isPremiumLiveViewer = false;
+    _premiumLiveRoomId = null;
+    _premiumRoomSessionId = null;
     writeCurrent();
   }
 
   void clearLive() {
     if (_myUserId == null) return;
     _isLive = false;
+    _isLivePaused = false;
     _liveRoomId = null;
     writeCurrent();
   }
 
+  void pauseLive() {
+    if (_myUserId == null || !_isLive) return;
+    _isLivePaused = true;
+    writeCurrent();
+  }
+
+  void resumeLive() {
+    if (_myUserId == null || !_isLive) return;
+    _isLivePaused = false;
+    writeCurrent();
+  }
+
+  void setPremiumLiveHost({required String roomId}) {
+    if (_myUserId == null) return;
+    _isLive = false;
+    _isLivePaused = false;
+    _liveRoomId = null;
+    _isPremiumLiveHost = true;
+    _isPremiumLiveViewer = false;
+    _premiumLiveRoomId = roomId;
+    _premiumRoomSessionId = null;
+    writeCurrent();
+  }
+
+  void setPremiumLiveViewer({
+    required String roomId,
+    String? premiumRoomSessionId,
+  }) {
+    if (_myUserId == null) return;
+    _isLive = false;
+    _isLivePaused = false;
+    _liveRoomId = null;
+    _isPremiumLiveHost = false;
+    _isPremiumLiveViewer = true;
+    _premiumLiveRoomId = roomId;
+    _premiumRoomSessionId = premiumRoomSessionId;
+    writeCurrent();
+  }
+
+  void clearPremiumLive() {
+    if (_myUserId == null) return;
+    _isPremiumLiveHost = false;
+    _isPremiumLiveViewer = false;
+    _premiumLiveRoomId = null;
+    _premiumRoomSessionId = null;
+    writeCurrent();
+  }
+
   void setAway() {
-    if (_myUserId == null || _isLive || _isBusy || _isBackground) return;
+    if (_myUserId == null ||
+        _isLive ||
+        _isLivePaused ||
+        _isPremiumLiveHost ||
+        _isPremiumLiveViewer ||
+        _isBusy ||
+        _isBackground) {
+      return;
+    }
     final uid = _myUserId;
     if (uid == null) return;
     _rtdb.ref('presence/$uid').set(_awayPresencePayload());
@@ -296,7 +426,13 @@ class PresenceRealtime {
   void restoreOnline() {
     if (_myUserId == null) return;
     _isBackground = false;
-    if (_isLive || _isBusy) return;
+    if (_isLive ||
+        _isLivePaused ||
+        _isPremiumLiveHost ||
+        _isPremiumLiveViewer ||
+        _isBusy) {
+      return;
+    }
     writeCurrent();
   }
 
@@ -305,6 +441,9 @@ class PresenceRealtime {
     _isBusy = true;
     _busySessionId = sessionId;
     _busyActivity = activity == 'random_call' ? 'random_call' : 'direct_call';
+    if (_isLive) {
+      _isLivePaused = true;
+    }
     writeCurrent();
   }
 
@@ -339,7 +478,12 @@ class PresenceRealtime {
     _presenceRoomCache.clear();
 
     _isLive = false;
+    _isLivePaused = false;
     _liveRoomId = null;
+    _isPremiumLiveHost = false;
+    _isPremiumLiveViewer = false;
+    _premiumLiveRoomId = null;
+    _premiumRoomSessionId = null;
     _isBusy = false;
     _busySessionId = null;
     _busyActivity = 'direct_call';

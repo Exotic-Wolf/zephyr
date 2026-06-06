@@ -257,7 +257,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     if (roomId == null) return;
     final fcs = FirebaseChatService.instance;
 
-    // Increment audience_count in RTDB (with onDisconnect safety)
+    // Own this viewer's RTDB audience cell, with onDisconnect cleanup.
     fcs.joinLiveRoom(roomId);
 
     // Audience count
@@ -328,7 +328,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   void _callLeaveRoom() {
     if (_hasLeft || widget.feedCard.roomId == null) return;
     _hasLeft = true;
-    // Decrement RTDB audience_count
+    // Remove this viewer's RTDB audience cell.
     FirebaseChatService.instance.leaveLiveRoom(widget.feedCard.roomId!);
     // Notify backend
     if (widget.didJoin) {
@@ -396,15 +396,7 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
           quantity: quantity,
           idempotencyKey: idempotencyKey,
         );
-        // On success, write event to RTDB for all viewers
-        final gift = kGiftCatalog.firstWhere((g) => g.id == giftId);
-        FirebaseChatService.instance.writeLiveGift(
-          widget.feedCard.roomId!,
-          widget.myDisplayName,
-          giftId,
-          gift.name,
-          quantity,
-        );
+        // Backend writes the trusted RTDB gift event after the ledger succeeds.
       },
     );
   }

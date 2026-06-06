@@ -13,29 +13,46 @@ class LiveRoomRealtime {
   DatabaseReference _roomRef(String roomId) => _rtdb.ref('live_rooms/$roomId');
 
   Future<void> joinAudience(String roomId, String userId) async {
-    final countRef = _roomRef(roomId).child('audience_count');
-    await countRef.onDisconnect().set(ServerValue.increment(-1));
-    await countRef.set(ServerValue.increment(1));
+    if (userId.isEmpty) return;
+
+    final audienceRef = _roomRef(roomId).child('audience/$userId');
+    await audienceRef.onDisconnect().remove();
+    await audienceRef.set(<String, dynamic>{
+      'joinedAt': ServerValue.timestamp,
+      'lastSeen': ServerValue.timestamp,
+    });
   }
 
   Future<void> leaveAudience(String roomId, String userId) async {
-    final countRef = _roomRef(roomId).child('audience_count');
-    await countRef.onDisconnect().cancel();
-    await countRef.set(ServerValue.increment(-1));
+    if (userId.isEmpty) return;
+
+    final audienceRef = _roomRef(roomId).child('audience/$userId');
+    await audienceRef.onDisconnect().cancel();
+    await audienceRef.remove();
   }
 
   StreamSubscription<DatabaseEvent> listenAudienceCount(
     String roomId,
     void Function(int count) onCount,
   ) {
-    return _roomRef(roomId).child('audience_count').onValue.listen((event) {
-      final int count = (event.snapshot.value as num?)?.toInt() ?? 0;
-      onCount(count < 0 ? 0 : count);
+    return _roomRef(roomId).child('audience').onValue.listen((event) {
+      final data = event.snapshot.value;
+      if (data is Map) {
+        onCount(data.length);
+      } else {
+        onCount(0);
+      }
     });
   }
 
-  void writeComment(String roomId, String displayName, String text) {
+  void writeComment(
+    String roomId,
+    String userId,
+    String displayName,
+    String text,
+  ) {
     _roomRef(roomId).child('comments').push().set(<String, dynamic>{
+      'userId': userId,
       'name': displayName,
       'text': text,
       'ts': ServerValue.timestamp,
@@ -88,22 +105,6 @@ class LiveRoomRealtime {
         });
   }
 
-  void writeGift(
-    String roomId,
-    String senderName,
-    String giftId,
-    String giftName,
-    int quantity,
-  ) {
-    _roomRef(roomId).child('gifts').push().set(<String, dynamic>{
-      'senderName': senderName,
-      'giftId': giftId,
-      'giftName': giftName,
-      'quantity': quantity,
-      'ts': ServerValue.timestamp,
-    });
-  }
-
   StreamSubscription<DatabaseEvent> listenGifts(
     String roomId,
     void Function(String senderName, String giftName, int quantity) onGift,
@@ -143,13 +144,21 @@ class LiveRoomRealtime {
     });
   }
 
-  void initRoom(String roomId, {required String hostUserId}) {
-    _roomRef(roomId).set(<String, dynamic>{
-      'status': 'live',
-      'hostUserId': hostUserId,
-      'audience_count': 0,
-      'started_at': ServerValue.timestamp,
-    });
-    _roomRef(roomId).child('status').onDisconnect().set('ended');
+  Future<void> initRoom(String roomId, {required String hostUserId}) async {
+    final roomRef = _roomRef(roomId);
+    final snapshot = await roomRef.get();
+
+    if (!snapshot.exists) {
+      await roomRef.set(<String, dynamic>{
+        'status': 'live',
+        'hostUserId': hostUserId,
+        'audience_count': 0,
+        'started_at': ServerValue.timestamp,
+      });
+    } else {
+      await roomRef.child('status').set('live');
+    }
+
+    await roomRef.child('status').onDisconnect().set('ended');
   }
 }
