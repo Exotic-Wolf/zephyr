@@ -48,8 +48,9 @@ Every meaningful work slice must update this file before commit/push:
 | P0 | Done | Codex | Make wallet and session ledger writes transactional | Call ticks, direct/random call gifts, live gifts, dev coin credit, IAP credit, and IAP refunds now use PostgreSQL transactions/row locks where needed |
 | P0 | Done | Codex | Add ledger idempotency keys and real Postgres race tests | Call ticks, call gifts, and live-room gifts now accept `X-Idempotency-Key`; mobile sends stable paid-action keys; `pnpm --filter zephyr-api test:db:race` passed 3/3 against local Postgres on 6 Jun 2026 |
 | P0 | Done | Codex | Fix Google Play IAP verification contract | Android now sends the Play purchase token as canonical transaction ID, consumes coin packs after backend credit, backend defaults match real app IDs, and Google RTDN refunds resolve by purchase token |
-| P0 | Action required | User | Set production IAP env on Render | Add `GOOGLE_PLAY_PACKAGE_NAME=com.zephyr.zephyr_mobile`, `APPLE_BUNDLE_ID=com.zephyr.zephyrMobile`, and a real `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY` or base64 equivalent before production Android IAP verification |
-| P0 | Action required | User | Manual Google Play internal-test purchase smoke | After deploy/env setup, buy one coin pack from internal testing and verify backend credit, Android consume/rebuy, duplicate retry, and refund RTDN behavior |
+| P0 | Done | User | Set production IAP env on Render | `GOOGLE_PLAY_PACKAGE_NAME`, `APPLE_BUNDLE_ID`, Google Play service-account key, and existing `NODE_ENV=production` were confirmed by the user on 6 Jun 2026 |
+| P0 | Done | Codex | Promote Google Play IAP hardening to `main` | PR #5 merged `dev` into `main` on 6 Jun 2026; Render readiness endpoint returned `ok` with Postgres storage after merge |
+| P0 | Action required | User | Manual Google Play internal-test purchase smoke | Buy one coin pack from internal testing and verify backend credit, Android consume/rebuy, duplicate retry, and refund RTDN behavior |
 | P0 | Audit finding | Codex | Replace stale Flutter widget test harness | `flutter test` currently pumps Firebase-backed `MyApp` without Firebase init and still expects removed guest onboarding copy |
 | P0 | Next | Codex | Wire RTDB rules suite into normal check/CI path | Prevents future rules drift from silently weakening ownership/security |
 | P1 | Audit finding | Codex | Wire follow/profile/feed host model end-to-end | Profile follow is local-only, following list parsing is wrong, and live feed should filter canonical host accounts |
@@ -63,7 +64,7 @@ Every meaningful work slice must update this file before commit/push:
 Immediate next work:
 
 1. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
-2. Set production IAP env on Render, then smoke one Google Play internal-test purchase.
+2. Smoke one Google Play internal-test purchase now that Render env and `main` promotion are done.
 3. Replace stale Flutter widget tests with Firebase-mocked or dependency-injected tests that match current onboarding.
 4. Add RTDB rules suite and DB race suite to the default local/CI check path.
 5. Retest direct call with two online accounts after the deployed presence-sync trigger.
@@ -1259,9 +1260,9 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Mobile entrances | B+ | Login, onboarding, feed, explore, inbox, direct call, random call, live, profile, wallet, and settings are present. Several entrances are still shallow or disconnected: feed call routing, profile follow, Explore caller identity, and premium live. |
 | Realtime availability | A- | Canonical RTDB presence is a strong cell and backend matchmaking reads the projection. Product-level A+ is blocked by premium live transitions and manual two-account random/direct call smoke. |
 | Backend economy | A | Paid call ticks and gifts now have transaction-safe row locks, idempotency replay, and real Postgres race tests. IAP credit/refund is transactional, and Android token verification contract is fixed. Remaining economy gap is backend-confirmed trusted gift fan-out. |
-| IAP production readiness | A- | Android code/backend contract now matches Google Play token verification and real app IDs. Remaining sign-off: set Render service-account env and run one internal-test purchase/refund smoke. |
+| IAP production readiness | A | Android code/backend contract now matches Google Play token verification and real app IDs, Render production env is set, and PR #5 promoted the backend path to `main`. Remaining sign-off: one internal-test purchase/refund smoke. |
 | Firebase ownership | A- | RTDB rules and module ownership improved a lot. Remaining trust gap is client-written gift/audience visual state and block/report split between Firestore and backend. |
 | Premium live | C | Product model is documented, but implementation is not present yet: no paid-entry transition, host caps, per-minute premium-room billing, lock screen, or premium realtime module. |
 | Test posture | B+ | Backend unit tests/build, Flutter analyze, RTDB emulator rules, and opt-in Postgres DB race tests pass. Flutter widget tests are stale, and RTDB/DB race suites still need CI/default check wiring. |
 | Documentation accuracy | B- | `PRODUCT.md` is current after this audit, but OpenAPI and Copilot instructions still contain old guest/status assumptions and need cleanup. |
-| A+ gates | Pending | Finish manual random/direct call smoke, Google Play internal-test IAP smoke after Render env setup, follow/host feed model, premium live lifecycle, stale tests/contracts, CI wiring, and backend-confirmed gift fan-out. |
+| A+ gates | Pending | Finish manual random/direct call smoke, Google Play internal-test IAP smoke, follow/host feed model, premium live lifecycle, stale tests/contracts, CI wiring, and backend-confirmed gift fan-out. |
