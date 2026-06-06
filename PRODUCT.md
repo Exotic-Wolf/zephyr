@@ -52,7 +52,7 @@ Every meaningful work slice must update this file before commit/push:
 | P0 | Done | Codex | Promote Google Play IAP hardening to `main` | PR #5 merged `dev` into `main` on 6 Jun 2026; Render readiness endpoint returned `ok` with Postgres storage after merge |
 | P0 | Done | Codex | Generate Android IAP smoke AAB `1.0.5+6` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab` after the purchase-token fix; generated manifest verifies package `com.zephyr.zephyr_mobile`, version name `1.0.5`, version code `6` |
 | P0 | Done | User | Upload Android IAP smoke AAB `1.0.5+6` to internal testing | User confirmed the fresh AAB was uploaded and published on 6 Jun 2026; earlier `1.0.4+5` does not contain the mobile purchase-token/consume fix |
-| P0 | Action required | User | Manual Google Play internal-test purchase smoke | Buy one coin pack from internal testing and verify backend credit, Android consume/rebuy, duplicate retry, and refund RTDN behavior |
+| P0 | Blocked | User | Manual Google Play internal-test purchase smoke | Current tester build shows "Purchases are temporarily unavailable", which means the app cannot see a matching Google Play product yet; verify active one-time products, tester eligibility, Play-installed `1.0.5+6`, and catalog propagation before retrying backend credit/consume/refund smoke |
 | P0 | Audit finding | Codex | Replace stale Flutter widget test harness | `flutter test` currently pumps Firebase-backed `MyApp` without Firebase init and still expects removed guest onboarding copy |
 | P0 | Next | Codex | Wire RTDB rules suite into normal check/CI path | Prevents future rules drift from silently weakening ownership/security |
 | P1 | Audit finding | Codex | Wire follow/profile/feed host model end-to-end | Profile follow is local-only, following list parsing is wrong, and live feed should filter canonical host accounts |
@@ -66,7 +66,7 @@ Every meaningful work slice must update this file before commit/push:
 Immediate next work:
 
 1. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
-2. Smoke one Google Play internal-test purchase from the published `1.0.5+6` internal testing build.
+2. Unblock Google Play product catalog visibility, then smoke one purchase from the published `1.0.5+6` internal testing build.
 3. Replace stale Flutter widget tests with Firebase-mocked or dependency-injected tests that match current onboarding.
 4. Add RTDB rules suite and DB race suite to the default local/CI check path.
 5. Retest direct call with two online accounts after the deployed presence-sync trigger.
