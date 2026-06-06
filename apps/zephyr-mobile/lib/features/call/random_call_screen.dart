@@ -29,6 +29,7 @@ class RandomCallScreen extends StatefulWidget {
 class _RandomCallScreenState extends State<RandomCallScreen>
     with SingleTickerProviderStateMixin {
   bool _searching = false;
+  int _rateCoinsPerMinute = 600;
   StreamSubscription<dynamic>? _callSignalSub;
   late final AnimationController _pulseCtrl;
 
@@ -44,8 +45,22 @@ class _RandomCallScreenState extends State<RandomCallScreen>
 
   Future<void> _start() async {
     await [Permission.camera, Permission.microphone].request();
+    _loadRandomRate();
     _listenForAsyncMatch();
     _seek();
+  }
+
+  Future<void> _loadRandomRate() async {
+    try {
+      final quote = await widget.apiClient.getPrivateCallQuote(
+        minutes: 1,
+        mode: 'random',
+      );
+      if (!mounted) return;
+      setState(() => _rateCoinsPerMinute = quote.rateCoinsPerMinute);
+    } catch (_) {
+      // Keep the backend default fallback for offline/prewarm states.
+    }
   }
 
   // ── Matchmaking ─────────────────────────────────────────────────────────────
@@ -192,7 +207,11 @@ class _RandomCallScreenState extends State<RandomCallScreen>
                       ),
                     ),
                     child: const Center(
-                      child: Icon(Icons.videocam_rounded, color: Color(0xFF1FA4EA), size: 48),
+                      child: Icon(
+                        Icons.videocam_rounded,
+                        color: Color(0xFF1FA4EA),
+                        size: 48,
+                      ),
                     ),
                   ),
                 );
@@ -201,12 +220,16 @@ class _RandomCallScreenState extends State<RandomCallScreen>
             const SizedBox(height: 32),
             Text(
               _searching ? 'Finding someone to chat with…' : 'Preparing…',
-              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              '600 coins / min when connected',
-              style: TextStyle(color: Colors.white38, fontSize: 13),
+            Text(
+              '$_rateCoinsPerMinute coins / min when connected',
+              style: const TextStyle(color: Colors.white38, fontSize: 13),
             ),
             const Spacer(),
             Padding(
@@ -218,7 +241,9 @@ class _RandomCallScreenState extends State<RandomCallScreen>
                     foregroundColor: Colors.white70,
                     side: const BorderSide(color: Colors.white24),
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   onPressed: _cancel,
                   child: const Text('Cancel'),

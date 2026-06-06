@@ -181,6 +181,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     await this.pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS wallet_transactions_iap_refund_transaction_unique_idx
+      ON wallet_transactions ((metadata->>'transactionId'))
+      WHERE type = 'iap_refund';
+    `);
+
+    await this.pool.query(`
       CREATE TABLE IF NOT EXISTS call_sessions (
         id UUID PRIMARY KEY,
         caller_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

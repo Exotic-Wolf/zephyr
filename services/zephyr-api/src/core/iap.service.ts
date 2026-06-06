@@ -76,45 +76,39 @@ export class IapService {
 
     // 5. Credit coins + record purchase in a transaction
     try {
-      await this.databaseService.query('BEGIN');
+      await this.databaseService.transaction(async (client) => {
+        // Ensure wallet exists inside the same DB transaction.
+        await this.storeService.ensureWalletAndRevenueRows(userId, client);
 
-      // Ensure wallet exists
-      await this.storeService.ensureWalletAndRevenueRows(userId);
+        // Record first so duplicate transaction IDs fail before wallet credit.
+        await client.query(
+          `INSERT INTO iap_purchases (user_id, store, transaction_id, product_id, coins_credited, amount_usd, receipt_data)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [userId, store, transactionId, productId, pack.coins, pack.priceUsd, receiptData ?? null],
+        );
 
-      // Credit coins
-      await this.databaseService.query(
-        `UPDATE wallets SET coin_balance = coin_balance + $2, updated_at = NOW() WHERE user_id = $1`,
-        [userId, pack.coins],
-      );
+        await client.query(
+          `UPDATE wallets SET coin_balance = coin_balance + $2, updated_at = NOW() WHERE user_id = $1`,
+          [userId, pack.coins],
+        );
 
-      // Record the IAP purchase (prevents double-crediting via UNIQUE on transaction_id)
-      await this.databaseService.query(
-        `INSERT INTO iap_purchases (user_id, store, transaction_id, product_id, coins_credited, amount_usd, receipt_data)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [userId, store, transactionId, productId, pack.coins, pack.priceUsd, receiptData ?? null],
-      );
-
-      // Also write to wallet_transactions for unified history
-      await this.databaseService.query(
-        `INSERT INTO wallet_transactions (id, user_id, type, coins_delta, amount_usd, metadata, created_at)
-         VALUES (gen_random_uuid(), $1, 'iap_purchase', $2, $3, $4::jsonb, NOW())`,
-        [
-          userId,
-          pack.coins,
-          pack.priceUsd,
-          JSON.stringify({
-            store,
-            productId,
-            transactionId,
-            packLabel: pack.label,
-          }),
-        ],
-      );
-
-      await this.databaseService.query('COMMIT');
+        await client.query(
+          `INSERT INTO wallet_transactions (id, user_id, type, coins_delta, amount_usd, metadata, created_at)
+           VALUES (gen_random_uuid(), $1, 'iap_purchase', $2, $3, $4::jsonb, NOW())`,
+          [
+            userId,
+            pack.coins,
+            pack.priceUsd,
+            JSON.stringify({
+              store,
+              productId,
+              transactionId,
+              packLabel: pack.label,
+            }),
+          ],
+        );
+      });
     } catch (err: unknown) {
-      await this.databaseService.query('ROLLBACK').catch(() => {});
-
       // If it's a unique violation on transaction_id, another request beat us
       if (
         err instanceof Error &&
@@ -332,52 +326,77 @@ export class IapService {
    * deducts the credited coins, and records the clawback.
    */
   private async processRefund(transactionId: string, store: string): Promise<void> {
-    // Find the original purchase
-    const result = await this.databaseService.query<{
-      id: string;
-      user_id: string;
-      coins_credited: number;
-    }>(
-      `SELECT id, user_id, coins_credited FROM iap_purchases WHERE transaction_id = $1`,
-      [transactionId],
-    );
+    try {
+      const purchase = await this.databaseService.transaction(async (client) => {
+        const result = await client.query<{
+          id: string;
+          user_id: string;
+          coins_credited: number;
+        }>(
+          `
+            SELECT id, user_id, coins_credited
+            FROM iap_purchases
+            WHERE transaction_id = $1
+            FOR UPDATE
+          `,
+          [transactionId],
+        );
 
-    if (result.rows.length === 0) {
-      this.logger.warn(`Refund for unknown transaction: ${transactionId} (${store})`);
-      return;
+        if (result.rows.length === 0) {
+          return null;
+        }
+
+        const purchase = result.rows[0];
+
+        const existingRefund = await client.query<{ id: string }>(
+          `SELECT id FROM wallet_transactions WHERE type = 'iap_refund' AND metadata->>'transactionId' = $1`,
+          [transactionId],
+        );
+        if (existingRefund.rows.length > 0) {
+          return { ...purchase, alreadyRefunded: true };
+        }
+
+        await client.query(
+          `UPDATE wallets SET coin_balance = coin_balance - $2, updated_at = NOW() WHERE user_id = $1`,
+          [purchase.user_id, purchase.coins_credited],
+        );
+
+        await client.query(
+          `INSERT INTO wallet_transactions (id, user_id, type, coins_delta, amount_usd, metadata, created_at)
+           VALUES (gen_random_uuid(), $1, 'iap_refund', $2, NULL, $3::jsonb, NOW())`,
+          [
+            purchase.user_id,
+            -purchase.coins_credited,
+            JSON.stringify({ store, transactionId, originalPurchaseId: purchase.id }),
+          ],
+        );
+
+        return { ...purchase, alreadyRefunded: false };
+      });
+
+      if (!purchase) {
+        this.logger.warn(`Refund for unknown transaction: ${transactionId} (${store})`);
+        return;
+      }
+
+      if (purchase.alreadyRefunded) {
+        this.logger.warn(`Refund already processed for: ${transactionId}`);
+        return;
+      }
+
+      this.logger.warn(
+        `REFUND PROCESSED: user=${purchase.user_id}, store=${store}, txn=${transactionId}, coins=-${purchase.coins_credited}`,
+      );
+    } catch (err: unknown) {
+      if (
+        err instanceof Error &&
+        'code' in err &&
+        (err as { code: string }).code === '23505'
+      ) {
+        this.logger.warn(`Concurrent refund duplicate prevented: ${transactionId}`);
+        return;
+      }
+      throw err;
     }
-
-    const purchase = result.rows[0];
-
-    // Check if already refunded (idempotent)
-    const existingRefund = await this.databaseService.query<{ id: string }>(
-      `SELECT id FROM wallet_transactions WHERE type = 'iap_refund' AND metadata->>'transactionId' = $1`,
-      [transactionId],
-    );
-    if (existingRefund.rows.length > 0) {
-      this.logger.warn(`Refund already processed for: ${transactionId}`);
-      return;
-    }
-
-    // Deduct coins (can go negative — that's intentional for fraud prevention)
-    await this.databaseService.query(
-      `UPDATE wallets SET coin_balance = coin_balance - $2, updated_at = NOW() WHERE user_id = $1`,
-      [purchase.user_id, purchase.coins_credited],
-    );
-
-    // Record the refund transaction
-    await this.databaseService.query(
-      `INSERT INTO wallet_transactions (id, user_id, type, coins_delta, amount_usd, metadata, created_at)
-       VALUES (gen_random_uuid(), $1, 'iap_refund', $2, NULL, $3::jsonb, NOW())`,
-      [
-        purchase.user_id,
-        -purchase.coins_credited,
-        JSON.stringify({ store, transactionId, originalPurchaseId: purchase.id }),
-      ],
-    );
-
-    this.logger.warn(
-      `REFUND PROCESSED: user=${purchase.user_id}, store=${store}, txn=${transactionId}, coins=-${purchase.coins_credited}`,
-    );
   }
 }

@@ -142,6 +142,77 @@ describe('StoreService', () => {
     expect(receiverWalletAfter.coinBalance).toBe(receiverWalletBefore.coinBalance);
   });
 
+  it('uses a single database transaction and row locks for call ticks', async () => {
+    const callerUserId = '11111111-1111-4111-8111-111111111111';
+    const receiverUserId = '22222222-2222-4222-8222-222222222222';
+    const sessionId = '33333333-3333-4333-8333-333333333333';
+    const baseSessionRow = {
+      id: sessionId,
+      caller_user_id: callerUserId,
+      receiver_user_id: receiverUserId,
+      mode: 'random',
+      rate_coins_per_minute: 600,
+      receiver_share_bps: 6000,
+      coins_per_usd_receiver: 10000,
+      spark_per_usd: 10000,
+      total_billed_coins: 0,
+      total_receiver_coins: 0,
+      total_receiver_usd: 0,
+      total_receiver_spark: 0,
+      status: 'live',
+      end_reason: null,
+      started_at: new Date('2026-06-06T00:00:00.000Z'),
+      updated_at: new Date('2026-06-06T00:00:00.000Z'),
+      ended_at: null,
+    };
+    const updatedSessionRow = {
+      ...baseSessionRow,
+      total_billed_coins: 100,
+      total_receiver_coins: 60,
+      total_receiver_usd: 0.006,
+      total_receiver_spark: 60,
+      updated_at: new Date('2026-06-06T00:00:10.000Z'),
+    };
+
+    const client = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('FROM call_sessions')) {
+          return { rowCount: 1, rows: [baseSessionRow] };
+        }
+        if (sql.includes('FROM wallets')) {
+          return { rowCount: 1, rows: [{ coin_balance: 1200 }] };
+        }
+        if (sql.includes('UPDATE wallets')) {
+          return { rowCount: 1, rows: [{ coin_balance: 1100 }] };
+        }
+        if (sql.includes('UPDATE call_sessions')) {
+          return { rowCount: 1, rows: [updatedSessionRow] };
+        }
+        return { rowCount: 1, rows: [] };
+      }),
+    };
+    const databaseService = {
+      isEnabled: () => true,
+      transaction: jest.fn(async (work) => work(client)),
+      query: jest.fn(),
+    };
+    const dbBackedStore = new StoreService(databaseService as any);
+
+    const result = await dbBackedStore.tickCallSession(
+      callerUserId,
+      sessionId,
+      10,
+    );
+
+    expect(databaseService.transaction).toHaveBeenCalledTimes(1);
+    expect(result.chargedCoins).toBe(100);
+    expect(result.callerCoinBalanceAfter).toBe(1100);
+    expect(
+      client.query.mock.calls.some(([sql]) => String(sql).includes('FOR UPDATE')),
+    ).toBe(true);
+    expect(databaseService.query).not.toHaveBeenCalled();
+  });
+
   it('prevents a busy caller from starting another live call', async () => {
     const caller = await storeService.issueGuestSession('caller_busy');
     const receiverOne = await storeService.issueGuestSession('receiver_one');

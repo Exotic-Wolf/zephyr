@@ -117,6 +117,33 @@ describe('direct call rules', () => {
     );
     await assertSucceeds(remove(ref(db('alice'), 'direct_calls/bob')));
   });
+
+  test('allow random matched signal participants to read and clear backend signal', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await set(
+        ref(context.database(), 'direct_calls/bob'),
+        callSignal({
+          event: 'matched',
+          status: 'matched',
+          appId: 'agora-app',
+          channelName: 'random-session-1',
+          uid: 4242,
+          token: 'receiver-token',
+          partnerId: 'alice',
+          partnerName: 'Alice',
+          rateCoinsPerMinute: 600,
+          hostEarningCoinsPerMinute: 360,
+          receiverShareBps: 6000,
+          expiresAt: 1760000030000,
+        }),
+      );
+    });
+
+    await assertSucceeds(get(ref(db('alice'), 'direct_calls/bob')));
+    await assertSucceeds(get(ref(db('bob'), 'direct_calls/bob')));
+    await assertFails(get(ref(db('charlie'), 'direct_calls/bob')));
+    await assertSucceeds(remove(ref(db('bob'), 'direct_calls/bob')));
+  });
 });
 
 describe('live room rules', () => {
