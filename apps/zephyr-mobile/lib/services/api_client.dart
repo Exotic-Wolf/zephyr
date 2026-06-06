@@ -7,6 +7,21 @@ import 'package:http_parser/http_parser.dart';
 
 import '../models/models.dart';
 
+class ZephyrApiException implements Exception {
+  const ZephyrApiException({
+    required this.statusCode,
+    required this.message,
+    required this.responseBody,
+  });
+
+  final int statusCode;
+  final String message;
+  final String responseBody;
+
+  @override
+  String toString() => message;
+}
+
 class ZephyrApiClient {
   ZephyrApiClient({required this.baseUrl});
 
@@ -106,7 +121,9 @@ class ZephyrApiClient {
     if (birthday != null) body['birthday'] = birthday;
     if (countryCode != null) body['countryCode'] = countryCode;
     if (language != null) body['language'] = language;
-    if (callRateCoinsPerMinute != null) body['callRateCoinsPerMinute'] = callRateCoinsPerMinute;
+    if (callRateCoinsPerMinute != null) {
+      body['callRateCoinsPerMinute'] = callRateCoinsPerMinute;
+    }
     if (publicId != null && publicId.isNotEmpty) body['publicId'] = publicId;
 
     final Map<String, dynamic> data = await _request(
@@ -119,15 +136,23 @@ class ZephyrApiClient {
     return UserProfile.fromJson(data);
   }
 
-  Future<String> uploadAvatar(String accessToken, File imageFile, {String? mimeType}) async {
+  Future<String> uploadAvatar(
+    String accessToken,
+    File imageFile, {
+    String? mimeType,
+  }) async {
     final Uri uri = Uri.parse('$baseUrl/v1/users/me/avatar');
     final http.MultipartRequest request = http.MultipartRequest('POST', uri)
       ..headers['Authorization'] = 'Bearer $accessToken'
-      ..files.add(await http.MultipartFile.fromPath(
-        'file',
-        imageFile.path,
-        contentType: mimeType != null ? MediaType.parse(mimeType) : MediaType('image', 'jpeg'),
-      ));
+      ..files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          imageFile.path,
+          contentType: mimeType != null
+              ? MediaType.parse(mimeType)
+              : MediaType('image', 'jpeg'),
+        ),
+      );
     final http.StreamedResponse streamed = await request.send();
     final String body = await streamed.stream.bytesToString();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
@@ -137,15 +162,23 @@ class ZephyrApiClient {
     return json['avatarUrl'] as String;
   }
 
-  Future<String> uploadCover(String accessToken, File imageFile, {String? mimeType}) async {
+  Future<String> uploadCover(
+    String accessToken,
+    File imageFile, {
+    String? mimeType,
+  }) async {
     final Uri uri = Uri.parse('$baseUrl/v1/users/me/cover');
     final http.MultipartRequest request = http.MultipartRequest('POST', uri)
       ..headers['Authorization'] = 'Bearer $accessToken'
-      ..files.add(await http.MultipartFile.fromPath(
-        'file',
-        imageFile.path,
-        contentType: mimeType != null ? MediaType.parse(mimeType) : MediaType('image', 'jpeg'),
-      ));
+      ..files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          imageFile.path,
+          contentType: mimeType != null
+              ? MediaType.parse(mimeType)
+              : MediaType('image', 'jpeg'),
+        ),
+      );
     final http.StreamedResponse streamed = await request.send();
     final String body = await streamed.stream.bytesToString();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
@@ -188,19 +221,31 @@ class ZephyrApiClient {
       path: '/v1/messages/conversations',
       accessToken: accessToken,
     );
-    if (data is! List<dynamic>) throw Exception('Invalid conversations response');
+    if (data is! List<dynamic>) {
+      throw Exception('Invalid conversations response');
+    }
     return data
-        .map((dynamic e) => ZephyrConversation.fromJson(e as Map<String, dynamic>))
+        .map(
+          (dynamic e) => ZephyrConversation.fromJson(e as Map<String, dynamic>),
+        )
         .toList();
   }
 
   Future<({List<ZephyrMessage> messages, bool hasMore})> getThread(
-      String accessToken, String userId, {DateTime? before, DateTime? after}) async {
+    String accessToken,
+    String userId, {
+    DateTime? before,
+    DateTime? after,
+  }) async {
     final StringBuffer query = StringBuffer();
     if (before != null) {
-      query.write('?before=${Uri.encodeComponent(before.toUtc().toIso8601String())}');
+      query.write(
+        '?before=${Uri.encodeComponent(before.toUtc().toIso8601String())}',
+      );
     } else if (after != null) {
-      query.write('?after=${Uri.encodeComponent(after.toUtc().toIso8601String())}');
+      query.write(
+        '?after=${Uri.encodeComponent(after.toUtc().toIso8601String())}',
+      );
     }
     final String path = '/v1/messages/conversations/$userId${query.toString()}';
     final dynamic data = await _request(
@@ -208,7 +253,9 @@ class ZephyrApiClient {
       path: path,
       accessToken: accessToken,
     );
-    if (data is! Map<String, dynamic>) throw Exception('Invalid thread response');
+    if (data is! Map<String, dynamic>) {
+      throw Exception('Invalid thread response');
+    }
     final List<dynamic> msgs = data['messages'] as List<dynamic>;
     final bool hasMore = data['hasMore'] as bool;
     return (
@@ -229,11 +276,13 @@ class ZephyrApiClient {
   }
 
   Future<String> getFirebaseToken(String accessToken) async {
-    final Map<String, dynamic> res = await _request(
-      method: 'POST',
-      path: '/v1/auth/firebase-token',
-      accessToken: accessToken,
-    ) as Map<String, dynamic>;
+    final Map<String, dynamic> res =
+        await _request(
+              method: 'POST',
+              path: '/v1/auth/firebase-token',
+              accessToken: accessToken,
+            )
+            as Map<String, dynamic>;
     return res['firebaseToken'] as String;
   }
 
@@ -247,7 +296,11 @@ class ZephyrApiClient {
   }
 
   Future<void> sendPushNotification(
-      String accessToken, String recipientId, String title, String body) async {
+    String accessToken,
+    String recipientId,
+    String title,
+    String body,
+  ) async {
     await _request(
       method: 'POST',
       path: '/v1/messages/push',
@@ -261,7 +314,11 @@ class ZephyrApiClient {
   }
 
   Future<ZephyrMessage> sendMessage(
-      String accessToken, String receiverId, String body, {String? idempotencyKey}) async {
+    String accessToken,
+    String receiverId,
+    String body, {
+    String? idempotencyKey,
+  }) async {
     final dynamic data = await _request(
       method: 'POST',
       path: '/v1/messages',
@@ -282,7 +339,10 @@ class ZephyrApiClient {
     );
   }
 
-  Future<void> markMessageDelivered(String accessToken, String messageId) async {
+  Future<void> markMessageDelivered(
+    String accessToken,
+    String messageId,
+  ) async {
     await _request(
       method: 'PATCH',
       path: '/v1/messages/$messageId/delivered',
@@ -338,8 +398,10 @@ class ZephyrApiClient {
       }
 
       return data
-          .map((dynamic item) =>
-              (item as Map<String, dynamic>)['userId'] as String)
+          .map(
+            (dynamic item) =>
+                (item as Map<String, dynamic>)['userId'] as String,
+          )
           .toSet();
     } catch (_) {
       // Endpoint not yet deployed — return empty set gracefully.
@@ -392,7 +454,12 @@ class ZephyrApiClient {
     );
   }
 
-  Future<Map<String, dynamic>> sendGiftInRoom(String accessToken, String roomId, String giftId, {int quantity = 1}) async {
+  Future<Map<String, dynamic>> sendGiftInRoom(
+    String accessToken,
+    String roomId,
+    String giftId, {
+    int quantity = 1,
+  }) async {
     final Map<String, dynamic> data = await _request(
       method: 'POST',
       path: '/v1/rooms/$roomId/gift',
@@ -605,11 +672,19 @@ class ZephyrApiClient {
 
   /// Cancel seeking a random call.
   Future<void> cancelSeekRandomCall(String accessToken) async {
-    await _request(method: 'DELETE', path: '/v1/calls/random/seek', accessToken: accessToken);
+    await _request(
+      method: 'DELETE',
+      path: '/v1/calls/random/seek',
+      accessToken: accessToken,
+    );
   }
 
   /// End current random call and seek next match.
-  Future<Map<String, dynamic>> nextRandomCall(String accessToken, {required String sessionId, required String partnerId}) async {
+  Future<Map<String, dynamic>> nextRandomCall(
+    String accessToken, {
+    required String sessionId,
+    required String partnerId,
+  }) async {
     final dynamic data = await _request(
       method: 'POST',
       path: '/v1/calls/random/next',
@@ -620,7 +695,11 @@ class ZephyrApiClient {
   }
 
   /// End current random call without seeking again.
-  Future<void> endRandomCall(String accessToken, {required String sessionId, required String partnerId}) async {
+  Future<void> endRandomCall(
+    String accessToken, {
+    required String sessionId,
+    required String partnerId,
+  }) async {
     await _request(
       method: 'POST',
       path: '/v1/calls/random/end',
@@ -629,7 +708,10 @@ class ZephyrApiClient {
     );
   }
 
-  Future<List<WalletTransaction>> getTransactionHistory(String accessToken, {int limit = 50}) async {
+  Future<List<WalletTransaction>> getTransactionHistory(
+    String accessToken, {
+    int limit = 50,
+  }) async {
     final dynamic data = await _request(
       method: 'GET',
       path: '/v1/economy/transactions?limit=$limit',
@@ -637,7 +719,10 @@ class ZephyrApiClient {
     );
     if (data is! List<dynamic>) return <WalletTransaction>[];
     return data
-        .map((dynamic item) => WalletTransaction.fromJson(item as Map<String, dynamic>))
+        .map(
+          (dynamic item) =>
+              WalletTransaction.fromJson(item as Map<String, dynamic>),
+        )
         .toList();
   }
 
@@ -650,7 +735,10 @@ class ZephyrApiClient {
     return RtcJoinInfo.fromJson(data);
   }
 
-  Future<RoomViewersResult> getRoomViewers(String accessToken, String roomId) async {
+  Future<RoomViewersResult> getRoomViewers(
+    String accessToken,
+    String roomId,
+  ) async {
     final Map<String, dynamic> data = await _request(
       method: 'GET',
       path: '/v1/rooms/$roomId/viewers',
@@ -702,7 +790,11 @@ class ZephyrApiClient {
     final String responseBody = await response.transform(utf8.decoder).join();
 
     if (response.statusCode < 200 || response.statusCode > 299) {
-      throw Exception('API ${response.statusCode}: $responseBody');
+      throw ZephyrApiException(
+        statusCode: response.statusCode,
+        message: _resolveErrorMessage(response.statusCode, responseBody),
+        responseBody: responseBody,
+      );
     }
 
     if (responseBody.isEmpty) {
@@ -711,5 +803,53 @@ class ZephyrApiClient {
 
     return jsonDecode(responseBody);
   }
-}
 
+  String _resolveErrorMessage(int statusCode, String responseBody) {
+    if (responseBody.trim().isEmpty) {
+      return 'Request failed with status $statusCode';
+    }
+
+    try {
+      final dynamic decoded = jsonDecode(responseBody);
+      final String? message = _messageFromDecodedError(decoded);
+      if (message != null && message.trim().isNotEmpty) {
+        return message.trim();
+      }
+    } catch (_) {
+      // Fall through to the raw body fallback below.
+    }
+
+    return responseBody.trim();
+  }
+
+  String? _messageFromDecodedError(dynamic decoded) {
+    if (decoded is String) return decoded;
+    if (decoded is List<dynamic>) {
+      return decoded.whereType<String>().join(', ');
+    }
+    if (decoded is! Map<String, dynamic>) return null;
+
+    final dynamic error = decoded['error'];
+    if (error is Map<String, dynamic>) {
+      final String? nestedMessage = _messageFromDecodedError(error['message']);
+      if (nestedMessage != null && nestedMessage.isNotEmpty) {
+        return nestedMessage;
+      }
+      final String? detailMessage = _messageFromDecodedError(error['details']);
+      if (detailMessage != null && detailMessage.isNotEmpty) {
+        return detailMessage;
+      }
+    }
+
+    final String? message = _messageFromDecodedError(decoded['message']);
+    if (message != null && message.isNotEmpty) {
+      return message;
+    }
+
+    if (error is String) {
+      return error;
+    }
+
+    return null;
+  }
+}

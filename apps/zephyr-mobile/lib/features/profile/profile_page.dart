@@ -5,6 +5,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
+import '../../services/api_error_messages.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import '../../widgets/hero_bullet.dart';
@@ -233,13 +234,8 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _calling = false);
-      final msg = e.toString();
-      debugPrint('[DirectCall] error: $msg');
-      if (msg.contains('busy')) {
-        _showErrorSnack('They are on another call');
-      } else {
-        _showErrorSnack('Call error: $msg');
-      }
+      debugPrint('[DirectCall] error: ${apiErrorMessage(e)}');
+      _showErrorSnack(directCallFailureMessage(e));
     }
   }
 
