@@ -316,12 +316,20 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       )
     `);
 
-    // Add status column to users (online / busy / offline — 'live' is derived from rooms)
+    // Canonical presence projection synced from RTDB presence/{userId}.
+    // status is the legacy/display projection; algorithms use availability + routing.
     await this.pool.query(`
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'online'
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'offline',
+      ADD COLUMN IF NOT EXISTS presence_connection TEXT NOT NULL DEFAULT 'offline',
+      ADD COLUMN IF NOT EXISTS presence_activity TEXT NOT NULL DEFAULT 'idle',
+      ADD COLUMN IF NOT EXISTS presence_availability TEXT NOT NULL DEFAULT 'unavailable',
+      ADD COLUMN IF NOT EXISTS can_direct_call BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS can_random_call BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS presence_updated_at TIMESTAMPTZ
     `);
 
-    // Presence: last_seen_at for heartbeat-based online detection
+    // Presence: last_seen_at for canonical presence freshness.
     await this.pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ
     `);

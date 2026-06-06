@@ -4,10 +4,14 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+
+import 'direct_call_signals.dart';
+import 'live_room_realtime.dart';
+import 'presence_realtime.dart';
+import 'realtime_profiles.dart';
 
 /// Isolated Firebase chat service — completely separate from existing messaging.
 /// Uses Firestore for messages and RTDB for presence (onDisconnect).
@@ -16,179 +20,17 @@ class FirebaseChatService {
   static final FirebaseChatService instance = FirebaseChatService._();
 
   final FirebaseFirestore _fs = FirebaseFirestore.instance;
-  final FirebaseDatabase _rtdb = FirebaseDatabase.instanceFor(
-    app: Firebase.app(),
-    databaseURL: 'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
-  );
+  final PresenceRealtime presence = PresenceRealtime();
+  final ProfilesRealtime profiles = ProfilesRealtime();
+  final DirectCallSignals directSignals = DirectCallSignals();
+  final LiveRoomRealtime liveRooms = LiveRoomRealtime();
 
   String? _myUserId;
   String get myUserId => _myUserId!;
 
   /// Callback to send push notifications via the backend API.
   Future<void> Function(String recipientId, String title, String body)?
-      onSendPush;
-
-  // ── Presence cache ──────────────────────────────────────────────────────────
-  /// Whether THIS user is currently live-streaming.
-  bool _isLive = false;
-  /// Whether THIS user is currently in a call.
-  bool _isBusy = false;
-  /// Whether the app is currently in the background.
-  bool _isBackground = false;
-
-  /// Cached state per user: 'online', 'away', 'offline', 'busy', or 'live'.
-  final Map<String, String> _presenceCache = {};
-  /// Cached roomId per user (only set when state == 'live').
-  final Map<String, String> _presenceRoomCache = {};
-  final Map<String, StreamSubscription<DatabaseEvent>> _presenceSubs = {};
-  final Map<String, DateTime> _presenceLastAccess = {};
-  StreamSubscription<DatabaseEvent>? _connectedSub;
-
-  /// Notifies listeners whenever any user's presence changes.
-  final ValueNotifier<int> presenceVersion = ValueNotifier<int>(0);
-
-  /// Whether a user is known to be reachable (from cache). Returns null if unknown.
-  /// Treats 'away' as reachable (push can wake them).
-  bool? isOnlineCached(String userId) {
-    final s = _presenceCache[userId];
-    if (s == null) return null;
-    return s == 'online' || s == 'live' || s == 'away';
-  }
-
-  /// Returns the raw presence state: 'online', 'away', 'offline', 'busy', or 'live'. Null if unknown.
-  String? presenceStateCached(String userId) => _presenceCache[userId];
-
-  /// Returns the roomId for a user who is currently live. Null otherwise.
-  String? presenceRoomIdCached(String userId) => _presenceRoomCache[userId];
-
-  /// Pre-warm presence for a list of user IDs. Subscribes once per user.
-  /// Caps at 50 subscriptions to avoid unbounded RTDB listeners.
-  static const int _maxPresenceSubs = 50;
-
-  void warmPresence(List<String> userIds) {
-    for (final String uid in userIds) {
-      if (_presenceSubs.containsKey(uid)) {
-        _presenceLastAccess[uid] = DateTime.now();
-        continue;
-      }
-
-      // Evict least-recently-accessed subscription if at capacity
-      while (_presenceSubs.length >= _maxPresenceSubs) {
-        String? lruKey;
-        DateTime? lruTime;
-        for (final entry in _presenceLastAccess.entries) {
-          if (!_presenceSubs.containsKey(entry.key)) continue;
-          if (lruTime == null || entry.value.isBefore(lruTime)) {
-            lruKey = entry.key;
-            lruTime = entry.value;
-          }
-        }
-        final evict = lruKey ?? _presenceSubs.keys.first;
-        _presenceSubs.remove(evict)?.cancel();
-        _presenceLastAccess.remove(evict);
-      }
-
-      _presenceLastAccess[uid] = DateTime.now();
-      _presenceSubs[uid] = _rtdb.ref('presence/$uid').onValue.listen((event) {
-        final data = event.snapshot.value;
-        final String state =
-            (data is Map ? data['state'] as String? : null) ?? 'offline';
-        final String? roomId =
-            data is Map ? data['roomId'] as String? : null;
-
-        final bool changed = _presenceCache[uid] != state ||
-            _presenceRoomCache[uid] != roomId;
-
-        _presenceCache[uid] = state;
-        if (state == 'live' && roomId != null) {
-          _presenceRoomCache[uid] = roomId;
-        } else {
-          _presenceRoomCache.remove(uid);
-        }
-
-        if (changed) {
-          presenceVersion.value++;
-        }
-      });
-    }
-  }
-
-  // ── Profiles cache (RTDB) ──────────────────────────────────────────────────
-
-  /// Cached profile data per user: displayName, avatarUrl, countryCode, language.
-  final Map<String, RtdbProfile> _profileCache = {};
-  final Map<String, StreamSubscription<DatabaseEvent>> _profileSubs = {};
-  final Map<String, DateTime> _profileLastAccess = {};
-  static const int _maxProfileSubs = 50;
-
-  /// Notifies listeners whenever any user's profile changes.
-  final ValueNotifier<int> profileVersion = ValueNotifier<int>(0);
-
-  /// Returns cached profile for a user. Null if not yet loaded.
-  RtdbProfile? profileCached(String userId) => _profileCache[userId];
-
-  /// Pre-warm profile data for a list of user IDs. Same LRU pattern as presence.
-  void warmProfiles(List<String> userIds) {
-    for (final String uid in userIds) {
-      if (_profileSubs.containsKey(uid)) {
-        _profileLastAccess[uid] = DateTime.now();
-        continue;
-      }
-
-      // Evict LRU if at capacity
-      while (_profileSubs.length >= _maxProfileSubs) {
-        String? lruKey;
-        DateTime? lruTime;
-        for (final entry in _profileLastAccess.entries) {
-          if (!_profileSubs.containsKey(entry.key)) continue;
-          if (lruTime == null || entry.value.isBefore(lruTime)) {
-            lruKey = entry.key;
-            lruTime = entry.value;
-          }
-        }
-        final evict = lruKey ?? _profileSubs.keys.first;
-        _profileSubs.remove(evict)?.cancel();
-        _profileLastAccess.remove(evict);
-      }
-
-      _profileLastAccess[uid] = DateTime.now();
-      _profileSubs[uid] = _rtdb.ref('profiles/$uid').onValue.listen((event) {
-        final data = event.snapshot.value;
-        if (data is Map) {
-          final profile = RtdbProfile(
-            displayName: (data['displayName'] as String?) ?? 'User',
-            avatarUrl: data['avatarUrl'] as String?,
-            countryCode: (data['countryCode'] as String?) ?? '',
-            language: (data['language'] as String?) ?? '',
-            birthday: data['birthday'] as String?,
-          );
-          final old = _profileCache[uid];
-          _profileCache[uid] = profile;
-          if (old != profile) {
-            profileVersion.value++;
-          }
-        }
-      });
-    }
-  }
-
-  /// Write the current user's profile to RTDB. Call on login, onboarding, and profile edit.
-  Future<void> writeMyProfile({
-    required String displayName,
-    String? avatarUrl,
-    required String countryCode,
-    required String language,
-    String? birthday,
-  }) async {
-    if (_myUserId == null) return;
-    await _rtdb.ref('profiles/$_myUserId').set({
-      'displayName': displayName,
-      'avatarUrl': avatarUrl,
-      'countryCode': countryCode,
-      'language': language,
-      if (birthday != null) 'birthday': birthday,
-    });
-  }
+  onSendPush;
 
   /// Initialize: sign in with custom Firebase token and set up presence.
   /// [zephyrUserId] is the app's user ID (UUID). Safe to call multiple times.
@@ -203,169 +45,77 @@ class FirebaseChatService {
       } else {
         await FirebaseAuth.instance.signInAnonymously();
       }
-      _setupPresence(zephyrUserId);
+      profiles.bindUser(zephyrUserId);
+      await presence.bindUser(zephyrUserId);
+    } else {
+      profiles.bindUser(zephyrUserId);
+      await presence.writeCurrent();
     }
-
-    // Always write presence directly (handles cold start + reconnection)
-    final String initState = _isBackground ? 'offline' : (_isLive ? 'live' : 'online');
-    _rtdb.ref('presence/$zephyrUserId').set({
-      'state': initState,
-      'lastSeen': ServerValue.timestamp,
-    });
   }
 
-  // ── Presence (RTDB + onDisconnect) ──────────────────────────────────────────
+  // ── Realtime module facade ─────────────────────────────────────────────────
 
-  void _setupPresence(String userId) {
-    final DatabaseReference presenceRef = _rtdb.ref('presence/$userId');
-    final DatabaseReference connectedRef = _rtdb.ref('.info/connected');
+  ValueNotifier<int> get presenceVersion => presence.version;
+  ValueNotifier<int> get profileVersion => profiles.version;
 
-    _connectedSub?.cancel();
-    _connectedSub = connectedRef.onValue.listen((DatabaseEvent event) {
-      final bool connected = event.snapshot.value as bool? ?? false;
-      if (!connected) return;
+  bool? isOnlineCached(String userId) => presence.isOnlineCached(userId);
+  String? presenceStateCached(String userId) => presence.stateCached(userId);
+  String? presenceRoomIdCached(String userId) => presence.roomIdCached(userId);
+  void warmPresence(List<String> userIds) => presence.warm(userIds);
 
-      presenceRef.onDisconnect().set({
-        'state': 'offline',
-        'lastSeen': ServerValue.timestamp,
-      });
+  RtdbProfile? profileCached(String userId) => profiles.cached(userId);
+  void warmProfiles(List<String> userIds) => profiles.warm(userIds);
 
-      // Write current state — respect background/busy/live overrides
-      final String state;
-      if (_isBackground) {
-        state = 'offline';
-      } else if (_isLive) {
-        state = 'live';
-      } else if (_isBusy) {
-        state = 'busy';
-      } else {
-        state = 'online';
-      }
-      presenceRef.set({
-        'state': state,
-        'lastSeen': ServerValue.timestamp,
-      });
-    });
+  Future<void> writeMyProfile({
+    required String displayName,
+    String? avatarUrl,
+    required String countryCode,
+    required String language,
+    String? birthday,
+  }) {
+    return profiles.writeMine(
+      displayName: displayName,
+      avatarUrl: avatarUrl,
+      countryCode: countryCode,
+      language: language,
+      birthday: birthday,
+    );
   }
 
   /// Listen to a user's presence state.
-  Stream<Map<String, dynamic>> watchPresence(String userId) {
-    return _rtdb.ref('presence/$userId').onValue.map((DatabaseEvent event) {
-      final data = event.snapshot.value;
-      if (data == null) return {'state': 'offline', 'lastSeen': 0};
-      return Map<String, dynamic>.from(data as Map);
-    });
-  }
+  Stream<Map<String, dynamic>> watchPresence(String userId) =>
+      presence.watch(userId);
 
   /// Mark current user as "live" in Firebase RTDB presence.
-  void setLiveStatus({String? roomId}) {
-    if (_myUserId == null) return;
-    _isLive = true;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'live',
-      'lastSeen': ServerValue.timestamp,
-      if (roomId != null) 'roomId': roomId,
-    });
-  }
+  void setLiveStatus({String? roomId}) => presence.setLive(roomId: roomId);
 
   /// Restore current user to "online" (call when ending a live stream).
-  void clearLiveStatus() {
-    if (_myUserId == null) return;
-    _isLive = false;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'online',
-      'lastSeen': ServerValue.timestamp,
-    });
-  }
+  void clearLiveStatus() => presence.clearLive();
 
   /// Mark current user as "away" (idle in foreground for 60s, no touches).
-  void setAwayStatus() {
-    if (_myUserId == null || _isLive || _isBusy || _isBackground) return;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'away',
-      'lastSeen': ServerValue.timestamp,
-    });
-  }
+  void setAwayStatus() => presence.setAway();
 
   /// Mark current user as offline (app backgrounded / screen locked).
-  void setBackgroundOffline() {
-    if (_myUserId == null) return;
-    _isBackground = true;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'offline',
-      'lastSeen': ServerValue.timestamp,
-    });
-  }
+  void setBackgroundOffline() => presence.setBackgroundOffline();
 
   /// Restore current user to "online" (app foregrounded / user active).
-  void restoreOnlineStatus() {
-    if (_myUserId == null) return;
-    _isBackground = false;
-    // Respect current overrides
-    if (_isLive || _isBusy) return;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'online',
-      'lastSeen': ServerValue.timestamp,
-    });
-  }
+  void restoreOnlineStatus() => presence.restoreOnline();
 
   /// Mark current user as "busy" in Firebase RTDB presence.
-  void setBusyStatus() {
-    if (_myUserId == null) return;
-    _isBusy = true;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': 'busy',
-      'lastSeen': ServerValue.timestamp,
-    });
+  void setBusyStatus({String? sessionId, String activity = 'direct_call'}) {
+    presence.setBusy(sessionId: sessionId, activity: activity);
   }
 
   /// Clear busy and restore to "online".
-  void clearBusyStatus() {
-    if (_myUserId == null) return;
-    _isBusy = false;
-    _rtdb.ref('presence/$_myUserId').set({
-      'state': _isLive ? 'live' : 'online',
-      'lastSeen': ServerValue.timestamp,
-    });
-  }
+  void clearBusyStatus() => presence.clearBusy();
 
   /// Explicitly go offline (logout). Cancels onDisconnect and clears presence.
-  Future<void> setOfflineStatus() async {
-    final uid = _myUserId;
-    if (uid == null) return;
-    final ref = _rtdb.ref('presence/$uid');
-    await ref.onDisconnect().cancel();
-    await ref.set({
-      'state': 'offline',
-      'lastSeen': ServerValue.timestamp,
-    });
-    _connectedSub?.cancel();
-    _connectedSub = null;
-  }
+  Future<void> setOfflineStatus() => presence.setOffline();
 
   /// Clears all local listeners/caches and signs out Firebase Auth.
   Future<void> clearSession() async {
-    _connectedSub?.cancel();
-    _connectedSub = null;
-
-    for (final sub in _presenceSubs.values) {
-      await sub.cancel();
-    }
-    _presenceSubs.clear();
-    _presenceLastAccess.clear();
-    _presenceCache.clear();
-    _presenceRoomCache.clear();
-
-    for (final sub in _profileSubs.values) {
-      await sub.cancel();
-    }
-    _profileSubs.clear();
-    _profileLastAccess.clear();
-    _profileCache.clear();
-
-    _isLive = false;
-    _isBusy = false;
-    _isBackground = false;
+    await presence.clearSession();
+    await profiles.clearSession();
     _myUserId = null;
 
     try {
@@ -379,7 +129,7 @@ class FirebaseChatService {
 
   /// Reference to a user's call signaling node.
   DatabaseReference callSignalRef(String userId) =>
-      _rtdb.ref('direct_calls/$userId');
+      directSignals.refForUser(userId);
 
   /// Write a "ringing" signal to the target user's node.
   /// Also sets onDisconnect to auto-remove the node if the caller crashes.
@@ -389,33 +139,30 @@ class FirebaseChatService {
     required String callerName,
     String? callerAvatarUrl,
     required String sessionId,
-  }) async {
-    final ref = callSignalRef(targetUserId);
-    await ref.onDisconnect().remove();
-    await ref.set(<String, dynamic>{
-      'callerId': callerId,
-      'callerName': callerName,
-      'callerAvatarUrl': callerAvatarUrl,
-      'sessionId': sessionId,
-      'status': 'ringing',
-      'ts': ServerValue.timestamp,
-    });
+  }) {
+    return directSignals.writeRinging(
+      targetUserId: targetUserId,
+      callerId: callerId,
+      callerName: callerName,
+      callerAvatarUrl: callerAvatarUrl,
+      sessionId: sessionId,
+    );
   }
 
   /// Cancel the onDisconnect handler (call this when the call connects to Agora,
   /// so a brief RTDB disconnect doesn't kill the active call).
   Future<void> cancelOnDisconnect(String targetUserId) {
-    return callSignalRef(targetUserId).onDisconnect().cancel();
+    return directSignals.cancelOnDisconnect(targetUserId);
   }
 
   /// Update the status field on my own signal node (e.g. 'accepted', 'declined').
   Future<void> writeCallStatus(String userId, String status) {
-    return callSignalRef(userId).child('status').set(status);
+    return directSignals.writeStatus(userId, status);
   }
 
   /// Remove the call signaling node (cleanup).
   Future<void> removeCallSignal(String userId) {
-    return callSignalRef(userId).remove();
+    return directSignals.remove(userId);
   }
 
   /// Listen for changes on a user's call signal node.
@@ -424,14 +171,7 @@ class FirebaseChatService {
     String userId,
     void Function(Map<String, dynamic>? data) onData,
   ) {
-    return callSignalRef(userId).onValue.listen((DatabaseEvent event) {
-      final raw = event.snapshot.value;
-      if (raw == null) {
-        onData(null);
-      } else {
-        onData(Map<String, dynamic>.from(raw as Map));
-      }
-    });
+    return directSignals.listen(userId, onData);
   }
 
   // ── Chat ID ─────────────────────────────────────────────────────────────────
@@ -472,28 +212,35 @@ class FirebaseChatService {
         .where('participants', arrayContains: _myUserId)
         .snapshots()
         .map((QuerySnapshot<Map<String, dynamic>> snap) {
-      final list = snap.docs.map((doc) {
-        final data = doc.data();
-        final List<String> participants =
-            List<String>.from(data['participants'] as List);
-        final String? otherUserId =
-            participants.cast<String?>().firstWhere((id) => id != _myUserId, orElse: () => null);
-        if (otherUserId == null) return null; // self-chat, skip
-        final int unread = (data['unread_$_myUserId'] as int?) ?? 0;
-        return FirebaseConversation(
-          chatId: doc.id,
-          otherUserId: otherUserId,
-          otherDisplayName: (data['name_$otherUserId'] as String?) ?? 'User',
-          otherAvatarUrl: data['avatar_$otherUserId'] as String?,
-          lastMessage: (data['lastMessage'] as String?) ?? '',
-          lastMessageAt: (data['lastMessageAt'] as Timestamp?)?.toDate() ??
-              DateTime.now(),
-          unreadCount: unread,
-        );
-      }).whereType<FirebaseConversation>().toList();
-      list.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
-      return list;
-    });
+          final list = snap.docs
+              .map((doc) {
+                final data = doc.data();
+                final List<String> participants = List<String>.from(
+                  data['participants'] as List,
+                );
+                final String? otherUserId = participants
+                    .cast<String?>()
+                    .firstWhere((id) => id != _myUserId, orElse: () => null);
+                if (otherUserId == null) return null; // self-chat, skip
+                final int unread = (data['unread_$_myUserId'] as int?) ?? 0;
+                return FirebaseConversation(
+                  chatId: doc.id,
+                  otherUserId: otherUserId,
+                  otherDisplayName:
+                      (data['name_$otherUserId'] as String?) ?? 'User',
+                  otherAvatarUrl: data['avatar_$otherUserId'] as String?,
+                  lastMessage: (data['lastMessage'] as String?) ?? '',
+                  lastMessageAt:
+                      (data['lastMessageAt'] as Timestamp?)?.toDate() ??
+                      DateTime.now(),
+                  unreadCount: unread,
+                );
+              })
+              .whereType<FirebaseConversation>()
+              .toList();
+          list.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+          return list;
+        });
   }
 
   // ── Messages (Thread) ──────────────────────────────────────────────────────
@@ -510,29 +257,36 @@ class FirebaseChatService {
         .limitToLast(100)
         .snapshots()
         .map((QuerySnapshot<Map<String, dynamic>> snap) {
-      return snap.docs.map((doc) {
-        final data = doc.data();
-        return FirebaseMessage(
-          id: doc.id,
-          senderId: data['senderId'] as String,
-          body: (data['body'] as String?) ?? '',
-          createdAt: (data['createdAt'] as Timestamp?)?.toDate() ??
-              DateTime.now(),
-          deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
-          readAt: (data['readAt'] as Timestamp?)?.toDate(),
-          type: (data['type'] as String?) ?? 'text',
-          imageUrl: data['imageUrl'] as String?,
-          deletedFor: data['deletedFor'],
-        );
-      }).where((msg) {
-        // Filter deleted messages
-        if (msg.deletedFor == 'all') return true; // Show "deleted" placeholder
-        if (msg.deletedFor is List && (msg.deletedFor as List).contains(_myUserId)) {
-          return false; // Hidden for me
-        }
-        return true;
-      }).toList();
-    });
+          return snap.docs
+              .map((doc) {
+                final data = doc.data();
+                return FirebaseMessage(
+                  id: doc.id,
+                  senderId: data['senderId'] as String,
+                  body: (data['body'] as String?) ?? '',
+                  createdAt:
+                      (data['createdAt'] as Timestamp?)?.toDate() ??
+                      DateTime.now(),
+                  deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
+                  readAt: (data['readAt'] as Timestamp?)?.toDate(),
+                  type: (data['type'] as String?) ?? 'text',
+                  imageUrl: data['imageUrl'] as String?,
+                  deletedFor: data['deletedFor'],
+                );
+              })
+              .where((msg) {
+                // Filter deleted messages
+                if (msg.deletedFor == 'all') {
+                  return true; // Show "deleted" placeholder
+                }
+                if (msg.deletedFor is List &&
+                    (msg.deletedFor as List).contains(_myUserId)) {
+                  return false; // Hidden for me
+                }
+                return true;
+              })
+              .toList();
+        });
   }
 
   // ── Block / Report ─────────────────────────────────────────────────────────
@@ -553,13 +307,19 @@ class FirebaseChatService {
 
   /// Check if current user blocked the other user.
   Future<bool> isBlocked(String otherUserId) async {
-    final doc = await _fs.collection('blocks').doc('${_myUserId}_$otherUserId').get();
+    final doc = await _fs
+        .collection('blocks')
+        .doc('${_myUserId}_$otherUserId')
+        .get();
     return doc.exists;
   }
 
   /// Check if the other user blocked me.
   Future<bool> isBlockedBy(String otherUserId) async {
-    final doc = await _fs.collection('blocks').doc('${otherUserId}_$_myUserId').get();
+    final doc = await _fs
+        .collection('blocks')
+        .doc('${otherUserId}_$_myUserId')
+        .get();
     return doc.exists;
   }
 
@@ -584,12 +344,15 @@ class FirebaseChatService {
         .collection('messages')
         .doc(messageId)
         .update({
-      'deletedFor': FieldValue.arrayUnion([_myUserId]),
-    });
+          'deletedFor': FieldValue.arrayUnion([_myUserId]),
+        });
   }
 
   /// Delete message for everyone (only sender can do this).
-  Future<void> deleteMessageForEveryone(String otherUserId, String messageId) async {
+  Future<void> deleteMessageForEveryone(
+    String otherUserId,
+    String messageId,
+  ) async {
     final String cId = chatId(_myUserId!, otherUserId);
     await _fs
         .collection('chats')
@@ -597,11 +360,11 @@ class FirebaseChatService {
         .collection('messages')
         .doc(messageId)
         .update({
-      'deletedFor': 'all',
-      'body': '',
-      'imageUrl': null,
-      'type': 'deleted',
-    });
+          'deletedFor': 'all',
+          'body': '',
+          'imageUrl': null,
+          'type': 'deleted',
+        });
   }
 
   /// Send a message to another user.
@@ -685,8 +448,7 @@ class FirebaseChatService {
     final String cId = chatId(_myUserId!, otherUserId);
     final String fileName =
         '${DateTime.now().millisecondsSinceEpoch}_${imageFile.path.split('/').last}';
-    final Reference ref =
-        FirebaseStorage.instance.ref('chats/$cId/$fileName');
+    final Reference ref = FirebaseStorage.instance.ref('chats/$cId/$fileName');
 
     await ref.putFile(imageFile, SettableMetadata(contentType: 'image/$ext'));
     final String downloadUrl = await ref.getDownloadURL();
@@ -716,7 +478,9 @@ class FirebaseChatService {
 
     final WriteBatch batch = _fs.batch();
     for (final doc in undelivered.docs) {
-      batch.update(doc.reference, {'deliveredAt': FieldValue.serverTimestamp()});
+      batch.update(doc.reference, {
+        'deliveredAt': FieldValue.serverTimestamp(),
+      });
     }
     await batch.commit();
   }
@@ -727,9 +491,7 @@ class FirebaseChatService {
     final DocumentReference chatDoc = _fs.collection('chats').doc(cId);
 
     // Reset my unread counter
-    await chatDoc.set({
-      'unread_$_myUserId': 0,
-    }, SetOptions(merge: true));
+    await chatDoc.set({'unread_$_myUserId': 0}, SetOptions(merge: true));
 
     // Mark individual unread messages from the other user
     final QuerySnapshot<Map<String, dynamic>> unread = await chatDoc
@@ -750,7 +512,9 @@ class FirebaseChatService {
 
   /// Load older messages (pagination).
   Future<List<FirebaseMessage>> loadMoreMessages(
-      String otherUserId, DateTime before) async {
+    String otherUserId,
+    DateTime before,
+  ) async {
     final String cId = chatId(_myUserId!, otherUserId);
     final QuerySnapshot<Map<String, dynamic>> snap = await _fs
         .collection('chats')
@@ -767,7 +531,8 @@ class FirebaseChatService {
         id: doc.id,
         senderId: data['senderId'] as String,
         body: (data['body'] as String?) ?? '',
-        createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+        createdAt:
+            (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
         deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
         readAt: (data['readAt'] as Timestamp?)?.toDate(),
         type: (data['type'] as String?) ?? 'text',
@@ -778,71 +543,34 @@ class FirebaseChatService {
 
   // ── Live Room (RTDB) ────────────────────────────────────────────────────────
 
-  /// RTDB ref for a live room's real-time data.
-  DatabaseReference _liveRef(String roomId) => _rtdb.ref('live_rooms/$roomId');
-
   /// Write audience_count and set onDisconnect to decrement.
-  Future<void> joinLiveRoom(String roomId) async {
-    final DatabaseReference countRef = _liveRef(roomId).child('audience_count');
-    await countRef.set(ServerValue.increment(1));
-    await countRef.onDisconnect().set(ServerValue.increment(-1));
-  }
+  Future<void> joinLiveRoom(String roomId) =>
+      liveRooms.joinAudience(roomId, _myUserId ?? '');
 
   /// Decrement audience_count and cancel onDisconnect.
-  Future<void> leaveLiveRoom(String roomId) async {
-    final DatabaseReference countRef = _liveRef(roomId).child('audience_count');
-    await countRef.onDisconnect().cancel();
-    await countRef.set(ServerValue.increment(-1));
-  }
+  Future<void> leaveLiveRoom(String roomId) =>
+      liveRooms.leaveAudience(roomId, _myUserId ?? '');
 
   /// Listen to audience_count changes.
   StreamSubscription<DatabaseEvent> listenAudienceCount(
     String roomId,
     void Function(int count) onCount,
-  ) {
-    return _liveRef(roomId).child('audience_count').onValue.listen((event) {
-      final int count = (event.snapshot.value as num?)?.toInt() ?? 0;
-      onCount(count < 0 ? 0 : count);
-    });
-  }
+  ) => liveRooms.listenAudienceCount(roomId, onCount);
 
   /// Push a comment to the room.
   void writeLiveComment(String roomId, String displayName, String text) {
-    _liveRef(roomId).child('comments').push().set(<String, dynamic>{
-      'name': displayName,
-      'text': text,
-      'ts': ServerValue.timestamp,
-    });
+    liveRooms.writeComment(roomId, displayName, text);
   }
 
   /// Listen for new comments (child_added).
   StreamSubscription<DatabaseEvent> listenLiveComments(
     String roomId,
     void Function(String name, String text) onComment,
-  ) {
-    return _liveRef(roomId)
-        .child('comments')
-        .orderByChild('ts')
-        .startAt(DateTime.now().millisecondsSinceEpoch)
-        .onChildAdded
-        .listen((event) {
-      final data = event.snapshot.value;
-      if (data is Map) {
-        onComment(
-          (data['name'] as String?) ?? '',
-          (data['text'] as String?) ?? '',
-        );
-      }
-    });
-  }
+  ) => liveRooms.listenComments(roomId, onComment);
 
   /// Push a reaction (ephemeral).
   void writeLiveReaction(String roomId, String userId, String emoji) {
-    _liveRef(roomId).child('reactions').push().set(<String, dynamic>{
-      'userId': userId,
-      'emoji': emoji,
-      'ts': ServerValue.timestamp,
-    });
+    liveRooms.writeReaction(roomId, userId, emoji);
   }
 
   /// Listen for new reactions.
@@ -850,116 +578,43 @@ class FirebaseChatService {
     String roomId,
     String myUserId,
     void Function(String emoji) onReaction,
-  ) {
-    return _liveRef(roomId)
-        .child('reactions')
-        .orderByChild('ts')
-        .startAt(DateTime.now().millisecondsSinceEpoch)
-        .onChildAdded
-        .listen((event) {
-      final data = event.snapshot.value;
-      if (data is Map && data['userId'] != myUserId) {
-        onReaction((data['emoji'] as String?) ?? '❤️');
-      }
-    });
-  }
+  ) => liveRooms.listenReactions(roomId, myUserId, onReaction);
 
   /// Push a gift event (called after backend confirms economy).
-  void writeLiveGift(String roomId, String senderName, String giftId, String giftName, int quantity) {
-    _liveRef(roomId).child('gifts').push().set(<String, dynamic>{
-      'senderName': senderName,
-      'giftId': giftId,
-      'giftName': giftName,
-      'quantity': quantity,
-      'ts': ServerValue.timestamp,
-    });
+  void writeLiveGift(
+    String roomId,
+    String senderName,
+    String giftId,
+    String giftName,
+    int quantity,
+  ) {
+    liveRooms.writeGift(roomId, senderName, giftId, giftName, quantity);
   }
 
   /// Listen for new gifts.
   StreamSubscription<DatabaseEvent> listenLiveGifts(
     String roomId,
     void Function(String senderName, String giftName, int quantity) onGift,
-  ) {
-    return _liveRef(roomId)
-        .child('gifts')
-        .orderByChild('ts')
-        .startAt(DateTime.now().millisecondsSinceEpoch)
-        .onChildAdded
-        .listen((event) {
-      final data = event.snapshot.value;
-      if (data is Map) {
-        onGift(
-          (data['senderName'] as String?) ?? '',
-          (data['giftName'] as String?) ?? '',
-          (data['quantity'] as num?)?.toInt() ?? 1,
-        );
-      }
-    });
-  }
+  ) => liveRooms.listenGifts(roomId, onGift);
 
   /// Mark room as ended in RTDB (host calls this).
   void endLiveRoom(String roomId) {
-    _liveRef(roomId).child('status').set('ended');
-    // Clean up after 10 seconds
-    Future<void>.delayed(const Duration(seconds: 10), () {
-      _liveRef(roomId).remove();
-    });
+    liveRooms.endRoom(roomId);
   }
 
   /// Listen for room ended.
   StreamSubscription<DatabaseEvent> listenRoomEnded(
     String roomId,
     void Function() onEnded,
-  ) {
-    return _liveRef(roomId).child('status').onValue.listen((event) {
-      if (event.snapshot.value == 'ended') {
-        onEnded();
-      }
-    });
-  }
+  ) => liveRooms.listenEnded(roomId, onEnded);
 
   /// Initialize a room node when going live.
-  void initLiveRoom(String roomId) {
-    _liveRef(roomId).set(<String, dynamic>{
-      'status': 'live',
-      'audience_count': 0,
-      'started_at': ServerValue.timestamp,
-    });
-    // If host disconnects, mark room ended
-    _liveRef(roomId).child('status').onDisconnect().set('ended');
+  void initLiveRoom(String roomId, {required String hostUserId}) {
+    liveRooms.initRoom(roomId, hostUserId: hostUserId);
   }
 }
 
 // ── Models ────────────────────────────────────────────────────────────────────
-
-class RtdbProfile {
-  const RtdbProfile({
-    required this.displayName,
-    this.avatarUrl,
-    required this.countryCode,
-    required this.language,
-    this.birthday,
-  });
-
-  final String displayName;
-  final String? avatarUrl;
-  final String countryCode;
-  final String language;
-  final String? birthday;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is RtdbProfile &&
-          displayName == other.displayName &&
-          avatarUrl == other.avatarUrl &&
-          countryCode == other.countryCode &&
-          language == other.language &&
-          birthday == other.birthday;
-
-  @override
-  int get hashCode => Object.hash(displayName, avatarUrl, countryCode, language, birthday);
-}
 
 class FirebaseConversation {
   FirebaseConversation({

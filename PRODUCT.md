@@ -6,10 +6,50 @@
 
 ## Product Vision
 
-- **Chamet/Olamet-style MVP** in Flutter + NestJS
-- Target market: **Arab Gulf users** calling Philippines/Asia hosts
-- Revenue: coin-based gifts + random video calls (Agora)
-- Ship fast. Scale infra after revenue.
+- **Goal:** build a flawless, top-tier, Steve Jobs-level Chamet/Olamet-style social video app.
+- **Primary mobile audience:** iPhone users first, with Android parity through Flutter.
+- **Stack choice:** Flutter is intentional because one product-quality codebase can serve iOS and Android while keeping interaction, animation, and realtime behavior consistent.
+- **Target market:** Arab Gulf users calling Philippines/Asia hosts.
+- **Core revenue:** coin-based gifts + direct/random video calls + live streaming.
+- **Original bonus idea:** premium live / premium room flow where hosts can start premium directly or upgrade free live into a paid-per-minute room.
+- **Execution style:** build robust reusable cells first, then compose flawless modules and product organs.
+
+---
+
+## Operating Rule
+
+Every meaningful work slice must update this file before commit/push:
+
+- Update **Current TODO Tracker** with what changed, what is next, and what is blocked.
+- Update **Audit Log** when a feature/module quality grade changes.
+- Remove or rewrite stale product claims as soon as implementation makes them outdated.
+- Preserve one source of truth per domain; do not add parallel truth systems for convenience.
+- Keep iPhone user experience as the primary polish bar, while preserving Flutter Android parity.
+
+---
+
+## Current TODO Tracker
+
+| Priority | Status | Owner | Item | Why it matters |
+|---|---|---|---|---|
+| P0 | Done | User | Install Java 17 JDK for Apple Silicon/M4 Mac | Verified locally with Temurin `17.0.19`; Firebase RTDB emulator can run through repo-local `firebase-tools@14` |
+| P0 | Done | Codex | Add executable RTDB emulator tests | `tests/rtdb/rules.test.mjs` proves canonical presence, profile ownership, direct-call ownership, live-room host ownership, and event validation |
+| P0 | Done | Codex | Run RTDB emulator rules suite and record results in Audit Log | `pnpm test:rtdb:rules` passed 5/5 tests on 6 Jun 2026 |
+| P0 | Action required | User | Update Render billing payment method | Render reported invalid payment info on 6 Jun 2026; service is healthy now but can be suspended if payment fails again |
+| P0 | In progress | Codex | Deploy `dev` to Render backend through `main` | Render auto-deploys `zephyr-api` from `main`; current deploy candidate passed backend tests/build and RTDB rules suite locally |
+| P0 | Next | Codex | Wire RTDB rules suite into normal check/CI path | Prevents future rules drift from silently weakening ownership/security |
+| P1 | Planned | Codex | Implement premium live lifecycle | Free live -> premium, start premium directly, paid entry, per-minute billing, lock screen, cleanup |
+| P1 | Planned | Codex | Add `PremiumLiveRealtime` module once lifecycle exists | Keeps premium live non-interruptible and owned by a dedicated realtime module |
+| P1 | Planned | Codex | Replace live audience counter with per-viewer presence/count derivation | Prevents inaccurate counts from duplicate joins/disconnect edge cases |
+| P2 | Planned | Codex | Move trusted gift event fan-out toward backend/Admin SDK confirmation | Prevents spoofed gift display events while keeping gift economy reusable |
+
+Immediate next work:
+
+1. Add RTDB rules suite to the default local/CI check path.
+2. Update Render billing, then verify post-deploy health at `https://zephyr-api-wr1s.onrender.com/v1/health/ready`.
+3. Run iPhone simulator against Render API and smoke-test login/onboarding/feed/calls.
+4. Implement premium live lifecycle and `PremiumLiveRealtime`.
+5. Move trusted gift fan-out behind backend confirmation.
 
 ---
 
@@ -21,7 +61,7 @@
 | Backend API | NestJS (TypeScript) | `services/zephyr-api` |
 | Database | PostgreSQL (Render) | Singapore region |
 | Messaging | Firebase Firestore + Storage + FCM | `firebase_chat_service.dart` |
-| Status & Presence | Firebase RTDB (asia-southeast1) | Online/inactive/offline/busy/live, call signaling, live state — **source of truth for availability** |
+| Status & Presence | Firebase RTDB (asia-southeast1) | Canonical realtime availability cell: connection, activity, routing, display status, call/live context |
 | User Identity | Firebase RTDB `profiles/{userId}` | displayName, avatarUrl, countryCode, language, birthday — **source of truth for identity**. LRU-cached listeners, reactive via `profileVersion` ValueNotifier |
 | Live Rooms | Firebase RTDB | Comments, reactions, gifts, audience_count, room status — all via `live_rooms/{roomId}/` |
 | Video | Agora (calls + live streaming) | SDK in mobile |
@@ -146,7 +186,7 @@ BASE_URL=https://your-api-domain.com node scripts/smoke.mjs
 | `models/models.dart` | All data models: `UserProfile`, `Room`, `ZephyrMessage`, `WalletSummary`, `CoinPack`, `CallSession`, etc. |
 | `services/api_client.dart` | All HTTP calls — GET/POST/PATCH/DELETE |
 | `services/firebase_chat_service.dart` | Firebase chat — Firestore messages, RTDB presence + profiles (LRU-cached), Storage images, block/report |
-| `pages/home_screen.dart` | Feed, socket connection, inbox badge, 5s poll fallback, RTDB listener for incoming direct calls |
+| `pages/home_screen.dart` | Feed, inbox badge, RTDB presence/listeners, incoming direct call listener |
 | `features/call/direct_call_screen.dart` | Reusable Agora video call screen (direct + random), remote mute detection, PIP |
 | `features/call/incoming_call_overlay.dart` | Incoming call overlay — accept/decline, caller info |
 | `features/live/host_live_screen.dart` | Host live stream, heartbeat timer (15s) |
@@ -224,7 +264,7 @@ PATCH /v1/messages/:messageId/read
 Firebase Chat:
 - Backend: `GET /v1/auth/firebase-token` → custom token for Firebase Auth
 - Firestore: messages + conversations (real-time listeners)
-- RTDB: presence (online/inactive/offline/busy/live with onDisconnect)
+- RTDB: canonical presence (connection/activity/routing/display status with onDisconnect)
 - Storage: image uploads (5MB limit, format validation)
 - FCM: push via `POST /v1/messages/push`
 - Features: read/delivered receipts, block/report, delete for me/everyone, translate, anti-spam, pagination
@@ -251,16 +291,150 @@ Firebase Chat:
 ## Architecture Decisions (Locked)
 
 - **Firebase Chat** — Firestore for messages/conversations, RTDB for real-time presence (onDisconnect), Storage for image uploads. Backend generates custom Firebase tokens.
-- **Firebase RTDB is the single source of truth for real-time status** — Presence (online/inactive/offline/busy/live), call status, and live status all live in RTDB under `presence/{userId}`. RTDB's `onDisconnect` guarantees cleanup even on app kill/crash. `setInactiveStatus()` is written on app background so users appear as "away but reachable" (yellow dot) rather than offline. All clients listen to RTDB for user availability before initiating calls or showing status badges.
+- **Firebase RTDB is the single source of truth for real-time availability** — `presence/{userId}` is not a single overloaded status string. It is the canonical availability cell for connection, activity, routing eligibility, display status, and call/live context. RTDB's `onDisconnect` guarantees cleanup even on app kill/crash. All clients listen to RTDB for user availability before initiating calls, routing random calls, or showing status badges.
 - **Firebase Cloud Functions (asia-southeast1)** — 3 deployed functions provide server-side safety nets:
   - `onCallSignalDeleted`: RTDB trigger on `direct_calls/{userId}` deletion → ends Postgres call session via internal API
-  - `onPresenceChanged`: RTDB trigger on `presence/{userId}` update → if state leaves 'live', ends the room in Postgres via internal API
-  - `reapStalePresence`: Scheduled every 5 min → scans all presence nodes, resets stale entries (>5min) to 'offline', ends orphaned live rooms
+  - `onPresenceChanged`: RTDB trigger on `presence/{userId}` update → syncs the canonical display/availability/routing projection to Postgres, and ends the room when `displayStatus` leaves `live`
+  - `reapStalePresence`: Scheduled every 5 min → scans all presence nodes, resets stale entries (>5min) to the canonical offline payload, ends orphaned live rooms
   - Internal endpoints: `POST /v1/internal/end-call-session`, `POST /v1/internal/end-room` (validated via `X-Service-Key` header)
 - **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
-- **Zero Socket.IO** — All real-time is Firebase RTDB. Live room events (comments, reactions, gifts, audience) are written directly to RTDB by clients. Random call matchmaking uses REST + RTDB signals. No WebSocket libraries exist in the codebase.
+- **Zero Socket.IO** — All real-time is Firebase RTDB. Live room comments/reactions/audience state use RTDB; trusted room status and gift events must be backend-confirmed before fan-out. Random call matchmaking uses REST + RTDB signals. No WebSocket libraries exist in the codebase.
 - **FCM/APNs** — push notifications for chat messages (backend relays via `POST /v1/messages/push`)
-- **Firebase is truth** — Firestore is source of truth for messages/conversations. RTDB is source of truth for real-time status (presence + call state + live room events) AND user identity (`profiles/{userId}` — displayName, avatarUrl, countryCode, language, birthday). Backend validates economy and issues tokens.
+- **Firebase is truth** — Firestore is source of truth for messages/conversations. RTDB is source of truth for realtime availability, call/live signaling, visible live events, and user identity (`profiles/{userId}` — displayName, avatarUrl, countryCode, language, birthday). Backend validates economy and issues tokens.
+
+---
+
+## Canonical Realtime Availability Model
+
+This section is product law for the realtime cell. The goal is not just "show a badge"; the goal is to make inbox, direct call, random call, live, Agora, and backend matchmaking read the same authoritative availability truth.
+
+### Source-of-truth boundaries
+
+| Domain | Canonical owner | Notes |
+|---|---|---|
+| Inbox/messages | Firestore | Message bodies, conversation metadata, read/delivered state |
+| Display identity | RTDB `profiles/{userId}` | displayName, avatarUrl, countryCode, language, birthday |
+| Realtime availability | RTDB `presence/{userId}` | Connection, current activity, routing eligibility, display status |
+| Media session | Agora | Audio/video transport only; Agora events may trigger presence intents, but Agora does not own availability |
+| Money/session ledger | Postgres | Wallets, call sessions, gifts, IAP, revenue, reports |
+| Gifts | Backend + reusable gift module | Same gift catalog/animation/economy pipeline reused in inbox, live, premium live, direct call, and random call |
+
+### Presence cell shape
+
+`presence/{userId}` is a canonical state cell. It should be written only through the realtime availability module, never by feature screens with raw status strings.
+
+```json
+{
+  "schemaVersion": 1,
+  "connection": "online",
+  "activity": "idle",
+  "availability": "available",
+  "routing": {
+    "directCall": true,
+    "randomCall": true
+  },
+  "displayStatus": "online",
+  "interruptible": true,
+  "roomId": null,
+  "roomMode": null,
+  "callSessionId": null,
+  "premiumRoomSessionId": null,
+  "previousActivity": null,
+  "previousRoomId": null,
+  "state": "online",
+  "updatedAt": 1234567890
+}
+```
+
+Allowed values:
+
+| Field | Values | Meaning |
+|---|---|---|
+| `connection` | `online`, `offline` | RTDB reachability. Owned by connect/onDisconnect/reaper logic. |
+| `activity` | `idle`, `away`, `free_live_host`, `free_live_viewer`, `premium_live_host`, `premium_live_viewer`, `live_paused`, `direct_call`, `random_call` | What the user is doing. Owned by intent methods such as `startLive`, `upgradeLiveToPremium`, `enterRandomCall`, `finishCall`. |
+| `availability` | `available`, `busy`, `unavailable` | Coarse product availability. Matchmaking must never infer this from display text. |
+| `routing.directCall` | boolean | Whether explicit paid direct call may route to this user. |
+| `routing.randomCall` | boolean | Whether automatic random matchmaking may select this user. |
+| `displayStatus` | `online`, `away`, `live`, `premium_live`, `busy`, `offline` | UI badge only. It is derived from canonical state, not used as algorithm truth. |
+| `interruptible` | boolean | Whether a higher-value flow may pause the current activity. Free live can be interruptible; premium live and calls are not. |
+| `roomId` | string/null | Present only for active or paused live/premium live context. |
+| `roomMode` | `free_live`, `premium_live`, null | Current room monetization mode. |
+| `callSessionId` | string/null | Present only during direct/random call. |
+| `premiumRoomSessionId` | string/null | Present only during metered premium live participation. |
+| `previousActivity`, `previousRoomId` | string/null | Used for live -> random/direct transitions and safe resume/end decisions. |
+| `state` | same as `displayStatus` | Temporary legacy compatibility field. New code must read/write canonical fields first. |
+| `updatedAt` | server timestamp | Last canonical state write. |
+
+### Backend projection
+
+Postgres stores only a queryable projection of RTDB presence. RTDB remains source of truth.
+
+| Postgres field | Source | Purpose |
+|---|---|---|
+| `users.status` | `displayStatus` | Legacy/UI display fallback |
+| `users.presence_connection` | `connection` | Offline/freshness projection |
+| `users.presence_activity` | `activity` | Current canonical activity |
+| `users.presence_availability` | `availability` | Backend availability guard |
+| `users.can_direct_call` | `routing.directCall` | Direct-call API routeability |
+| `users.can_random_call` | `routing.randomCall` | Random-call matchmaking routeability |
+| `users.presence_updated_at` | `updatedAt` | Last canonical RTDB write mirrored to Postgres |
+
+Backend matching and call creation must use `presence_availability`, `can_direct_call`, and `can_random_call`; they must not infer routeability from `users.status` or UI badge text.
+
+### Canonical transitions
+
+| Intent | Resulting state |
+|---|---|
+| App foreground and idle | `connection=online`, `activity=idle`, `availability=available`, `routing.directCall=true`, `routing.randomCall=true`, `displayStatus=online` |
+| App idle/away | `connection=online`, `activity=away`, `availability=available`, `routing.directCall=true`, `routing.randomCall=false`, `displayStatus=away` |
+| Start free live as host | `connection=online`, `activity=free_live_host`, `availability=available`, `routing.directCall=true`, `routing.randomCall=true`, `interruptible=true`, `displayStatus=live`, `roomId=<roomId>`, `roomMode=free_live` |
+| Join free live as viewer | `connection=online`, `activity=free_live_viewer`, `availability=available`, `routing.directCall=true`, `routing.randomCall=true`, `interruptible=true`, `displayStatus=online`, `roomId=<roomId>`, `roomMode=free_live` |
+| Upgrade free live to premium live | Host presses the premium action; backend creates premium room pricing/session; current viewers see a locked screen with entry gift/payment CTA |
+| Enter premium live as host | `connection=online`, `activity=premium_live_host`, `availability=busy`, `routing.directCall=false`, `routing.randomCall=false`, `interruptible=false`, `displayStatus=premium_live`, `roomId=<roomId>`, `roomMode=premium_live` |
+| Enter premium live as viewer | `connection=online`, `activity=premium_live_viewer`, `availability=busy`, `routing.directCall=false`, `routing.randomCall=false`, `interruptible=false`, `displayStatus=busy`, `roomId=<roomId>`, `roomMode=premium_live`, `premiumRoomSessionId=<sessionId>` |
+| Enter direct call | `connection=online`, `activity=direct_call`, `availability=busy`, `routing.directCall=false`, `routing.randomCall=false`, `interruptible=false`, `displayStatus=busy`, `callSessionId=<sessionId>` |
+| Enter random call | `connection=online`, `activity=random_call`, `availability=busy`, `routing.directCall=false`, `routing.randomCall=false`, `interruptible=false`, `displayStatus=busy`, `callSessionId=<sessionId>` |
+| Free live host pulled into random/direct call | Store `previousActivity=free_live_host` and `previousRoomId=<roomId>`, pause the free live room, then enter call state |
+| Premium live host receives call/random route | No transition. Premium live is non-interruptible; routing must skip the host. |
+| Call ends after live was paused | `connection=online`, `activity=live_paused`, `availability=unavailable`, `routing.directCall=false`, `routing.randomCall=false`, `displayStatus=busy`, `roomId=<previousRoomId>` until host explicitly resumes or ends live |
+| Resume paused free live | Return to the Start free live state |
+| End live | Clear `roomId`, return to idle/away based on foreground activity |
+| App disconnect/crash | `connection=offline`, `activity=idle`, `availability=unavailable`, `routing.directCall=false`, `routing.randomCall=false`, `displayStatus=offline`; cleanup functions end affected call/live sessions |
+
+### Module ownership target
+
+Feature screens should express intent, not RTDB protocol details.
+
+Target modules/classes:
+
+| Module | Owns |
+|---|---|
+| `PresenceRealtime` | `presence/{userId}` fields, transitions, onDisconnect, local cache, status badge derivation |
+| `ProfilesRealtime` | `profiles/{userId}` reads/writes and profile cache |
+| `DirectCallSignals` | Direct-call signaling schema, accept/decline/cancel/timeout cleanup |
+| `RandomCallSignals` | Random match signaling schema, partner-left/next/end events |
+| `LiveRoomRealtime` | Free live comments/reactions/audience reads; trusted room status should move toward backend/Admin SDK writes |
+| `PremiumLiveRealtime` | Premium live lock/unlock state, premium audience presence, room mode changes, and non-interruptible realtime state |
+| `GiftModule` | Reusable gift catalog, animation rendering, backend economy confirmation, and post-confirm RTDB/Firestore event fan-out |
+
+Screens should call methods like `presence.enterRandomCall(sessionId)`, `presence.startLive(roomId)`, `presence.finishCall()`, and `directSignals.acceptCall(sessionId)`. Screens must not write raw `busy`, `live`, `offline`, `direct_calls/$id/status`, or `live_rooms/$id/status` values directly.
+
+RTDB rules and emulator tests must enforce the same ownership model: users can write only their own presence/profile, cannot overwrite another user's call signal, cannot end another host's room, and cannot publish trusted gift/status events without backend validation.
+
+---
+
+## Content & Store Compliance Rules
+
+Zephyr is an 18+ social video product. Adult age rating is a gate, not a permission slip for unmoderated sexual content.
+
+Product law:
+
+- App Store / Play Store listing, screenshots, onboarding, public feeds, normal live, and premium live must not promote nudity, pornographic content, prostitution, or explicitly sexual services.
+- Normal live has a no-nudity rule.
+- Premium live is paid access to a more intimate group experience, but still must follow platform rules, reporting, blocking, moderation, and host enforcement.
+- Direct/random calls are private adult interactions between consenting adults, but the app must still provide report, block, ban, and safety tooling.
+- User-generated content surfaces must include terms acceptance, report, block, moderation response, and a clear abuse channel before production launch.
+- Gifts are never "maybe." Gifts are a reusable monetization primitive across inbox, normal live, premium live, direct calls, and random calls.
 
 ---
 
@@ -341,6 +515,8 @@ Users buy coins with real money. These are the available packages:
 
 Receiver sets their own rate based on their level. They earn 60% of what the caller pays.
 
+These are product default rate options. Backend config/database owns the active options; mobile renders the options returned by API.
+
 | Tier | Caller pays (coins/min) | Receiver earns (sparks/min) | Platform keeps |
 |------|------------------------|----------------------------|----------------|
 | ≤Lv3 | 2,100 | 1,260 | 840 |
@@ -360,6 +536,183 @@ Receiver sets their own rate based on their level. They earn 60% of what the cal
 | Caller pays | 600 |
 | Receiver earns | 360 (60%) |
 | Platform keeps | 240 (40%) |
+
+These are product defaults. Backend config owns the active random-call rate and split.
+
+---
+
+## Reusable Gift Module
+
+Gifts are a first-class reusable monetization primitive, not a live-only feature.
+
+| Surface | Gift behavior |
+|---|---|
+| Inbox | Send a gift from a DM thread; message timeline shows the gift event |
+| Normal live | Viewers send gifts during free live |
+| Premium live | Viewers can pay the entry gift/sticker and continue sending gifts inside |
+| Direct call | Caller can send gifts during paid 1:1 call |
+| Random call | Caller can send gifts during paid random call |
+
+Gift rules:
+
+- One gift catalog and one animation renderer are reused across all surfaces.
+- Backend validates balance, deducts coins, records the ledger transaction, credits host sparks/revenue, then emits/permits the visible gift event.
+- Gift events are visible UX; wallet/revenue truth is always Postgres.
+- Default split: host receives 60% value in sparks/revenue, platform keeps 40% before infrastructure and store economics are modeled.
+- Gift assets are CDN-hosted Lottie/SVGA/animation payloads; 0 heavy gift animations ship in the app bundle.
+
+---
+
+## Premium Live Rooms (paid group live)
+
+Premium live is Zephyr's original monetized group mode: a host can convert a normal free live into a paid room.
+
+| Mode | Many viewers? | Paid per minute? | Gifts? | Interruptible by direct/random call? |
+|---|---:|---:|---:|---:|
+| Normal live | yes | no | yes | yes |
+| Premium live | yes | yes | yes | no |
+| Random call | no | yes | yes | no |
+| Direct call | no | yes | yes | no |
+
+Premium live mechanics:
+
+- Host starts a normal live first.
+- Host can press an upgrade action to transition the room into premium live.
+- Existing viewers see the stream locked and must send/pay an entry gift, such as a 200-coin car sticker, to enter.
+- After entry, viewers are billed per minute while inside, for example 600 coins/min.
+- Premium live entry fee and per-minute rate are set by the host within level-based limits.
+- All premium live limits are backend-configured variables, not client hardcodes.
+- Host earns a percentage of entry gifts, per-minute premium live billing, and gifts sent inside the room.
+- Premium live is non-interruptible: direct call and random-call routing must skip the host while premium live is active.
+- If a viewer balance is insufficient, backend ends that viewer's premium room session and the UI returns to the locked state or exits.
+- RTDB owns realtime lock/unlock/audience/comment/reaction display; Postgres owns paid room sessions, billing ticks, entry payments, and revenue.
+
+Premium live is not a replacement for direct/random calls. It fills the gap between free discovery live and private 1:1 monetization: many customers can pay modestly at the same time, while the host gets a stable earning mode.
+
+---
+
+## Leveling & Limits
+
+Zephyr has two separate level systems. Do not mix them.
+
+| Track | Who | Measures | Unlocks |
+|---|---|---|---|
+| Host Level | Hosts/creators | earning quality, completed paid minutes, gifts received, retention, trust, low reports | direct-call rate options, premium live pricing limits, premium viewer caps, discovery priority |
+| Customer VIP Level | Customers/spenders | purchases, gifts sent, paid minutes, loyalty, account trust | profile frames, gift perks, coupons, support priority, cosmetic status |
+
+The inspiration from apps like Tango is the shape, not the exact economy: loyalty/VIP systems reward purchases, gifts, and recurring monthly status, while creator levels should reflect earning power and platform trust. Zephyr's originality is that host earning level and customer VIP level are separate canonical tracks.
+
+### Host Level
+
+Host Level is the creator's earning/trust level. It should be earned by useful activity, not just account age.
+
+Host XP inputs:
+
+- Cleared sparks/revenue earned from direct calls, random calls, premium live, and gifts.
+- Completed paid minutes with low dispute/report rate.
+- Gifts received from unique customers.
+- Free-live to paid conversion quality.
+- Repeat customer/follower retention.
+- Active hosting days.
+- Manual verification and moderation trust.
+
+Host XP exclusions/penalties:
+
+- Refunded, charged back, or fraud-flagged purchases do not count.
+- Sessions later marked abusive, fake, or policy-violating can remove XP.
+- High report rate, bans, chargeback clusters, or moderation strikes can freeze level progression or demote caps.
+
+Host Level controls configurable limits:
+
+| Config key | Meaning |
+|---|---|
+| `canStartPremiumLiveDirectly` | Whether host can open premium live without first starting free live |
+| `premiumEntryGiftCoinMin` / `premiumEntryGiftCoinMax` | Allowed entry gift/sticker range |
+| `premiumRateCoinsPerMinuteMin` / `premiumRateCoinsPerMinuteMax` | Allowed premium live per-minute range |
+| `premiumViewerCap` | Max paying viewers in premium live |
+| `freeLiveViewerCap` | Max viewers in normal live |
+| `directCallRateOptions` | Direct-call rate choices available to host |
+| `randomMatchWeight` | Discovery/matchmaking boost for trusted high-level hosts |
+
+Suggested policy:
+
+- Early hosts can start free live and upgrade to premium live only after minimum room activity.
+- Trusted mid-level hosts can start premium live directly with conservative limits.
+- High-level verified hosts get higher entry/rate/viewer caps and stronger discovery.
+- All limits live in backend config/database tables. Mobile reads allowed options from API and never hardcodes pricing.
+
+### Customer VIP Level
+
+Customer VIP Level is spender loyalty plus account trust. It should make customers feel recognized without letting them bypass safety rules.
+
+VIP XP inputs:
+
+- Settled in-app purchases.
+- Gifts sent across inbox, live, premium live, direct calls, and random calls.
+- Paid minutes consumed in direct/random/premium live.
+- Recurring monthly activity.
+
+VIP XP exclusions/penalties:
+
+- Refunded or charged-back purchases remove VIP progress.
+- Fraud, abusive behavior, or moderation actions can freeze VIP perks.
+- VIP level never bypasses report/block/moderation systems.
+
+VIP Level controls configurable perks:
+
+| Config key | Meaning |
+|---|---|
+| `profileFrame` | Cosmetic frame/badge |
+| `chatBadge` | Visible badge in inbox/live comments |
+| `monthlyCoupons` | Optional coin/gift purchase coupon count |
+| `freeGiftAllowance` | Optional reusable gift allowance |
+| `supportPriority` | Support priority tier |
+| `premiumRoomPerks` | Optional cosmetic/queue perks, never free unauthorized entry |
+
+Suggested policy:
+
+- Maintain both `rolling30dVipLevel` and `lifetimeVipRank`.
+- Rolling VIP creates monthly motivation; lifetime rank preserves prestige.
+- VIP progress is backend-calculated from cleared ledger data.
+- VIP perks are configurable and can be A/B tested without client releases.
+
+### Level Config Contract
+
+Level rules are product variables. Store them server-side and expose them through API.
+
+```json
+{
+  "schemaVersion": 1,
+  "hostLevels": [
+    {
+      "level": 1,
+      "canStartPremiumLiveDirectly": false,
+      "premiumEntryGiftCoinMin": 0,
+      "premiumEntryGiftCoinMax": 0,
+      "premiumRateCoinsPerMinuteMin": 0,
+      "premiumRateCoinsPerMinuteMax": 0,
+      "premiumViewerCap": 0,
+      "freeLiveViewerCap": 0,
+      "directCallRateOptions": [],
+      "randomMatchWeight": 1.0
+    }
+  ],
+  "customerVipLevels": [
+    {
+      "level": 1,
+      "rolling30dXpRequired": 0,
+      "lifetimeXpRequired": 0,
+      "perks": {
+        "profileFrame": null,
+        "chatBadge": null,
+        "monthlyCoupons": 0,
+        "freeGiftAllowance": 0,
+        "supportPriority": "standard"
+      }
+    }
+  ]
+}
+```
 
 ---
 
@@ -418,9 +771,11 @@ Chosen for its proprietary UDP protocol that bypasses Gulf region (UAE, Saudi) W
 | Medium stream | 1 | 50 | 1hr | ~$3.12 |
 | Large stream | 1 | 200 | 1hr | ~$11.52 |
 
-> Live streaming audience is naturally self-limiting: users in a random call cannot simultaneously watch a live stream. Random calls pull users out of passive watching into active (paying) calls. Live works as a discovery surface → direct call conversion funnel, keeping viewer counts low and Agora live costs manageable.
+> Free live audience is naturally self-limiting: users in a random call cannot simultaneously watch a free live stream. Random calls pull users out of passive watching into active paid calls. Premium live is different: it is already paid and non-interruptible.
 
 **Live stream viewer cap (by host level):**
+
+These are product default caps. Backend config/database owns the active values; mobile must not hardcode them.
 
 | Host Level | Max Viewers | Agora cost (1hr, no gifts) |
 |---|---|---|
@@ -429,7 +784,7 @@ Chosen for its proprietary UDP protocol that bypasses Gulf region (UAE, Saudi) W
 | Lv6–Lv8 | 100 | ~$5.92 |
 | Lv9+ | 200 | ~$11.52 |
 
-Caps serve two purposes: protect the platform from costly zero-gift streams at low levels, and incentivise hosts to level up (more viewers = more gift potential = more earning). In practice, viewer counts stay low anyway — the random call algorithm continuously pulls viewers out of live streams into paid calls.
+Caps serve two purposes: protect the platform from costly zero-gift streams at low levels, and incentivise hosts to level up (more viewers = more gift potential = more earning). In practice, free-live viewer counts stay lower because random calls can pull users into paid calls; premium live uses paid entry/per-minute billing instead.
 
 ---
 
@@ -448,11 +803,12 @@ Random calls are priced cheap intentionally (600 coins/min = ~$0.11/min to calle
 - Direct call rates are 3.5× to 45× higher than random → upsell path
 - Random call is the entry drug; direct call and gifts are the monetisation
 
-**Live → Random → Direct call funnel:**
+**Free Live → Random / Premium Live → Direct Call funnel:**
 1. User watches a live stream (free, no cost to them)
-2. Taps random call → starts paying 600 coins/min
-3. Likes the person → books direct call (Lv6 = 5,400 coins/min)
-4. During calls, sends gifts → highest margin feature
+2. User taps random call, or host upgrades the room to premium live
+3. User pays 600 coins/min in random or premium live
+4. User likes the host → books direct call (Lv6 = 5,400 coins/min)
+5. During inbox/live/premium/calls, user sends gifts → highest margin reusable feature
 
 ---
 
@@ -462,14 +818,15 @@ Random calls are priced cheap intentionally (600 coins/min = ~$0.11/min to calle
 
 | State | Coins | What happens |
 |---|---|---|
-| Searching | 0 | Algorithm finds match (priority: live hosts → idle users) |
+| Searching | 0 | Algorithm finds match (priority: interruptible free-live hosts → idle hosts/users) |
 | Connected | 600/min | Both parties in call, coins tick |
 | Next tapped | 0 | Coins stop instantly, screen blurs, new match search begins |
 | New match found | 600/min | Coins resume |
 | Call ended | 0 | Call over, coins stop |
 
 - Both parties opt in implicitly — no accept/decline screen
-- If matched person is live: their stream **pauses**, status → **busy**
+- If matched host is in free live: their stream **pauses**, status → **busy**
+- If host is in premium live: skip; premium live is non-interruptible
 - When random call ends: stream stays paused — host must manually resume (safety)
 - "Next" is free — no coins charged during transition between randoms
 
@@ -737,7 +1094,7 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Aspect | Grade | Notes |
 |--------|-------|-------|
 | Architecture | A | Firestore messages, RTDB presence, Cloud Function PG sync. Zero polling. |
-| Presence | A- | LRU cache (50 cap), 5 states, correct colors |
+| Presence | A | LRU cache (50 cap), canonical display statuses, live/premium/busy/away colors |
 | Security | A | Block check both directions, anti-spam (5msg/10s + duplicate cooldown) |
 | Calling | A- | Full signaling from thread, 30s timeout. Missing: rate preview in thread |
 | Performance | A | No polling, debounced search, proper listener cleanup |
@@ -802,3 +1159,45 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Mobile architecture | B+ | Good singleton services, Agora screens, lifecycle cleanup, LRU presence/profile caches, and real-time UX. Needs stronger testability, random-match receiver handling, and fewer stale assumptions. |
 | Test posture | C | Backend build passes and Functions build passes; backend unit tests, backend e2e, and Flutter widget tests currently fail due stale expectations/harnesses. No Postgres race/idempotency tests cover the highest-risk paths. |
 | Documentation accuracy | C+ | `PRODUCT.md`, READMEs, tests, and instructions disagree on guest login, WebSocket/socket language, and some completion claims. Product direction is strong, but operating docs need cleanup. |
+
+### RTDB Module Audit — 5 Jun 2026 — Overall: C+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Module ownership | A- | RTDB client usage is mostly centralized in `FirebaseChatService.instance`, with backend Admin SDK writes limited to call signaling and cleanup. This matches the no-Socket.IO architecture. |
+| Presence | B+ | `onDisconnect`, Cloud Function sync, and stale-presence reaper give good crash recovery. Needs stricter RTDB validation for allowed states/fields and stronger handling of live/busy/background transitions. |
+| Direct-call signaling | C | `direct_calls/{userId}` is functionally simple, but any authenticated user can overwrite any user's signal node. Payload shape and caller/receiver ownership are not validated by rules. |
+| Random-call signaling | C- | Backend writes `event: matched` to `direct_calls/{receiverId}`, but the Home listener only handles direct-call `status` values. Receivers outside `RandomCallScreen` may never join matched sessions. |
+| Live-room realtime | C | Comments/reactions are acceptable MVP events, but room `status`, `audience_count`, and gifts are client-writable with weak validation. Gift UI can be spoofed even if backend economy is checked separately. |
+| Counters/idempotency | C | Audience count uses client-side increments/decrements plus `onDisconnect`; duplicate joins, double dispose, or spoofed writes can produce inaccurate counts. Use per-viewer presence nodes or transactions for stronger counts. |
+| Security rules | C- | Rules protect user-owned `presence` and `profiles`, but `direct_calls`, `live_rooms/status`, events, and counters are too broad. Add ownership constraints, field validation, enum checks, and `.indexOn` for timestamped event streams. |
+| Scale posture | B- | Flat root nodes and LRU caches are good for MVP. Scheduled global presence scans and unbounded live event retention should evolve before larger scale. |
+
+### Canonical Realtime Availability — 6 Jun 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Canonical RTDB cell | A | Mobile writes `schemaVersion`, `connection`, `activity`, `availability`, `routing`, `displayStatus`, `interruptible`, context IDs, timestamps, and legacy `state` only for compatibility. |
+| Backend projection | A | Cloud Functions mirror canonical presence into Postgres fields for display, availability, routeability, and freshness. RTDB remains source of truth. |
+| Direct-call routeability | A | Profile/chat UI and backend direct-call creation reject offline, busy, and premium-live receivers using canonical availability/routing. |
+| Random-call routeability | A | Live-host and online fallback matchmaking require `presence_availability='available'` and `can_random_call=true`; away, busy, offline, and premium-live users are skipped. |
+| Compatibility | A | Existing UI readers still work through legacy `state`, while new readers prefer `displayStatus`. This allows gradual module extraction without breaking current screens. |
+| Remaining A+ gates | A- | RTDB emulator suite now passes locally (`pnpm test:rtdb:rules`, 5/5). Premium-live enter/exit transitions still need end-to-end implementation. |
+
+### RTDB Module Ownership — 6 Jun 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Presence module | A+ | `PresenceRealtime` owns `presence/{userId}` payloads, onDisconnect, local LRU cache, foreground/background/live/call transitions, and display-status derivation. |
+| Profile module | A+ | `ProfilesRealtime` owns `profiles/{userId}` writes, profile cache, and profile listener lifecycle. |
+| Direct-call signals | A+ | `DirectCallSignals` owns `direct_calls/{userId}` ringing/status/remove/listen behavior. Rules restrict caller/receiver ownership, validate payload shape, and keep caller/session metadata immutable after creation. |
+| Live-room realtime | A- | `LiveRoomRealtime` owns comments, reactions, gifts, audience count, status listen/end, and room initialization. Room nodes now include `hostUserId` for host-owned status writes. |
+| Facade compatibility | A+ | `FirebaseChatService.instance` remains as the stable app-facing facade, forwarding to modules so existing screens do not churn. |
+| Rules enforcement | A+ | RTDB rules validate canonical presence, profiles, direct-call signals, live-room host ownership, status enums, event shapes, reaction sender identity, gift shape limits, and direct-call metadata immutability. Emulator suite passes locally. |
+| Remaining A+ gates | A- | Module ownership is now proven by executable rules tests. Product-level A+ still needs premium-live transition methods/rules and backend-confirmed trusted gift fan-out. |
+
+### RTDB Rules Emulator Suite — 6 Jun 2026 — Overall: A+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Test harness | A+ | Added repo-local `test:rtdb:rules` using Firebase Database emulator + `@firebase/rules-unit-testing`. |
+| Coverage | A | Covers presence owner/schema, profile owner/shape, direct-call caller/receiver access, immutable call metadata, live-room host ownership, viewer comments/reactions, audience count validation, and gift payload bounds. |
+| Execution | A+ | `pnpm test:rtdb:rules` passed 5 tests / 0 failures on 6 Jun 2026. |
+| Tooling stability | A | Pinned repo-local `firebase-tools@14` so Java 17 works today. Future Firebase CLI v15+ requires Java 21, so plan that upgrade deliberately. |
+| Remaining risk | B+ | Gift display fan-out is still client-written after backend charge success; move trusted fan-out to backend/Admin SDK before larger scale. |

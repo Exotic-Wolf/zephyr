@@ -98,16 +98,16 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     _sub = FirebaseChatService.instance
         .watchMessages(widget.otherUserId)
         .listen((List<FirebaseMessage> msgs) {
-      if (mounted) {
-        setState(() {
-          _messages = msgs;
-          _streamReady = true;
+          if (mounted) {
+            setState(() {
+              _messages = msgs;
+              _streamReady = true;
+            });
+            _scrollToBottom();
+            // Mark incoming messages as read continuously while chat is open
+            _markIncomingRead(msgs);
+          }
         });
-        _scrollToBottom();
-        // Mark incoming messages as read continuously while chat is open
-        _markIncomingRead(msgs);
-      }
-    });
   }
 
   /// Fetches roomId from live feed if presence doesn't include it.
@@ -117,7 +117,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     if (api == null || token == null) return;
     try {
       final feed = await api.listLiveFeed(token);
-      final match = feed.where((c) => c.hostUserId == widget.otherUserId).firstOrNull;
+      final match = feed
+          .where((c) => c.hostUserId == widget.otherUserId)
+          .firstOrNull;
       if (match?.roomId != null && mounted) {
         setState(() => _liveRoomId = match!.roomId);
       }
@@ -126,7 +128,8 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
 
   void _markIncomingRead(List<FirebaseMessage> msgs) {
     final bool hasUnread = msgs.any(
-        (m) => m.senderId == widget.otherUserId && m.readAt == null);
+      (m) => m.senderId == widget.otherUserId && m.readAt == null,
+    );
     if (hasUnread) {
       FirebaseChatService.instance.markRead(widget.otherUserId);
     }
@@ -146,7 +149,8 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
 
   void _onScroll() {
     // Load more when scrolled near the top (reverse list, so maxScrollExtent = top)
-    if (_scrollCtrl.position.pixels >= _scrollCtrl.position.maxScrollExtent - 100 &&
+    if (_scrollCtrl.position.pixels >=
+            _scrollCtrl.position.maxScrollExtent - 100 &&
         !_loadingMore &&
         _hasMore) {
       _loadMore();
@@ -159,8 +163,10 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     setState(() => _loadingMore = true);
     try {
       final oldest = allMessages.first.createdAt;
-      final older = await FirebaseChatService.instance
-          .loadMoreMessages(widget.otherUserId, oldest);
+      final older = await FirebaseChatService.instance.loadMoreMessages(
+        widget.otherUserId,
+        oldest,
+      );
       if (mounted) {
         setState(() {
           if (older.isEmpty) {
@@ -182,8 +188,11 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       if (jump) {
         _scrollCtrl.jumpTo(0);
       } else {
-        _scrollCtrl.animateTo(0,
-            duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+        _scrollCtrl.animateTo(
+          0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
@@ -234,9 +243,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Send failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Send failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -244,8 +253,10 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   }
 
   Future<void> _pickAndSendImage() async {
-    final XFile? picked =
-        await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final XFile? picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 70,
+    );
     if (picked == null) return;
     setState(() => _sending = true);
     try {
@@ -257,9 +268,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Image send failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Image send failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -281,19 +292,25 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
               title: const Text('Delete for me'),
               onTap: () {
                 Navigator.pop(ctx);
-                FirebaseChatService.instance
-                    .deleteMessageForMe(widget.otherUserId, msg.id);
+                FirebaseChatService.instance.deleteMessageForMe(
+                  widget.otherUserId,
+                  msg.id,
+                );
               },
             ),
             if (isMe)
               ListTile(
                 leading: const Icon(Icons.delete_forever, color: Colors.red),
-                title: const Text('Delete for everyone',
-                    style: TextStyle(color: Colors.red)),
+                title: const Text(
+                  'Delete for everyone',
+                  style: TextStyle(color: Colors.red),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  FirebaseChatService.instance
-                      .deleteMessageForEveryone(widget.otherUserId, msg.id);
+                  FirebaseChatService.instance.deleteMessageForEveryone(
+                    widget.otherUserId,
+                    msg.id,
+                  );
                 },
               ),
           ],
@@ -303,7 +320,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   }
 
   void _openProfile(String name, String? avatar) {
-    final profile = FirebaseChatService.instance.profileCached(widget.otherUserId);
+    final profile = FirebaseChatService.instance.profileCached(
+      widget.otherUserId,
+    );
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ProfilePage(
@@ -316,7 +335,11 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
             hostAvatarUrl: avatar,
             hostCountryCode: profile?.countryCode ?? '',
             hostLanguage: profile?.language ?? '',
-            hostStatus: FirebaseChatService.instance.presenceStateCached(widget.otherUserId) ?? 'offline',
+            hostStatus:
+                FirebaseChatService.instance.presenceStateCached(
+                  widget.otherUserId,
+                ) ??
+                'offline',
             startedAt: DateTime.now(),
           ),
           apiClient: ZephyrApiClient.instance,
@@ -335,8 +358,14 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     final token = ZephyrApiClient.accessToken;
     if (api == null || token == null || _calling) return;
 
-    setState(() => _calling = true);
     final svc = FirebaseChatService.instance;
+    final status = svc.presenceStateCached(widget.otherUserId) ?? 'offline';
+    if (status == 'offline' || status == 'busy' || status == 'premium_live') {
+      _showSnack('User is not available');
+      return;
+    }
+
+    setState(() => _calling = true);
 
     try {
       final session = await api.startCallSession(
@@ -353,7 +382,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         sessionId: session.id,
       );
 
-      _callSub = svc.listenCallSignal(widget.otherUserId, (Map<String, dynamic>? data) {
+      _callSub = svc.listenCallSignal(widget.otherUserId, (
+        Map<String, dynamic>? data,
+      ) {
         if (!mounted) return;
         if (data == null) {
           _cleanupCall();
@@ -373,7 +404,13 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         svc.removeCallSignal(widget.otherUserId);
         _cleanupCall();
         _showSnack('No answer');
-        api.endCallSession(accessToken: token, sessionId: session.id, reason: 'no_answer').ignore();
+        api
+            .endCallSession(
+              accessToken: token,
+              sessionId: session.id,
+              reason: 'no_answer',
+            )
+            .ignore();
       });
     } catch (e) {
       if (!mounted) return;
@@ -399,7 +436,10 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     FirebaseChatService.instance.cancelOnDisconnect(widget.otherUserId);
 
     try {
-      final rtc = await api.requestCallRtcToken(accessToken: token, sessionId: sessionId);
+      final rtc = await api.requestCallRtcToken(
+        accessToken: token,
+        sessionId: sessionId,
+      );
       if (!mounted) return;
       setState(() => _calling = false);
       Navigator.of(context).push(
@@ -414,8 +454,16 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
             uid: rtc.uid,
             token: rtc.token,
             partnerId: widget.otherUserId,
-            partnerName: FirebaseChatService.instance.profileCached(widget.otherUserId)?.displayName ?? widget.otherDisplayName,
-            partnerAvatarUrl: FirebaseChatService.instance.profileCached(widget.otherUserId)?.avatarUrl ?? widget.otherAvatarUrl,
+            partnerName:
+                FirebaseChatService.instance
+                    .profileCached(widget.otherUserId)
+                    ?.displayName ??
+                widget.otherDisplayName,
+            partnerAvatarUrl:
+                FirebaseChatService.instance
+                    .profileCached(widget.otherUserId)
+                    ?.avatarUrl ??
+                widget.otherAvatarUrl,
           ),
         ),
       );
@@ -447,9 +495,14 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Block user'),
-            content: Text('Block ${widget.otherDisplayName}? They won\'t be able to message you.'),
+            content: Text(
+              'Block ${widget.otherDisplayName}? They won\'t be able to message you.',
+            ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
                 child: const Text('Block', style: TextStyle(color: Colors.red)),
@@ -460,9 +513,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         if (confirmed == true && mounted) {
           await FirebaseChatService.instance.blockUser(widget.otherUserId);
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('User blocked')),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('User blocked')));
             Navigator.pop(context);
           }
         }
@@ -474,25 +527,36 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
             title: const Text('Report user'),
             content: TextField(
               controller: controller,
-              decoration: const InputDecoration(hintText: 'Reason for reporting...'),
+              decoration: const InputDecoration(
+                hintText: 'Reason for reporting...',
+              ),
               maxLines: 3,
               autofocus: true,
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-                child: const Text('Report', style: TextStyle(color: Colors.red)),
+                child: const Text(
+                  'Report',
+                  style: TextStyle(color: Colors.red),
+                ),
               ),
             ],
           ),
         );
         if (reason != null && reason.isNotEmpty && mounted) {
-          await FirebaseChatService.instance.reportUser(widget.otherUserId, reason);
+          await FirebaseChatService.instance.reportUser(
+            widget.otherUserId,
+            reason,
+          );
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Report submitted')),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('Report submitted')));
           }
         }
     }
@@ -505,14 +569,17 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       return;
     }
     setState(() => _translating.add(msg.id));
-    final String targetLang =
-        Localizations.localeOf(context).languageCode;
-    String? translated = await TranslationService.instance
-        .translate(msg.body, targetLang: targetLang);
+    final String targetLang = Localizations.localeOf(context).languageCode;
+    String? translated = await TranslationService.instance.translate(
+      msg.body,
+      targetLang: targetLang,
+    );
     // If device language matches source, try English as fallback
     if (translated == null && targetLang != 'en') {
-      translated = await TranslationService.instance
-          .translate(msg.body, targetLang: 'en');
+      translated = await TranslationService.instance.translate(
+        msg.body,
+        targetLang: 'en',
+      );
     }
     if (mounted) {
       setState(() {
@@ -546,8 +613,18 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     if (diffDays == 0) return 'Today';
     if (diffDays == 1) return 'Yesterday';
     const List<String> months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${local.day} ${months[local.month - 1]} ${local.year}';
   }
@@ -560,9 +637,14 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           const Expanded(child: Divider()),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Text(label,
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade500)),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade500,
+              ),
+            ),
           ),
           const Expanded(child: Divider()),
         ],
@@ -582,83 +664,110 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         title: ValueListenableBuilder<int>(
           valueListenable: FirebaseChatService.instance.profileVersion,
           builder: (context, _, __) {
-            final profile = FirebaseChatService.instance.profileCached(widget.otherUserId);
+            final profile = FirebaseChatService.instance.profileCached(
+              widget.otherUserId,
+            );
             final String name = profile?.displayName ?? widget.otherDisplayName;
             final String? avatar = profile?.avatarUrl ?? widget.otherAvatarUrl;
             return GestureDetector(
               onTap: () => _openProfile(name, avatar),
               behavior: HitTestBehavior.opaque,
               child: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: const Color(0xFFFF8F00).withValues(alpha: 0.15),
-              backgroundImage: avatar != null
-                  ? CachedNetworkImageProvider(avatar)
-                  : null,
-              child: avatar == null
-                  ? Text(
-                      name.isNotEmpty
-                          ? name[0].toUpperCase()
-                          : '?',
-                      style: const TextStyle(
-                          color: Color(0xFFFF8F00),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14),
-                    )
-                  : null,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: const TextStyle(fontSize: 16)),
-                  // Real-time presence from cache
-                  ValueListenableBuilder<int>(
-                    valueListenable: FirebaseChatService.instance.presenceVersion,
-                    builder: (context, _, __) {
-                      final String state =
-                          FirebaseChatService.instance.presenceStateCached(widget.otherUserId) ?? 'offline';
-                      final String label;
-                      final Color color;
-                      switch (state) {
-                        case 'live':
-                          label = 'live';
-                          color = const Color(0xFFFF3B30);
-                        case 'online':
-                          label = 'online';
-                          color = Colors.green;
-                        case 'busy':
-                          label = 'busy';
-                          color = Colors.orange;
-                        case 'away':
-                          label = 'away';
-                          color = const Color(0xFFFFCC00);
-                        default:
-                          label = 'offline';
-                          color = Colors.grey.shade500;
-                      }
-                      return Text(
-                        label,
-                        style: TextStyle(fontSize: 12, color: color),
-                      );
-                    },
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: const Color(
+                      0xFFFF8F00,
+                    ).withValues(alpha: 0.15),
+                    backgroundImage: avatar != null
+                        ? CachedNetworkImageProvider(avatar)
+                        : null,
+                    child: avatar == null
+                        ? Text(
+                            name.isNotEmpty ? name[0].toUpperCase() : '?',
+                            style: const TextStyle(
+                              color: Color(0xFFFF8F00),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name, style: const TextStyle(fontSize: 16)),
+                        // Real-time presence from cache
+                        ValueListenableBuilder<int>(
+                          valueListenable:
+                              FirebaseChatService.instance.presenceVersion,
+                          builder: (context, _, __) {
+                            final String state =
+                                FirebaseChatService.instance
+                                    .presenceStateCached(widget.otherUserId) ??
+                                'offline';
+                            final String label;
+                            final Color color;
+                            switch (state) {
+                              case 'premium_live':
+                                label = 'premium';
+                                color = const Color(0xFFFF2D55);
+                              case 'live':
+                                label = 'live';
+                                color = const Color(0xFFFF3B30);
+                              case 'online':
+                                label = 'online';
+                                color = Colors.green;
+                              case 'busy':
+                                label = 'busy';
+                                color = Colors.orange;
+                              case 'away':
+                                label = 'away';
+                                color = const Color(0xFFFFCC00);
+                              default:
+                                label = 'offline';
+                                color = Colors.grey.shade500;
+                            }
+                            return Text(
+                              label,
+                              style: TextStyle(fontSize: 12, color: color),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
             );
           },
         ),
         actions: [
-          IconButton(
-            icon: _calling
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.videocam_outlined),
-            onPressed: _calling ? null : _initiateCall,
+          ValueListenableBuilder<int>(
+            valueListenable: FirebaseChatService.instance.presenceVersion,
+            builder: (context, _, __) {
+              final status =
+                  FirebaseChatService.instance.presenceStateCached(
+                    widget.otherUserId,
+                  ) ??
+                  'offline';
+              final unavailable =
+                  status == 'offline' ||
+                  status == 'busy' ||
+                  status == 'premium_live';
+              return IconButton(
+                icon: _calling
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.videocam_outlined),
+                onPressed: _calling || unavailable ? null : _initiateCall,
+              );
+            },
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
@@ -673,273 +782,366 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       body: Stack(
         children: [
           Column(
-        children: [
-          Expanded(
-            child: !_streamReady
-                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                : _messages.isEmpty && _olderMessages.isEmpty
-                ? Center(
-                    child: Text('Say hello!',
-                        style: TextStyle(color: Colors.grey.shade500)))
-                : ListView.builder(
-                    reverse: true,
-                    controller: _scrollCtrl,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                    itemCount: _allMessages.length + (_loadingMore ? 1 : 0),
-                    itemBuilder: (BuildContext ctx, int i) {
-                      // Loading indicator at top (end of reverse list)
-                      if (_loadingMore && i == _allMessages.length) {
-                        return const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                        );
-                      }
-                      final int msgIdx = _allMessages.length - 1 - i;
-                      final FirebaseMessage msg = _allMessages[msgIdx];
-                      final bool isMe = msg.senderId == widget.myUserId;
-                      final bool showHeader = msgIdx == 0 ||
-                          _isDifferentDay(
-                              _allMessages[msgIdx - 1].createdAt, msg.createdAt);
-                      final bool isDeleted = msg.type == 'deleted';
-
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (showHeader)
-                            _buildDateHeader(_formatDateHeader(msg.createdAt)),
-                          GestureDetector(
-                            onLongPress: isDeleted ? null : () => _showMessageMenu(msg),
-                            child: Row(
-                            mainAxisAlignment: isMe
-                                ? MainAxisAlignment.end
-                                : MainAxisAlignment.start,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              if (!isMe && !isDeleted && msg.type == 'text' && msg.body.isNotEmpty)
-                                GestureDetector(
-                                  onTap: () => _translateMessage(msg),
-                                  child: Container(
-                                    margin: const EdgeInsets.only(right: 4, bottom: 6),
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? const Color(0xFF3A3A3C)
-                                          : Colors.grey.shade200,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: _translating.contains(msg.id)
-                                        ? const SizedBox(
-                                            width: 12,
-                                            height: 12,
-                                            child: CircularProgressIndicator(
-                                                strokeWidth: 1.5))
-                                        : Icon(
-                                            _translations.containsKey(msg.id)
-                                                ? Icons.translate
-                                                : Icons.translate,
-                                            size: 12,
-                                            color: _translations.containsKey(msg.id)
-                                                ? Colors.blue.shade300
-                                                : Colors.grey.shade500,
-                                          ),
-                                  ),
-                                ),
-                              Flexible(child: Container(
-                              margin: const EdgeInsets.symmetric(vertical: 3),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 10),
-                              constraints: BoxConstraints(
-                                  maxWidth: MediaQuery.sizeOf(ctx).width * 0.72),
-                              decoration: BoxDecoration(
-                                color: isMe
-                                    ? const Color(0xFFFF8F00)
-                                    : (isDark
-                                        ? const Color(0xFF2C2C2E)
-                                        : Colors.white),
-                                borderRadius: BorderRadius.only(
-                                  topLeft: const Radius.circular(18),
-                                  topRight: const Radius.circular(18),
-                                  bottomLeft: Radius.circular(isMe ? 18 : 4),
-                                  bottomRight: Radius.circular(isMe ? 4 : 18),
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black
-                                        .withValues(alpha: isDark ? 0.06 : 0.10),
-                                    blurRadius: isDark ? 4 : 6,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                crossAxisAlignment: isMe
-                                    ? CrossAxisAlignment.end
-                                    : CrossAxisAlignment.start,
-                                children: [
-                                  if (isDeleted)
-                                    Text('🚫 This message was deleted',
-                                        style: TextStyle(
-                                            fontSize: 14,
-                                            fontStyle: FontStyle.italic,
-                                            color: Colors.grey.shade500))
-                                  else if (msg.type == 'image' && msg.imageUrl != null)
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: CachedNetworkImage(
-                                        imageUrl: msg.imageUrl!,
-                                        width: 200,
-                                        fit: BoxFit.cover,
-                                        placeholder: (_, __) => const SizedBox(
-                                          width: 200,
-                                          height: 150,
-                                          child: Center(
-                                              child: CircularProgressIndicator(
-                                                  strokeWidth: 2)),
-                                        ),
-                                      ),
-                                    )
-                                  else ...[
-                                    Text(
-                                        _translations.containsKey(msg.id)
-                                            ? _translations[msg.id]!
-                                            : msg.body,
-                                        style: TextStyle(
-                                            fontSize: 15,
-                                            color: isMe
-                                                ? Colors.black87
-                                                : (isDark
-                                                    ? Colors.white
-                                                    : Colors.black87))),
-                                    if (_translations.containsKey(msg.id))
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 2),
-                                        child: Text('translated',
-                                            style: TextStyle(
-                                                fontSize: 10,
-                                                fontStyle: FontStyle.italic,
-                                                color: Colors.grey.shade500)),
-                                      ),
-                                  ],
-                                  const SizedBox(height: 3),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(_formatTime(msg.createdAt),
-                                          style: TextStyle(
-                                              fontSize: 11,
-                                              color: isMe
-                                                  ? Colors.black54
-                                                  : (isDark
-                                                      ? Colors.grey.shade500
-                                                      : Colors.grey.shade400))),
-                                      if (isMe) ...[
-                                        const SizedBox(width: 3),
-                                        Icon(
-                                          msg.readAt != null
-                                              ? Icons.done_all
-                                              : msg.deliveredAt != null
-                                                  ? Icons.done_all
-                                                  : Icons.done,
-                                          size: 13,
-                                          color: msg.readAt != null
-                                              ? Colors.blue.shade300
-                                              : msg.deliveredAt != null
-                                                  ? Colors.white70
-                                                  : Colors.white54,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            )),
-                            ],
-                          ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-          ),
-          // Input bar
-          Container(
-            color: isDark ? const Color(0xFF1C1C1C) : Colors.white,
-            padding: EdgeInsets.fromLTRB(12, 8, 12, 8 + bottomPad),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: _sending ? null : _pickAndSendImage,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(Icons.image_outlined,
-                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                        size: 26),
-                  ),
-                ),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? const Color(0xFF2A2A2A)
-                          : const Color(0xFFF2F2F7),
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: TextField(
-                      controller: _inputCtrl,
-                      minLines: 1,
-                      maxLines: 4,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        hintText: 'Message…',
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 10),
-                      ),
-                      onSubmitted: (_) => _send(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _sending
-                    ? const SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: Center(
-                          child: SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
+            children: [
+              Expanded(
+                child: !_streamReady
+                    ? const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : _messages.isEmpty && _olderMessages.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Say hello!',
+                          style: TextStyle(color: Colors.grey.shade500),
                         ),
                       )
-                    : GestureDetector(
-                        onTap: _send,
-                        child: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Color(0xFFFF8F00),
-                          ),
-                          child: const Icon(Icons.send_rounded,
-                              color: Colors.white, size: 18),
+                    : ListView.builder(
+                        reverse: true,
+                        controller: _scrollCtrl,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 16,
+                        ),
+                        itemCount: _allMessages.length + (_loadingMore ? 1 : 0),
+                        itemBuilder: (BuildContext ctx, int i) {
+                          // Loading indicator at top (end of reverse list)
+                          if (_loadingMore && i == _allMessages.length) {
+                            return const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            );
+                          }
+                          final int msgIdx = _allMessages.length - 1 - i;
+                          final FirebaseMessage msg = _allMessages[msgIdx];
+                          final bool isMe = msg.senderId == widget.myUserId;
+                          final bool showHeader =
+                              msgIdx == 0 ||
+                              _isDifferentDay(
+                                _allMessages[msgIdx - 1].createdAt,
+                                msg.createdAt,
+                              );
+                          final bool isDeleted = msg.type == 'deleted';
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (showHeader)
+                                _buildDateHeader(
+                                  _formatDateHeader(msg.createdAt),
+                                ),
+                              GestureDetector(
+                                onLongPress: isDeleted
+                                    ? null
+                                    : () => _showMessageMenu(msg),
+                                child: Row(
+                                  mainAxisAlignment: isMe
+                                      ? MainAxisAlignment.end
+                                      : MainAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    if (!isMe &&
+                                        !isDeleted &&
+                                        msg.type == 'text' &&
+                                        msg.body.isNotEmpty)
+                                      GestureDetector(
+                                        onTap: () => _translateMessage(msg),
+                                        child: Container(
+                                          margin: const EdgeInsets.only(
+                                            right: 4,
+                                            bottom: 6,
+                                          ),
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: isDark
+                                                ? const Color(0xFF3A3A3C)
+                                                : Colors.grey.shade200,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: _translating.contains(msg.id)
+                                              ? const SizedBox(
+                                                  width: 12,
+                                                  height: 12,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 1.5,
+                                                      ),
+                                                )
+                                              : Icon(
+                                                  _translations.containsKey(
+                                                        msg.id,
+                                                      )
+                                                      ? Icons.translate
+                                                      : Icons.translate,
+                                                  size: 12,
+                                                  color:
+                                                      _translations.containsKey(
+                                                        msg.id,
+                                                      )
+                                                      ? Colors.blue.shade300
+                                                      : Colors.grey.shade500,
+                                                ),
+                                        ),
+                                      ),
+                                    Flexible(
+                                      child: Container(
+                                        margin: const EdgeInsets.symmetric(
+                                          vertical: 3,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 10,
+                                        ),
+                                        constraints: BoxConstraints(
+                                          maxWidth:
+                                              MediaQuery.sizeOf(ctx).width *
+                                              0.72,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isMe
+                                              ? const Color(0xFFFF8F00)
+                                              : (isDark
+                                                    ? const Color(0xFF2C2C2E)
+                                                    : Colors.white),
+                                          borderRadius: BorderRadius.only(
+                                            topLeft: const Radius.circular(18),
+                                            topRight: const Radius.circular(18),
+                                            bottomLeft: Radius.circular(
+                                              isMe ? 18 : 4,
+                                            ),
+                                            bottomRight: Radius.circular(
+                                              isMe ? 4 : 18,
+                                            ),
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(
+                                                alpha: isDark ? 0.06 : 0.10,
+                                              ),
+                                              blurRadius: isDark ? 4 : 6,
+                                              offset: const Offset(0, 2),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: isMe
+                                              ? CrossAxisAlignment.end
+                                              : CrossAxisAlignment.start,
+                                          children: [
+                                            if (isDeleted)
+                                              Text(
+                                                '🚫 This message was deleted',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontStyle: FontStyle.italic,
+                                                  color: Colors.grey.shade500,
+                                                ),
+                                              )
+                                            else if (msg.type == 'image' &&
+                                                msg.imageUrl != null)
+                                              ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                child: CachedNetworkImage(
+                                                  imageUrl: msg.imageUrl!,
+                                                  width: 200,
+                                                  fit: BoxFit.cover,
+                                                  placeholder: (_, __) =>
+                                                      const SizedBox(
+                                                        width: 200,
+                                                        height: 150,
+                                                        child: Center(
+                                                          child:
+                                                              CircularProgressIndicator(
+                                                                strokeWidth: 2,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                ),
+                                              )
+                                            else ...[
+                                              Text(
+                                                _translations.containsKey(
+                                                      msg.id,
+                                                    )
+                                                    ? _translations[msg.id]!
+                                                    : msg.body,
+                                                style: TextStyle(
+                                                  fontSize: 15,
+                                                  color: isMe
+                                                      ? Colors.black87
+                                                      : (isDark
+                                                            ? Colors.white
+                                                            : Colors.black87),
+                                                ),
+                                              ),
+                                              if (_translations.containsKey(
+                                                msg.id,
+                                              ))
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        top: 2,
+                                                      ),
+                                                  child: Text(
+                                                    'translated',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontStyle:
+                                                          FontStyle.italic,
+                                                      color:
+                                                          Colors.grey.shade500,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                            const SizedBox(height: 3),
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  _formatTime(msg.createdAt),
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: isMe
+                                                        ? Colors.black54
+                                                        : (isDark
+                                                              ? Colors
+                                                                    .grey
+                                                                    .shade500
+                                                              : Colors
+                                                                    .grey
+                                                                    .shade400),
+                                                  ),
+                                                ),
+                                                if (isMe) ...[
+                                                  const SizedBox(width: 3),
+                                                  Icon(
+                                                    msg.readAt != null
+                                                        ? Icons.done_all
+                                                        : msg.deliveredAt !=
+                                                              null
+                                                        ? Icons.done_all
+                                                        : Icons.done,
+                                                    size: 13,
+                                                    color: msg.readAt != null
+                                                        ? Colors.blue.shade300
+                                                        : msg.deliveredAt !=
+                                                              null
+                                                        ? Colors.white70
+                                                        : Colors.white54,
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+              ),
+              // Input bar
+              Container(
+                color: isDark ? const Color(0xFF1C1C1C) : Colors.white,
+                padding: EdgeInsets.fromLTRB(12, 8, 12, 8 + bottomPad),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: _sending ? null : _pickAndSendImage,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Icon(
+                          Icons.image_outlined,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
+                          size: 26,
                         ),
                       ),
-              ],
-            ),
+                    ),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF2A2A2A)
+                              : const Color(0xFFF2F2F7),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: TextField(
+                          controller: _inputCtrl,
+                          minLines: 1,
+                          maxLines: 4,
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            hintText: 'Message…',
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          onSubmitted: (_) => _send(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _sending
+                        ? const SizedBox(
+                            width: 40,
+                            height: 40,
+                            child: Center(
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            ),
+                          )
+                        : GestureDetector(
+                            onTap: _send,
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Color(0xFFFF8F00),
+                              ),
+                              child: const Icon(
+                                Icons.send_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
           // ── Live preview overlay ───────────────────────────────────────────
           ValueListenableBuilder<int>(
             valueListenable: FirebaseChatService.instance.presenceVersion,
             builder: (context, _, __) {
               final String state =
-                  FirebaseChatService.instance.presenceStateCached(widget.otherUserId) ?? 'offline';
+                  FirebaseChatService.instance.presenceStateCached(
+                    widget.otherUserId,
+                  ) ??
+                  'offline';
               final String? roomId =
-                  FirebaseChatService.instance.presenceRoomIdCached(widget.otherUserId)
-                  ?? _liveRoomId;
+                  FirebaseChatService.instance.presenceRoomIdCached(
+                    widget.otherUserId,
+                  ) ??
+                  _liveRoomId;
               if (state != 'live' || roomId == null) {
                 return const SizedBox.shrink();
               }
@@ -960,7 +1162,12 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     );
   }
 
-  Future<void> _openLiveStream(String roomId, RtcEngine engine, int hostUid, String channelName) async {
+  Future<void> _openLiveStream(
+    String roomId,
+    RtcEngine engine,
+    int hostUid,
+    String channelName,
+  ) async {
     final api = ZephyrApiClient.instance;
     final token = ZephyrApiClient.accessToken;
     if (api == null || token == null) return;
@@ -992,22 +1199,24 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     } catch (_) {}
     if (!mounted) return;
 
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (_) => ViewerLiveScreen(
-        feedCard: feedCard,
-        apiClient: api,
-        accessToken: token,
-        myUserId: widget.myUserId,
-        myDisplayName: widget.myDisplayName,
-        onLeave: () {},
-        initialViewerCount: viewerCount,
-        didJoin: didJoin,
-        existingEngine: engine,
-        existingHostUid: hostUid,
-        existingChannelName: channelName,
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => ViewerLiveScreen(
+          feedCard: feedCard,
+          apiClient: api,
+          accessToken: token,
+          myUserId: widget.myUserId,
+          myDisplayName: widget.myDisplayName,
+          onLeave: () {},
+          initialViewerCount: viewerCount,
+          didJoin: didJoin,
+          existingEngine: engine,
+          existingHostUid: hostUid,
+          existingChannelName: channelName,
+        ),
       ),
-    ));
+    );
     // Bump generation so preview rebuilds fresh with a new engine
     if (mounted) setState(() => _previewGen++);
   }

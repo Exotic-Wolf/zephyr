@@ -130,9 +130,14 @@ class _ProfilePageState extends State<ProfilePage> {
           context: context,
           builder: (_) => AlertDialog(
             title: Text('Block $_displayName?'),
-            content: const Text("They won't be able to match with you in random calls. You can unblock them later."),
+            content: const Text(
+              "They won't be able to match with you in random calls. You can unblock them later.",
+            ),
             actions: <Widget>[
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
                 child: const Text('Block', style: TextStyle(color: Colors.red)),
@@ -145,7 +150,8 @@ class _ProfilePageState extends State<ProfilePage> {
           if (mounted) setState(() => _isBlocked = true);
         }
       }
-    } catch (_) {} finally {
+    } catch (_) {
+    } finally {
       if (mounted) setState(() => _blockLoading = false);
     }
   }
@@ -168,7 +174,9 @@ class _ProfilePageState extends State<ProfilePage> {
     final svc = FirebaseChatService.instance;
 
     try {
-      debugPrint('[DirectCall] startCallSession: receiverUserId=${_card.hostUserId}, rate=$_callRate');
+      debugPrint(
+        '[DirectCall] startCallSession: receiverUserId=${_card.hostUserId}, rate=$_callRate',
+      );
       // 1. Create call session on backend
       final session = await api.startCallSession(
         accessToken: token,
@@ -189,7 +197,9 @@ class _ProfilePageState extends State<ProfilePage> {
       );
 
       // 3. Listen for status changes (accepted / declined)
-      _callSub = svc.listenCallSignal(_card.hostUserId, (Map<String, dynamic>? data) {
+      _callSub = svc.listenCallSignal(_card.hostUserId, (
+        Map<String, dynamic>? data,
+      ) {
         if (!mounted) return;
         if (data == null) {
           // Node deleted (cancelled from other side)
@@ -212,7 +222,13 @@ class _ProfilePageState extends State<ProfilePage> {
         _cleanupCall();
         _showErrorSnack('No answer');
         // End the unused session
-        api.endCallSession(accessToken: token, sessionId: session.id, reason: 'no_answer').ignore();
+        api
+            .endCallSession(
+              accessToken: token,
+              sessionId: session.id,
+              reason: 'no_answer',
+            )
+            .ignore();
       });
     } catch (e) {
       if (!mounted) return;
@@ -240,7 +256,10 @@ class _ProfilePageState extends State<ProfilePage> {
     FirebaseChatService.instance.cancelOnDisconnect(_card.hostUserId);
 
     try {
-      final rtc = await api.requestCallRtcToken(accessToken: token, sessionId: sessionId);
+      final rtc = await api.requestCallRtcToken(
+        accessToken: token,
+        sessionId: sessionId,
+      );
       if (!mounted) return;
       setState(() => _calling = false);
       Navigator.of(context).push(
@@ -283,7 +302,13 @@ class _ProfilePageState extends State<ProfilePage> {
 
     // End the unused session
     if (_callSessionId != null && api != null && token != null) {
-      api.endCallSession(accessToken: token, sessionId: _callSessionId!, reason: 'caller_cancelled').ignore();
+      api
+          .endCallSession(
+            accessToken: token,
+            sessionId: _callSessionId!,
+            reason: 'caller_cancelled',
+          )
+          .ignore();
     }
 
     _cleanupCall();
@@ -302,148 +327,209 @@ class _ProfilePageState extends State<ProfilePage> {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       backgroundColor: isDark ? null : const Color(0xFFF2F2F7),
-      bottomNavigationBar: widget.isPreview ? null : Container(
-        color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
-        padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
-        child: Row(
-          children: <Widget>[
-            Expanded(
-              flex: 1,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  final me = widget.myUserId;
-                  if (me != null) {
-                    Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => ThreadFirebasePage(
-                        myUserId: me,
-                        myDisplayName: widget.myDisplayName ?? 'User',
-                        myAvatarUrl: widget.myAvatarUrl,
-                        otherUserId: _card.hostUserId,
-                        otherDisplayName: _displayName,
-                        otherAvatarUrl: _avatarUrl,
+      bottomNavigationBar: widget.isPreview
+          ? null
+          : Container(
+              color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+              padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    flex: 1,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        final me = widget.myUserId;
+                        if (me != null) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => ThreadFirebasePage(
+                                myUserId: me,
+                                myDisplayName: widget.myDisplayName ?? 'User',
+                                myAvatarUrl: widget.myAvatarUrl,
+                                otherUserId: _card.hostUserId,
+                                otherDisplayName: _displayName,
+                                otherAvatarUrl: _avatarUrl,
+                              ),
+                            ),
+                          );
+                        } else {
+                          widget.onMessage();
+                        }
+                      },
+                      icon: const Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        size: 18,
                       ),
-                    ));
-                  } else {
-                    widget.onMessage();
-                  }
-                },
-                icon: const Icon(
-                    Icons.chat_bubble_outline_rounded,
-                    size: 18),
-                label: Text(AppLocalizations.of(context)!.messageButton),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: isDark ? Colors.white : Colors.black87,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(14),
-                      bottomLeft: Radius.circular(14),
+                      label: Text(AppLocalizations.of(context)!.messageButton),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: isDark ? Colors.white : Colors.black87,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(14),
+                            bottomLeft: Radius.circular(14),
+                          ),
+                        ),
+                        side: BorderSide.none,
+                        backgroundColor: isDark
+                            ? const Color(0xFF2C2C2E)
+                            : Colors.grey.shade200,
+                      ),
                     ),
                   ),
-                  side: BorderSide.none,
-                  backgroundColor: isDark ? const Color(0xFF2C2C2E) : Colors.grey.shade200,
-                ),
-              ),
-            ),
-            Expanded(
-              flex: 3,
-              child: ValueListenableBuilder<int>(
-                valueListenable: FirebaseChatService.instance.presenceVersion,
-                builder: (context, _, __) {
-                  final String status = FirebaseChatService.instance
-                      .presenceStateCached(_card.hostUserId) ?? _card.hostStatus;
-                  final bool disabled = status == 'busy';
-                  return FilledButton(
-                    onPressed: disabled
-                        ? null
-                        : _calling ? _cancelDirectCall : _initiateDirectCall,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: switch (status) {
-                        'offline' => Colors.grey.shade400,
-                        'away' => const Color(0xFFB8860B),
-                        'busy' => Colors.orange.shade300,
-                        _ => _calling ? Colors.red.shade400 : const Color(0xFF00A651),
-                      },
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.only(
-                          topRight: Radius.circular(14),
-                          bottomRight: Radius.circular(14),
-                        ),
-                      ),
-                    ),
-                    child: switch (status) {
-                      'offline' => Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: <Widget>[
-                            const Icon(Icons.call_rounded, size: 18),
-                            const SizedBox(width: 6),
-                            Text(AppLocalizations.of(context)!.notAvailable,
-                                style: const TextStyle(fontSize: 13)),
-                          ],
-                        ),
-                      'away' => Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: <Widget>[
-                            const Icon(Icons.call_rounded, size: 18),
-                            const SizedBox(width: 6),
-                            const Text('May not answer',
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                          ],
-                        ),
-                      'busy' => Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: <Widget>[
-                            const Icon(Icons.phone_locked_rounded, size: 18),
-                            const SizedBox(width: 6),
-                            Text(AppLocalizations.of(context)!.currentlyBusy),
-                          ],
-                        ),
-                      _ => _calling
-                        ? Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: <Widget>[
-                              const SizedBox(
-                                width: 16, height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
+                  Expanded(
+                    flex: 3,
+                    child: ValueListenableBuilder<int>(
+                      valueListenable:
+                          FirebaseChatService.instance.presenceVersion,
+                      builder: (context, _, __) {
+                        final String status =
+                            FirebaseChatService.instance.presenceStateCached(
+                              _card.hostUserId,
+                            ) ??
+                            _card.hostStatus;
+                        final bool disabled =
+                            status == 'offline' ||
+                            status == 'busy' ||
+                            status == 'premium_live';
+                        return FilledButton(
+                          onPressed: disabled
+                              ? null
+                              : _calling
+                              ? _cancelDirectCall
+                              : _initiateDirectCall,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: switch (status) {
+                              'offline' => Colors.grey.shade400,
+                              'away' => const Color(0xFFB8860B),
+                              'busy' ||
+                              'premium_live' => Colors.orange.shade300,
+                              _ =>
+                                _calling
+                                    ? Colors.red.shade400
+                                    : const Color(0xFF00A651),
+                            },
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.only(
+                                topRight: Radius.circular(14),
+                                bottomRight: Radius.circular(14),
                               ),
-                              const SizedBox(width: 8),
-                              const Text('Calling...',
-                                  style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600)),
-                            ],
-                          )
-                        : Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: <Widget>[
-                              const Icon(Icons.call_rounded, size: 18),
-                              const SizedBox(width: 6),
-                              const Text('Video call',
-                                  style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600)),
-                              if (_callRate != null) ...<Widget>[
-                                const SizedBox(width: 8),
-                                Text('$_callRate',
-                                    style: const TextStyle(fontSize: 12)),
-                                const SizedBox(width: 3),
-                                const CoinIcon(size: 13),
-                                const Text('/min',
-                                    style: TextStyle(fontSize: 12)),
-                              ],
-                            ],
+                            ),
                           ),
-                    },
-                  );
-                },
+                          child: switch (status) {
+                            'offline' => Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                const Icon(Icons.call_rounded, size: 18),
+                                const SizedBox(width: 6),
+                                Text(
+                                  AppLocalizations.of(context)!.notAvailable,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ],
+                            ),
+                            'away' => Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                const Icon(Icons.call_rounded, size: 18),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'May not answer',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            'busy' => Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                const Icon(
+                                  Icons.phone_locked_rounded,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  AppLocalizations.of(context)!.currentlyBusy,
+                                ),
+                              ],
+                            ),
+                            'premium_live' => const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                Icon(Icons.lock_rounded, size: 18),
+                                SizedBox(width: 6),
+                                Text('Premium live'),
+                              ],
+                            ),
+                            _ =>
+                              _calling
+                                  ? Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: <Widget>[
+                                        const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'Calling...',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: <Widget>[
+                                        const Icon(
+                                          Icons.call_rounded,
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        const Text(
+                                          'Video call',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        if (_callRate != null) ...<Widget>[
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            '$_callRate',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 3),
+                                          const CoinIcon(size: 13),
+                                          const Text(
+                                            '/min',
+                                            style: TextStyle(fontSize: 12),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
-      ),
       body: CustomScrollView(
         slivers: <Widget>[
           // ── hero header ──────────────────────────────────────────
@@ -466,7 +552,9 @@ class _ProfilePageState extends State<ProfilePage> {
                               ? const SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : Text(
                                   _isBlocked ? 'Unblock' : 'Block',
@@ -531,49 +619,69 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   // status badge bottom-right of cover (real-time Firebase presence)
                   if (!widget.isPreview)
-                  Positioned(
-                    right: 20,
-                    bottom: 16,
-                    child: ValueListenableBuilder<int>(
-                      valueListenable: FirebaseChatService.instance.presenceVersion,
-                      builder: (context, _, __) {
-                        final bool isOnline =
-                            FirebaseChatService.instance.isOnlineCached(_card.hostUserId) ?? false;
-                        final Color dotColor = isOnline ? const Color(0xFF34C759) : const Color(0xFF8E8E93);
-                        final String label = isOnline ? 'Online' : 'Offline';
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.black45,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  color: dotColor,
-                                  shape: BoxShape.circle,
+                    Positioned(
+                      right: 20,
+                      bottom: 16,
+                      child: ValueListenableBuilder<int>(
+                        valueListenable:
+                            FirebaseChatService.instance.presenceVersion,
+                        builder: (context, _, __) {
+                          final String status =
+                              FirebaseChatService.instance.presenceStateCached(
+                                _card.hostUserId,
+                              ) ??
+                              _card.hostStatus;
+                          final Color dotColor = switch (status) {
+                            'premium_live' => const Color(0xFFFF2D55),
+                            'live' => const Color(0xFFFF3B30),
+                            'busy' => const Color(0xFFFF9500),
+                            'away' => const Color(0xFFFFCC00),
+                            'online' => const Color(0xFF34C759),
+                            _ => const Color(0xFF8E8E93),
+                          };
+                          final String label = switch (status) {
+                            'premium_live' => 'Premium',
+                            'live' => 'Live',
+                            'busy' => 'Busy',
+                            'away' => 'Away',
+                            'online' => 'Online',
+                            _ => 'Offline',
+                          };
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black45,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    color: dotColor,
+                                    shape: BoxShape.circle,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                label,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
+                                const SizedBox(width: 6),
+                                Text(
+                                  label,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -606,10 +714,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   const SizedBox(height: 4),
                   Text(
                     _card.hostLanguage,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
                   ),
 
                   const SizedBox(height: 20),
@@ -618,7 +723,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   Row(
                     children: <Widget>[
                       StatCell(
-                          label: AppLocalizations.of(context)!.followers, value: '2.4K'),
+                        label: AppLocalizations.of(context)!.followers,
+                        value: '2.4K',
+                      ),
                     ],
                   ),
 
@@ -626,30 +733,37 @@ class _ProfilePageState extends State<ProfilePage> {
 
                   // ── follow button ─────────────────────────────────
                   if (!widget.isPreview)
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: () {
-                        setState(() => _following = !_following);
-                      },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _following
-                            ? (isDark ? const Color(0xFF3A3A3C) : Colors.grey.shade300)
-                            : const Color(0xFF1FA4EA),
-                        foregroundColor:
-                            _following ? (isDark ? Colors.white : Colors.black87) : Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () {
+                          setState(() => _following = !_following);
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _following
+                              ? (isDark
+                                    ? const Color(0xFF3A3A3C)
+                                    : Colors.grey.shade300)
+                              : const Color(0xFF1FA4EA),
+                          foregroundColor: _following
+                              ? (isDark ? Colors.white : Colors.black87)
+                              : Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: Text(
+                          _following
+                              ? AppLocalizations.of(context)!.followingButton
+                              : AppLocalizations.of(context)!.followButton,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                      child: Text(
-                        _following ? AppLocalizations.of(context)!.followingButton : AppLocalizations.of(context)!.followButton,
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
                     ),
-                  ),
 
                   const SizedBox(height: 28),
 
@@ -657,13 +771,14 @@ class _ProfilePageState extends State<ProfilePage> {
                   Text(
                     AppLocalizations.of(context)!.about,
                     style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w700),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     AppLocalizations.of(context)!.noBioYet,
-                    style: TextStyle(
-                        fontSize: 14, color: Colors.grey.shade600),
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
                   ),
 
                   const SizedBox(height: 28),
@@ -672,7 +787,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   Text(
                     AppLocalizations.of(context)!.gifts,
                     style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w700),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Container(
@@ -685,7 +802,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: Text(
                       AppLocalizations.of(context)!.noGiftsYet,
                       style: TextStyle(
-                          fontSize: 14, color: Colors.grey.shade500),
+                        fontSize: 14,
+                        color: Colors.grey.shade500,
+                      ),
                     ),
                   ),
 
@@ -699,4 +818,3 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 }
-

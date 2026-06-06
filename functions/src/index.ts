@@ -17,6 +17,96 @@ const serviceKey = defineString("SERVICE_KEY", {
   description: "Shared secret for internal service-to-service calls",
 });
 
+type PresenceSnapshot = {
+  connection?: string;
+  activity?: string;
+  availability?: string;
+  routing?: {
+    directCall?: boolean;
+    randomCall?: boolean;
+  };
+  state?: string;
+  displayStatus?: string;
+  lastSeen?: number;
+  updatedAt?: number;
+  roomId?: string;
+};
+
+const presenceDisplayStatus = (data?: PresenceSnapshot | null): string =>
+  data?.displayStatus ?? data?.state ?? "offline";
+
+const presenceTimestamp = (data?: PresenceSnapshot | null): number =>
+  data?.updatedAt ?? data?.lastSeen ?? 0;
+
+const presenceConnection = (
+  data: PresenceSnapshot | null,
+  status: string,
+): string => data?.connection ?? (status === "offline" ? "offline" : "online");
+
+const presenceActivity = (
+  data: PresenceSnapshot | null,
+  status: string,
+): string => {
+  if (data?.activity) return data.activity;
+  if (status === "away") return "away";
+  if (status === "live") return "free_live_host";
+  if (status === "premium_live") return "premium_live_host";
+  if (status === "busy") return "direct_call";
+  return "idle";
+};
+
+const presenceAvailability = (
+  data: PresenceSnapshot | null,
+  status: string,
+): string => {
+  if (data?.availability) return data.availability;
+  if (status === "offline") return "unavailable";
+  if (status === "busy" || status === "premium_live") return "busy";
+  return "available";
+};
+
+const presenceRouting = (
+  data: PresenceSnapshot | null,
+  status: string,
+): { directCall: boolean; randomCall: boolean } => {
+  return {
+    directCall:
+      data?.routing?.directCall ??
+      (status === "online" || status === "away" || status === "live"),
+    randomCall:
+      data?.routing?.randomCall ?? (status === "online" || status === "live"),
+  };
+};
+
+const presenceProjectionKey = (data: PresenceSnapshot | null): string => {
+  const status = presenceDisplayStatus(data);
+  const routing = presenceRouting(data, status);
+  return JSON.stringify({
+    status,
+    connection: presenceConnection(data, status),
+    activity: presenceActivity(data, status),
+    availability: presenceAvailability(data, status),
+    directCall: routing.directCall,
+    randomCall: routing.randomCall,
+  });
+};
+
+const offlinePresencePayload = (now: number) => ({
+  schemaVersion: 1,
+  connection: "offline",
+  activity: "idle",
+  availability: "unavailable",
+  routing: {
+    directCall: false,
+    randomCall: false,
+  },
+  displayStatus: "offline",
+  interruptible: false,
+  state: "offline",
+  lastSeen: now,
+  updatedAt: now,
+});
+
 // ── Cloud Function: End call session when RTDB signal node is deleted ────────
 export const onCallSignalDeleted = onValueDeleted(
   {
@@ -76,14 +166,14 @@ export const onPresenceChanged = onValueUpdated(
   },
   async (event) => {
     const userId = event.params.userId;
-    const before = event.data.before.val();
-    const after = event.data.after.val();
+    const before = event.data.before.val() as PresenceSnapshot | null;
+    const after = event.data.after.val() as PresenceSnapshot | null;
 
-    const prevState = before?.state as string | undefined;
-    const newState = (after?.state as string | undefined) ?? "offline";
+    const prevState = presenceDisplayStatus(before);
+    const newState = presenceDisplayStatus(after);
 
-    // Sync presence state to PostgreSQL (for matchmaking queries)
-    if (newState !== prevState) {
+    // Sync canonical presence projection to PostgreSQL (for matchmaking queries)
+    if (presenceProjectionKey(after) !== presenceProjectionKey(before)) {
       try {
         const res = await fetch(
           `${apiBaseUrl.value()}/v1/internal/sync-presence`,
@@ -93,7 +183,15 @@ export const onPresenceChanged = onValueUpdated(
               "Content-Type": "application/json",
               "X-Service-Key": serviceKey.value(),
             },
-            body: JSON.stringify({ userId, status: newState }),
+            body: JSON.stringify({
+              userId,
+              status: newState,
+              connection: presenceConnection(after, newState),
+              activity: presenceActivity(after, newState),
+              availability: presenceAvailability(after, newState),
+              routing: presenceRouting(after, newState),
+              updatedAt: presenceTimestamp(after),
+            }),
           },
         );
         if (!res.ok) {
@@ -105,7 +203,7 @@ export const onPresenceChanged = onValueUpdated(
     }
 
     // Auto-end live room when host leaves 'live' state
-    const roomId = before?.roomId as string | undefined;
+    const roomId = before?.roomId;
     if (prevState === "live" && newState !== "live" && roomId) {
       logger.info(
         `presence/${userId} went from 'live' to '${newState}' — ending room ${roomId}`,
@@ -159,28 +257,29 @@ export const reapStalePresence = onSchedule(
     const staleThreshold = 5 * 60 * 1000; // 5 minutes
     const entries = snapshot.val() as Record<
       string,
-      { state?: string; lastSeen?: number; roomId?: string }
+      PresenceSnapshot
     >;
 
     let reaped = 0;
 
     for (const [userId, data] of Object.entries(entries)) {
-      if (!data || data.state === "offline") continue;
+      const state = presenceDisplayStatus(data);
+      if (!data || state === "offline") continue;
 
       // 'away' = idle in foreground (RTDB connection still alive).
       // Will become 'offline' via onDisconnect naturally — don't reap.
-      if (data.state === "away") continue;
+      if (state === "away") continue;
 
-      const lastSeen = data.lastSeen ?? 0;
+      const lastSeen = presenceTimestamp(data);
       if (now - lastSeen < staleThreshold) continue;
 
       // Stale entry — force offline
       logger.info(
-        `Reaping stale presence: ${userId} (state=${data.state}, lastSeen=${lastSeen})`,
+        `Reaping stale presence: ${userId} (state=${state}, lastSeen=${lastSeen})`,
       );
 
       // If they were live with a roomId, end the room
-      if (data.state === "live" && data.roomId) {
+      if (state === "live" && data.roomId) {
         try {
           await fetch(`${apiBaseUrl.value()}/v1/internal/end-room`, {
             method: "POST",
@@ -199,10 +298,7 @@ export const reapStalePresence = onSchedule(
       }
 
       // Set presence to offline
-      await db.ref(`presence/${userId}`).set({
-        state: "offline",
-        lastSeen: now,
-      });
+      await db.ref(`presence/${userId}`).set(offlinePresencePayload(now));
 
       reaped++;
     }

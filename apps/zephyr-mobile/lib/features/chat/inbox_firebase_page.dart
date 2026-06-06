@@ -44,7 +44,12 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
       await FirebaseChatService.instance.init(widget.myUserId);
       _sub = FirebaseChatService.instance.watchConversations().listen(
         (List<FirebaseConversation> convos) {
-          if (mounted) setState(() { _conversations = convos; _initialized = true; });
+          if (mounted) {
+            setState(() {
+              _conversations = convos;
+              _initialized = true;
+            });
+          }
           // Pre-warm presence and profile caches for all conversation partners
           final userIds = convos.map((c) => c.otherUserId).toList();
           FirebaseChatService.instance.warmPresence(userIds);
@@ -57,11 +62,21 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
           }
         },
         onError: (e) {
-          if (mounted) setState(() { _error = e.toString(); _initialized = true; });
+          if (mounted) {
+            setState(() {
+              _error = e.toString();
+              _initialized = true;
+            });
+          }
         },
       );
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _initialized = true; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _initialized = true;
+        });
+      }
     }
   }
 
@@ -91,17 +106,17 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
         if (result == null) return;
         if (!context.mounted) return;
         Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => ThreadFirebasePage(
-                myUserId: widget.myUserId,
-                myDisplayName: widget.myDisplayName,
-                myAvatarUrl: widget.myAvatarUrl,
-                otherUserId: result.id,
-                otherDisplayName: result.displayName,
-                otherAvatarUrl: result.avatarUrl,
-              ),
+          MaterialPageRoute<void>(
+            builder: (_) => ThreadFirebasePage(
+              myUserId: widget.myUserId,
+              myDisplayName: widget.myDisplayName,
+              myAvatarUrl: widget.myAvatarUrl,
+              otherUserId: result.id,
+              otherDisplayName: result.displayName,
+              otherAvatarUrl: result.avatarUrl,
             ),
-          );
+          ),
+        );
       },
     );
   }
@@ -111,9 +126,7 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (!_initialized) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_error != null) {
@@ -121,9 +134,11 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text('Firebase error:\n$_error',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.red)),
+            child: Text(
+              'Firebase error:\n$_error',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.red),
+            ),
           ),
         ),
       );
@@ -136,28 +151,38 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.chat_bubble_outline_rounded,
-                  size: 56,
-                  color: isDark ? Colors.grey.shade700 : Colors.grey.shade300),
+              Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 56,
+                color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+              ),
               const SizedBox(height: 12),
-              Text('No Firebase messages yet',
-                  style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey.shade500)),
+              Text(
+                'No Firebase messages yet',
+                style: TextStyle(fontSize: 16, color: Colors.grey.shade500),
+              ),
               const SizedBox(height: 8),
-              Text('Tap + to start a Firebase chat',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+              Text(
+                'Tap + to start a Firebase chat',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              ),
               const SizedBox(height: 20),
               GestureDetector(
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: widget.myUserId));
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('ID copied!'), duration: Duration(seconds: 1)),
+                    const SnackBar(
+                      content: Text('ID copied!'),
+                      duration: Duration(seconds: 1),
+                    ),
                   );
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.grey.shade800,
                     borderRadius: BorderRadius.circular(8),
@@ -167,8 +192,14 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
                     children: [
                       const Icon(Icons.copy, size: 14, color: Colors.grey),
                       const SizedBox(width: 6),
-                      Text(widget.myUserId,
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade400, fontFamily: 'monospace')),
+                      Text(
+                        widget.myUserId,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade400,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -184,110 +215,130 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
       body: ValueListenableBuilder<int>(
         valueListenable: FirebaseChatService.instance.profileVersion,
         builder: (context, _, __) => ListView.separated(
-        itemCount: _conversations.length,
-        separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
-        itemBuilder: (BuildContext ctx, int i) {
-          final FirebaseConversation c = _conversations[i];
-          final profile = FirebaseChatService.instance.profileCached(c.otherUserId);
-          final String displayName = profile?.displayName ?? c.otherDisplayName;
-          final String? avatarUrl = profile?.avatarUrl ?? c.otherAvatarUrl;
-          return ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: SizedBox(
-              width: 52,
-              height: 52,
-              child: Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 26,
-                    backgroundColor: const Color(0xFFFF8F00).withValues(alpha: 0.15),
-                    backgroundImage: avatarUrl != null
-                        ? CachedNetworkImageProvider(avatarUrl)
-                        : null,
-                    child: avatarUrl == null
-                        ? Text(
-                            displayName.isNotEmpty
-                                ? displayName[0].toUpperCase()
-                                : '?',
-                            style: const TextStyle(
+          itemCount: _conversations.length,
+          separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+          itemBuilder: (BuildContext ctx, int i) {
+            final FirebaseConversation c = _conversations[i];
+            final profile = FirebaseChatService.instance.profileCached(
+              c.otherUserId,
+            );
+            final String displayName =
+                profile?.displayName ?? c.otherDisplayName;
+            final String? avatarUrl = profile?.avatarUrl ?? c.otherAvatarUrl;
+            return ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              leading: SizedBox(
+                width: 52,
+                height: 52,
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 26,
+                      backgroundColor: const Color(
+                        0xFFFF8F00,
+                      ).withValues(alpha: 0.15),
+                      backgroundImage: avatarUrl != null
+                          ? CachedNetworkImageProvider(avatarUrl)
+                          : null,
+                      child: avatarUrl == null
+                          ? Text(
+                              displayName.isNotEmpty
+                                  ? displayName[0].toUpperCase()
+                                  : '?',
+                              style: const TextStyle(
                                 color: Color(0xFFFF8F00),
-                                fontWeight: FontWeight.w700),
-                          )
-                        : null,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            )
+                          : null,
+                    ),
+                    // Firebase presence dot
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: _PresenceDot(userId: c.otherUserId),
+                    ),
+                  ],
+                ),
+              ),
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      displayName,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
-                  // Firebase presence dot
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: _PresenceDot(userId: c.otherUserId),
+                  Text(
+                    _timeAgo(c.lastMessageAt),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark
+                          ? Colors.grey.shade500
+                          : Colors.grey.shade400,
+                    ),
                   ),
                 ],
               ),
-            ),
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(displayName,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                ),
-                Text(_timeAgo(c.lastMessageAt),
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: isDark ? Colors.grey.shade500 : Colors.grey.shade400)),
-              ],
-            ),
-            subtitle: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    c.lastMessage,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+              subtitle: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      c.lastMessage,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
                         color: c.unreadCount > 0
                             ? (isDark ? Colors.white : Colors.black87)
                             : Colors.grey.shade500,
                         fontWeight: c.unreadCount > 0
                             ? FontWeight.w500
-                            : FontWeight.normal),
-                  ),
-                ),
-                if (c.unreadCount > 0)
-                  Container(
-                    margin: const EdgeInsets.only(left: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF8F00),
-                      borderRadius: BorderRadius.circular(10),
+                            : FontWeight.normal,
+                      ),
                     ),
-                    child: Text(
-                      '${c.unreadCount}',
-                      style: const TextStyle(
+                  ),
+                  if (c.unreadCount > 0)
+                    Container(
+                      margin: const EdgeInsets.only(left: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF8F00),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '${c.unreadCount}',
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 11,
-                          fontWeight: FontWeight.w700),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ThreadFirebasePage(
+                      myUserId: widget.myUserId,
+                      myDisplayName: widget.myDisplayName,
+                      myAvatarUrl: widget.myAvatarUrl,
+                      otherUserId: c.otherUserId,
+                      otherDisplayName: displayName,
+                      otherAvatarUrl: avatarUrl,
                     ),
                   ),
-              ],
-            ),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => ThreadFirebasePage(
-                    myUserId: widget.myUserId,
-                    myDisplayName: widget.myDisplayName,
-                    myAvatarUrl: widget.myAvatarUrl,
-                    otherUserId: c.otherUserId,
-                    otherDisplayName: displayName,
-                    otherAvatarUrl: avatarUrl,
-
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -305,7 +356,8 @@ class _PresenceDot extends StatelessWidget {
       valueListenable: FirebaseChatService.instance.presenceVersion,
       builder: (context, _, __) {
         final String state =
-            FirebaseChatService.instance.presenceStateCached(userId) ?? 'offline';
+            FirebaseChatService.instance.presenceStateCached(userId) ??
+            'offline';
         if (state == 'away') {
           return Icon(
             Icons.nightlight_round,
@@ -316,6 +368,9 @@ class _PresenceDot extends StatelessWidget {
         final Color color;
         final double opacity;
         switch (state) {
+          case 'premium_live':
+            color = const Color(0xFFFF2D55);
+            opacity = 1.0;
           case 'live':
             color = const Color(0xFFFF3B30);
             opacity = 1.0;
@@ -379,7 +434,10 @@ class _UserSearchDialogState extends State<_UserSearchDialog> {
       setState(() => _results = []);
       return;
     }
-    _debounce = Timer(const Duration(milliseconds: 400), () => _search(q.trim()));
+    _debounce = Timer(
+      const Duration(milliseconds: 400),
+      () => _search(q.trim()),
+    );
   }
 
   Future<void> _search(String q) async {
@@ -429,7 +487,9 @@ class _UserSearchDialogState extends State<_UserSearchDialog> {
                 child: _results.isEmpty
                     ? Center(
                         child: Text(
-                          _ctrl.text.length < 2 ? 'Type to search' : 'No results',
+                          _ctrl.text.length < 2
+                              ? 'Type to search'
+                              : 'No results',
                           style: TextStyle(color: Colors.grey.shade500),
                         ),
                       )
@@ -443,14 +503,21 @@ class _UserSearchDialogState extends State<_UserSearchDialog> {
                                   ? CachedNetworkImageProvider(user.avatarUrl!)
                                   : null,
                               child: user.avatarUrl == null
-                                  ? Text(user.displayName.isNotEmpty
-                                      ? user.displayName[0].toUpperCase()
-                                      : '?')
+                                  ? Text(
+                                      user.displayName.isNotEmpty
+                                          ? user.displayName[0].toUpperCase()
+                                          : '?',
+                                    )
                                   : null,
                             ),
                             title: Text(user.displayName),
-                            subtitle: Text('#${user.publicId}',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                            subtitle: Text(
+                              '#${user.publicId}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
                             onTap: () => Navigator.pop(ctx, user),
                           );
                         },
@@ -460,7 +527,10 @@ class _UserSearchDialogState extends State<_UserSearchDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
       ],
     );
   }
