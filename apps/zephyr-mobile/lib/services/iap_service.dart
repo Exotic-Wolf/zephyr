@@ -31,6 +31,48 @@ class IapPurchaseResult {
   final String? error;
 }
 
+class IapCatalogState {
+  const IapCatalogState({
+    this.loading = false,
+    this.storeAvailable = false,
+    this.products = const <ProductDetails>[],
+    this.notFoundIds = const <String>{},
+    this.error,
+  });
+
+  final bool loading;
+  final bool storeAvailable;
+  final List<ProductDetails> products;
+  final Set<String> notFoundIds;
+  final String? error;
+
+  ProductDetails? productFor(String productId) {
+    for (final ProductDetails product in products) {
+      if (product.id == productId) {
+        return product;
+      }
+    }
+    return null;
+  }
+
+  IapCatalogState copyWith({
+    bool? loading,
+    bool? storeAvailable,
+    List<ProductDetails>? products,
+    Set<String>? notFoundIds,
+    String? error,
+    bool clearError = false,
+  }) {
+    return IapCatalogState(
+      loading: loading ?? this.loading,
+      storeAvailable: storeAvailable ?? this.storeAvailable,
+      products: products ?? this.products,
+      notFoundIds: notFoundIds ?? this.notFoundIds,
+      error: clearError ? null : error ?? this.error,
+    );
+  }
+}
+
 /// Bulletproof IAP service.
 ///
 /// Responsibilities:
@@ -51,6 +93,9 @@ class IapService {
 
   /// Available products from the store.
   final ValueNotifier<List<ProductDetails>> products = ValueNotifier([]);
+  final ValueNotifier<IapCatalogState> catalog = ValueNotifier(
+    const IapCatalogState(),
+  );
 
   /// Whether the store is available.
   bool _storeAvailable = false;
@@ -77,9 +122,17 @@ class IapService {
     _apiClient = apiClient;
     _accessToken = accessToken;
 
+    catalog.value = catalog.value.copyWith(loading: true, clearError: true);
     _storeAvailable = await _iap.isAvailable();
     if (!_storeAvailable) {
       debugPrint('[IAP] Store not available');
+      products.value = <ProductDetails>[];
+      catalog.value = const IapCatalogState(
+        loading: false,
+        storeAvailable: false,
+        products: <ProductDetails>[],
+        error: 'Store not available',
+      );
       return;
     }
 
@@ -116,24 +169,67 @@ class IapService {
 
   /// Load products from the store.
   Future<void> _loadProducts() async {
-    final ProductDetailsResponse response = await _iap.queryProductDetails(
-      kProductIds,
+    catalog.value = catalog.value.copyWith(
+      loading: true,
+      storeAvailable: _storeAvailable,
+      clearError: true,
     );
 
-    if (response.error != null) {
-      debugPrint('[IAP] Error loading products: ${response.error}');
+    try {
+      final ProductDetailsResponse response = await _iap.queryProductDetails(
+        kProductIds,
+      );
+
+      final String? errorMessage = response.error?.message;
+      if (response.error != null) {
+        debugPrint('[IAP] Error loading products: ${response.error}');
+      }
+
+      final Set<String> notFoundIds = response.notFoundIDs.toSet();
+      if (notFoundIds.isNotEmpty) {
+        debugPrint('[IAP] Products not found: $notFoundIds');
+      }
+
+      // Sort by price ascending
+      final sorted = List<ProductDetails>.from(response.productDetails)
+        ..sort((a, b) => a.rawPrice.compareTo(b.rawPrice));
+
+      products.value = sorted;
+      catalog.value = IapCatalogState(
+        loading: false,
+        storeAvailable: _storeAvailable,
+        products: sorted,
+        notFoundIds: notFoundIds,
+        error: errorMessage,
+      );
+      debugPrint('[IAP] Loaded ${sorted.length} products');
+    } catch (e) {
+      debugPrint('[IAP] Product catalog load failed: $e');
+      products.value = <ProductDetails>[];
+      catalog.value = IapCatalogState(
+        loading: false,
+        storeAvailable: _storeAvailable,
+        products: const <ProductDetails>[],
+        notFoundIds: kProductIds,
+        error: 'Could not load store products',
+      );
+    }
+  }
+
+  Future<void> reloadProducts() async {
+    _storeAvailable = await _iap.isAvailable();
+    if (!_storeAvailable) {
+      products.value = <ProductDetails>[];
+      catalog.value = const IapCatalogState(
+        loading: false,
+        storeAvailable: false,
+        products: <ProductDetails>[],
+        error: 'Store not available',
+      );
+      return;
     }
 
-    if (response.notFoundIDs.isNotEmpty) {
-      debugPrint('[IAP] Products not found: ${response.notFoundIDs}');
-    }
-
-    // Sort by price ascending
-    final sorted = List<ProductDetails>.from(response.productDetails)
-      ..sort((a, b) => a.rawPrice.compareTo(b.rawPrice));
-
-    products.value = sorted;
-    debugPrint('[IAP] Loaded ${sorted.length} products');
+    await _loadProducts();
   }
 
   /// Initiate a purchase for the given product.
