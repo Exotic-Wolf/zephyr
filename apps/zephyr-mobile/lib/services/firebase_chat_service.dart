@@ -4,10 +4,14 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+
+import 'direct_call_signals.dart';
+import 'live_room_realtime.dart';
+import 'presence_realtime.dart';
+import 'realtime_profiles.dart';
 
 /// Isolated Firebase chat service — completely separate from existing messaging.
 /// Uses Firestore for messages and RTDB for presence (onDisconnect).
@@ -16,11 +20,10 @@ class FirebaseChatService {
   static final FirebaseChatService instance = FirebaseChatService._();
 
   final FirebaseFirestore _fs = FirebaseFirestore.instance;
-  final FirebaseDatabase _rtdb = FirebaseDatabase.instanceFor(
-    app: Firebase.app(),
-    databaseURL:
-        'https://zephyr-495115-default-rtdb.asia-southeast1.firebasedatabase.app',
-  );
+  final PresenceRealtime presence = PresenceRealtime();
+  final ProfilesRealtime profiles = ProfilesRealtime();
+  final DirectCallSignals directSignals = DirectCallSignals();
+  final LiveRoomRealtime liveRooms = LiveRoomRealtime();
 
   String? _myUserId;
   String get myUserId => _myUserId!;
@@ -28,176 +31,6 @@ class FirebaseChatService {
   /// Callback to send push notifications via the backend API.
   Future<void> Function(String recipientId, String title, String body)?
   onSendPush;
-
-  // ── Presence cache ──────────────────────────────────────────────────────────
-  /// Whether THIS user is currently live-streaming.
-  bool _isLive = false;
-  String? _liveRoomId;
-
-  /// Whether THIS user is currently in a call.
-  bool _isBusy = false;
-  String? _busySessionId;
-  String _busyActivity = 'direct_call';
-
-  /// Whether the app is currently in the background.
-  bool _isBackground = false;
-
-  /// Cached display status per user: online, away, offline, busy, live, premium_live.
-  final Map<String, String> _presenceCache = {};
-
-  /// Cached roomId per user (only set when display status is live/premium live).
-  final Map<String, String> _presenceRoomCache = {};
-  final Map<String, StreamSubscription<DatabaseEvent>> _presenceSubs = {};
-  final Map<String, DateTime> _presenceLastAccess = {};
-  StreamSubscription<DatabaseEvent>? _connectedSub;
-
-  /// Notifies listeners whenever any user's presence changes.
-  final ValueNotifier<int> presenceVersion = ValueNotifier<int>(0);
-
-  /// Whether a user is known to be available for lightweight contact.
-  /// Returns null if unknown. Treats 'away' as reachable (push can wake them).
-  bool? isOnlineCached(String userId) {
-    final s = _presenceCache[userId];
-    if (s == null) return null;
-    return s == 'online' || s == 'live' || s == 'away';
-  }
-
-  /// Returns the display presence state. Null if unknown.
-  String? presenceStateCached(String userId) => _presenceCache[userId];
-
-  /// Returns the roomId for a user who is currently live. Null otherwise.
-  String? presenceRoomIdCached(String userId) => _presenceRoomCache[userId];
-
-  /// Pre-warm presence for a list of user IDs. Subscribes once per user.
-  /// Caps at 50 subscriptions to avoid unbounded RTDB listeners.
-  static const int _maxPresenceSubs = 50;
-
-  void warmPresence(List<String> userIds) {
-    for (final String uid in userIds) {
-      if (_presenceSubs.containsKey(uid)) {
-        _presenceLastAccess[uid] = DateTime.now();
-        continue;
-      }
-
-      // Evict least-recently-accessed subscription if at capacity
-      while (_presenceSubs.length >= _maxPresenceSubs) {
-        String? lruKey;
-        DateTime? lruTime;
-        for (final entry in _presenceLastAccess.entries) {
-          if (!_presenceSubs.containsKey(entry.key)) continue;
-          if (lruTime == null || entry.value.isBefore(lruTime)) {
-            lruKey = entry.key;
-            lruTime = entry.value;
-          }
-        }
-        final evict = lruKey ?? _presenceSubs.keys.first;
-        _presenceSubs.remove(evict)?.cancel();
-        _presenceLastAccess.remove(evict);
-      }
-
-      _presenceLastAccess[uid] = DateTime.now();
-      _presenceSubs[uid] = _rtdb.ref('presence/$uid').onValue.listen((event) {
-        final data = event.snapshot.value;
-        final String state = data is Map
-            ? ((data['displayStatus'] as String?) ??
-                  (data['state'] as String?) ??
-                  'offline')
-            : 'offline';
-        final String? roomId = data is Map ? data['roomId'] as String? : null;
-
-        final bool changed =
-            _presenceCache[uid] != state || _presenceRoomCache[uid] != roomId;
-
-        _presenceCache[uid] = state;
-        if ((state == 'live' || state == 'premium_live') && roomId != null) {
-          _presenceRoomCache[uid] = roomId;
-        } else {
-          _presenceRoomCache.remove(uid);
-        }
-
-        if (changed) {
-          presenceVersion.value++;
-        }
-      });
-    }
-  }
-
-  // ── Profiles cache (RTDB) ──────────────────────────────────────────────────
-
-  /// Cached profile data per user: displayName, avatarUrl, countryCode, language.
-  final Map<String, RtdbProfile> _profileCache = {};
-  final Map<String, StreamSubscription<DatabaseEvent>> _profileSubs = {};
-  final Map<String, DateTime> _profileLastAccess = {};
-  static const int _maxProfileSubs = 50;
-
-  /// Notifies listeners whenever any user's profile changes.
-  final ValueNotifier<int> profileVersion = ValueNotifier<int>(0);
-
-  /// Returns cached profile for a user. Null if not yet loaded.
-  RtdbProfile? profileCached(String userId) => _profileCache[userId];
-
-  /// Pre-warm profile data for a list of user IDs. Same LRU pattern as presence.
-  void warmProfiles(List<String> userIds) {
-    for (final String uid in userIds) {
-      if (_profileSubs.containsKey(uid)) {
-        _profileLastAccess[uid] = DateTime.now();
-        continue;
-      }
-
-      // Evict LRU if at capacity
-      while (_profileSubs.length >= _maxProfileSubs) {
-        String? lruKey;
-        DateTime? lruTime;
-        for (final entry in _profileLastAccess.entries) {
-          if (!_profileSubs.containsKey(entry.key)) continue;
-          if (lruTime == null || entry.value.isBefore(lruTime)) {
-            lruKey = entry.key;
-            lruTime = entry.value;
-          }
-        }
-        final evict = lruKey ?? _profileSubs.keys.first;
-        _profileSubs.remove(evict)?.cancel();
-        _profileLastAccess.remove(evict);
-      }
-
-      _profileLastAccess[uid] = DateTime.now();
-      _profileSubs[uid] = _rtdb.ref('profiles/$uid').onValue.listen((event) {
-        final data = event.snapshot.value;
-        if (data is Map) {
-          final profile = RtdbProfile(
-            displayName: (data['displayName'] as String?) ?? 'User',
-            avatarUrl: data['avatarUrl'] as String?,
-            countryCode: (data['countryCode'] as String?) ?? '',
-            language: (data['language'] as String?) ?? '',
-            birthday: data['birthday'] as String?,
-          );
-          final old = _profileCache[uid];
-          _profileCache[uid] = profile;
-          if (old != profile) {
-            profileVersion.value++;
-          }
-        }
-      });
-    }
-  }
-
-  /// Write the current user's profile to RTDB. Call on login, onboarding, and profile edit.
-  Future<void> writeMyProfile({
-    required String displayName,
-    String? avatarUrl,
-    required String countryCode,
-    required String language,
-    String? birthday,
-  }) async {
-    if (_myUserId == null) return;
-    await _rtdb.ref('profiles/$_myUserId').set({
-      'displayName': displayName,
-      'avatarUrl': avatarUrl,
-      'countryCode': countryCode,
-      'language': language,
-      if (birthday != null) 'birthday': birthday,
-    });
-  }
 
   /// Initialize: sign in with custom Firebase token and set up presence.
   /// [zephyrUserId] is the app's user ID (UUID). Safe to call multiple times.
@@ -212,280 +45,77 @@ class FirebaseChatService {
       } else {
         await FirebaseAuth.instance.signInAnonymously();
       }
-      _setupPresence(zephyrUserId);
+      profiles.bindUser(zephyrUserId);
+      await presence.bindUser(zephyrUserId);
+    } else {
+      profiles.bindUser(zephyrUserId);
+      await presence.writeCurrent();
     }
-
-    await _writeMyPresence(_currentPresencePayload());
   }
 
-  // ── Presence (RTDB + onDisconnect) ──────────────────────────────────────────
+  // ── Realtime module facade ─────────────────────────────────────────────────
 
-  void _setupPresence(String userId) {
-    final DatabaseReference presenceRef = _rtdb.ref('presence/$userId');
-    final DatabaseReference connectedRef = _rtdb.ref('.info/connected');
+  ValueNotifier<int> get presenceVersion => presence.version;
+  ValueNotifier<int> get profileVersion => profiles.version;
 
-    _connectedSub?.cancel();
-    _connectedSub = connectedRef.onValue.listen((DatabaseEvent event) {
-      final bool connected = event.snapshot.value as bool? ?? false;
-      if (!connected) return;
+  bool? isOnlineCached(String userId) => presence.isOnlineCached(userId);
+  String? presenceStateCached(String userId) => presence.stateCached(userId);
+  String? presenceRoomIdCached(String userId) => presence.roomIdCached(userId);
+  void warmPresence(List<String> userIds) => presence.warm(userIds);
 
-      presenceRef.onDisconnect().set(_offlinePresencePayload());
-      presenceRef.set(_currentPresencePayload());
-    });
-  }
+  RtdbProfile? profileCached(String userId) => profiles.cached(userId);
+  void warmProfiles(List<String> userIds) => profiles.warm(userIds);
 
-  Map<String, dynamic> _presencePayload({
-    required String connection,
-    required String activity,
-    required String availability,
-    required bool directCall,
-    required bool randomCall,
-    required String displayStatus,
-    required bool interruptible,
-    required String legacyState,
-    String? roomId,
-    String? roomMode,
-    String? callSessionId,
-    String? premiumRoomSessionId,
-    String? previousActivity,
-    String? previousRoomId,
+  Future<void> writeMyProfile({
+    required String displayName,
+    String? avatarUrl,
+    required String countryCode,
+    required String language,
+    String? birthday,
   }) {
-    return <String, dynamic>{
-      'schemaVersion': 1,
-      'connection': connection,
-      'activity': activity,
-      'availability': availability,
-      'routing': <String, bool>{
-        'directCall': directCall,
-        'randomCall': randomCall,
-      },
-      'displayStatus': displayStatus,
-      'interruptible': interruptible,
-      'state': legacyState,
-      'lastSeen': ServerValue.timestamp,
-      'updatedAt': ServerValue.timestamp,
-      if (roomId != null) 'roomId': roomId,
-      if (roomMode != null) 'roomMode': roomMode,
-      if (callSessionId != null) 'callSessionId': callSessionId,
-      if (premiumRoomSessionId != null)
-        'premiumRoomSessionId': premiumRoomSessionId,
-      if (previousActivity != null) 'previousActivity': previousActivity,
-      if (previousRoomId != null) 'previousRoomId': previousRoomId,
-    };
-  }
-
-  Map<String, dynamic> _offlinePresencePayload() {
-    return _presencePayload(
-      connection: 'offline',
-      activity: 'idle',
-      availability: 'unavailable',
-      directCall: false,
-      randomCall: false,
-      displayStatus: 'offline',
-      interruptible: false,
-      legacyState: 'offline',
+    return profiles.writeMine(
+      displayName: displayName,
+      avatarUrl: avatarUrl,
+      countryCode: countryCode,
+      language: language,
+      birthday: birthday,
     );
-  }
-
-  Map<String, dynamic> _offlinePresenceFallback() {
-    return <String, dynamic>{
-      'schemaVersion': 1,
-      'connection': 'offline',
-      'activity': 'idle',
-      'availability': 'unavailable',
-      'routing': <String, bool>{'directCall': false, 'randomCall': false},
-      'displayStatus': 'offline',
-      'interruptible': false,
-      'state': 'offline',
-      'lastSeen': 0,
-      'updatedAt': 0,
-    };
-  }
-
-  Map<String, dynamic> _idlePresencePayload() {
-    return _presencePayload(
-      connection: 'online',
-      activity: 'idle',
-      availability: 'available',
-      directCall: true,
-      randomCall: true,
-      displayStatus: 'online',
-      interruptible: true,
-      legacyState: 'online',
-    );
-  }
-
-  Map<String, dynamic> _awayPresencePayload() {
-    return _presencePayload(
-      connection: 'online',
-      activity: 'away',
-      availability: 'available',
-      directCall: true,
-      randomCall: false,
-      displayStatus: 'away',
-      interruptible: true,
-      legacyState: 'away',
-    );
-  }
-
-  Map<String, dynamic> _freeLiveHostPresencePayload(String? roomId) {
-    return _presencePayload(
-      connection: 'online',
-      activity: 'free_live_host',
-      availability: 'available',
-      directCall: true,
-      randomCall: true,
-      displayStatus: 'live',
-      interruptible: true,
-      legacyState: 'live',
-      roomId: roomId,
-      roomMode: 'free_live',
-    );
-  }
-
-  Map<String, dynamic> _callPresencePayload({
-    required String activity,
-    String? sessionId,
-  }) {
-    return _presencePayload(
-      connection: 'online',
-      activity: activity,
-      availability: 'busy',
-      directCall: false,
-      randomCall: false,
-      displayStatus: 'busy',
-      interruptible: false,
-      legacyState: 'busy',
-      callSessionId: sessionId,
-      previousActivity: _isLive ? 'free_live_host' : null,
-      previousRoomId: _isLive ? _liveRoomId : null,
-    );
-  }
-
-  Map<String, dynamic> _currentPresencePayload() {
-    if (_isBackground) {
-      return _offlinePresencePayload();
-    }
-    if (_isBusy) {
-      return _callPresencePayload(
-        activity: _busyActivity,
-        sessionId: _busySessionId,
-      );
-    }
-    if (_isLive) {
-      return _freeLiveHostPresencePayload(_liveRoomId);
-    }
-    return _idlePresencePayload();
-  }
-
-  Future<void> _writeMyPresence(Map<String, dynamic> payload) {
-    final uid = _myUserId;
-    if (uid == null) return Future<void>.value();
-    return _rtdb.ref('presence/$uid').set(payload);
   }
 
   /// Listen to a user's presence state.
-  Stream<Map<String, dynamic>> watchPresence(String userId) {
-    return _rtdb.ref('presence/$userId').onValue.map((DatabaseEvent event) {
-      final data = event.snapshot.value;
-      if (data == null) return _offlinePresenceFallback();
-      return Map<String, dynamic>.from(data as Map);
-    });
-  }
+  Stream<Map<String, dynamic>> watchPresence(String userId) =>
+      presence.watch(userId);
 
   /// Mark current user as "live" in Firebase RTDB presence.
-  void setLiveStatus({String? roomId}) {
-    if (_myUserId == null) return;
-    _isLive = true;
-    _liveRoomId = roomId;
-    _writeMyPresence(_currentPresencePayload());
-  }
+  void setLiveStatus({String? roomId}) => presence.setLive(roomId: roomId);
 
   /// Restore current user to "online" (call when ending a live stream).
-  void clearLiveStatus() {
-    if (_myUserId == null) return;
-    _isLive = false;
-    _liveRoomId = null;
-    _writeMyPresence(_currentPresencePayload());
-  }
+  void clearLiveStatus() => presence.clearLive();
 
   /// Mark current user as "away" (idle in foreground for 60s, no touches).
-  void setAwayStatus() {
-    if (_myUserId == null || _isLive || _isBusy || _isBackground) return;
-    _writeMyPresence(_awayPresencePayload());
-  }
+  void setAwayStatus() => presence.setAway();
 
   /// Mark current user as offline (app backgrounded / screen locked).
-  void setBackgroundOffline() {
-    if (_myUserId == null) return;
-    _isBackground = true;
-    _writeMyPresence(_currentPresencePayload());
-  }
+  void setBackgroundOffline() => presence.setBackgroundOffline();
 
   /// Restore current user to "online" (app foregrounded / user active).
-  void restoreOnlineStatus() {
-    if (_myUserId == null) return;
-    _isBackground = false;
-    // Respect current overrides
-    if (_isLive || _isBusy) return;
-    _writeMyPresence(_currentPresencePayload());
-  }
+  void restoreOnlineStatus() => presence.restoreOnline();
 
   /// Mark current user as "busy" in Firebase RTDB presence.
   void setBusyStatus({String? sessionId, String activity = 'direct_call'}) {
-    if (_myUserId == null) return;
-    _isBusy = true;
-    _busySessionId = sessionId;
-    _busyActivity = activity == 'random_call' ? 'random_call' : 'direct_call';
-    _writeMyPresence(_currentPresencePayload());
+    presence.setBusy(sessionId: sessionId, activity: activity);
   }
 
   /// Clear busy and restore to "online".
-  void clearBusyStatus() {
-    if (_myUserId == null) return;
-    _isBusy = false;
-    _busySessionId = null;
-    _busyActivity = 'direct_call';
-    _writeMyPresence(_currentPresencePayload());
-  }
+  void clearBusyStatus() => presence.clearBusy();
 
   /// Explicitly go offline (logout). Cancels onDisconnect and clears presence.
-  Future<void> setOfflineStatus() async {
-    final uid = _myUserId;
-    if (uid == null) return;
-    final ref = _rtdb.ref('presence/$uid');
-    await ref.onDisconnect().cancel();
-    await ref.set(_offlinePresencePayload());
-    _connectedSub?.cancel();
-    _connectedSub = null;
-  }
+  Future<void> setOfflineStatus() => presence.setOffline();
 
   /// Clears all local listeners/caches and signs out Firebase Auth.
   Future<void> clearSession() async {
-    _connectedSub?.cancel();
-    _connectedSub = null;
-
-    for (final sub in _presenceSubs.values) {
-      await sub.cancel();
-    }
-    _presenceSubs.clear();
-    _presenceLastAccess.clear();
-    _presenceCache.clear();
-    _presenceRoomCache.clear();
-
-    for (final sub in _profileSubs.values) {
-      await sub.cancel();
-    }
-    _profileSubs.clear();
-    _profileLastAccess.clear();
-    _profileCache.clear();
-
-    _isLive = false;
-    _liveRoomId = null;
-    _isBusy = false;
-    _busySessionId = null;
-    _busyActivity = 'direct_call';
-    _isBackground = false;
+    await presence.clearSession();
+    await profiles.clearSession();
     _myUserId = null;
 
     try {
@@ -499,7 +129,7 @@ class FirebaseChatService {
 
   /// Reference to a user's call signaling node.
   DatabaseReference callSignalRef(String userId) =>
-      _rtdb.ref('direct_calls/$userId');
+      directSignals.refForUser(userId);
 
   /// Write a "ringing" signal to the target user's node.
   /// Also sets onDisconnect to auto-remove the node if the caller crashes.
@@ -509,33 +139,30 @@ class FirebaseChatService {
     required String callerName,
     String? callerAvatarUrl,
     required String sessionId,
-  }) async {
-    final ref = callSignalRef(targetUserId);
-    await ref.onDisconnect().remove();
-    await ref.set(<String, dynamic>{
-      'callerId': callerId,
-      'callerName': callerName,
-      'callerAvatarUrl': callerAvatarUrl,
-      'sessionId': sessionId,
-      'status': 'ringing',
-      'ts': ServerValue.timestamp,
-    });
+  }) {
+    return directSignals.writeRinging(
+      targetUserId: targetUserId,
+      callerId: callerId,
+      callerName: callerName,
+      callerAvatarUrl: callerAvatarUrl,
+      sessionId: sessionId,
+    );
   }
 
   /// Cancel the onDisconnect handler (call this when the call connects to Agora,
   /// so a brief RTDB disconnect doesn't kill the active call).
   Future<void> cancelOnDisconnect(String targetUserId) {
-    return callSignalRef(targetUserId).onDisconnect().cancel();
+    return directSignals.cancelOnDisconnect(targetUserId);
   }
 
   /// Update the status field on my own signal node (e.g. 'accepted', 'declined').
   Future<void> writeCallStatus(String userId, String status) {
-    return callSignalRef(userId).child('status').set(status);
+    return directSignals.writeStatus(userId, status);
   }
 
   /// Remove the call signaling node (cleanup).
   Future<void> removeCallSignal(String userId) {
-    return callSignalRef(userId).remove();
+    return directSignals.remove(userId);
   }
 
   /// Listen for changes on a user's call signal node.
@@ -544,14 +171,7 @@ class FirebaseChatService {
     String userId,
     void Function(Map<String, dynamic>? data) onData,
   ) {
-    return callSignalRef(userId).onValue.listen((DatabaseEvent event) {
-      final raw = event.snapshot.value;
-      if (raw == null) {
-        onData(null);
-      } else {
-        onData(Map<String, dynamic>.from(raw as Map));
-      }
-    });
+    return directSignals.listen(userId, onData);
   }
 
   // ── Chat ID ─────────────────────────────────────────────────────────────────
@@ -923,71 +543,34 @@ class FirebaseChatService {
 
   // ── Live Room (RTDB) ────────────────────────────────────────────────────────
 
-  /// RTDB ref for a live room's real-time data.
-  DatabaseReference _liveRef(String roomId) => _rtdb.ref('live_rooms/$roomId');
-
   /// Write audience_count and set onDisconnect to decrement.
-  Future<void> joinLiveRoom(String roomId) async {
-    final DatabaseReference countRef = _liveRef(roomId).child('audience_count');
-    await countRef.set(ServerValue.increment(1));
-    await countRef.onDisconnect().set(ServerValue.increment(-1));
-  }
+  Future<void> joinLiveRoom(String roomId) =>
+      liveRooms.joinAudience(roomId, _myUserId ?? '');
 
   /// Decrement audience_count and cancel onDisconnect.
-  Future<void> leaveLiveRoom(String roomId) async {
-    final DatabaseReference countRef = _liveRef(roomId).child('audience_count');
-    await countRef.onDisconnect().cancel();
-    await countRef.set(ServerValue.increment(-1));
-  }
+  Future<void> leaveLiveRoom(String roomId) =>
+      liveRooms.leaveAudience(roomId, _myUserId ?? '');
 
   /// Listen to audience_count changes.
   StreamSubscription<DatabaseEvent> listenAudienceCount(
     String roomId,
     void Function(int count) onCount,
-  ) {
-    return _liveRef(roomId).child('audience_count').onValue.listen((event) {
-      final int count = (event.snapshot.value as num?)?.toInt() ?? 0;
-      onCount(count < 0 ? 0 : count);
-    });
-  }
+  ) => liveRooms.listenAudienceCount(roomId, onCount);
 
   /// Push a comment to the room.
   void writeLiveComment(String roomId, String displayName, String text) {
-    _liveRef(roomId).child('comments').push().set(<String, dynamic>{
-      'name': displayName,
-      'text': text,
-      'ts': ServerValue.timestamp,
-    });
+    liveRooms.writeComment(roomId, displayName, text);
   }
 
   /// Listen for new comments (child_added).
   StreamSubscription<DatabaseEvent> listenLiveComments(
     String roomId,
     void Function(String name, String text) onComment,
-  ) {
-    return _liveRef(roomId)
-        .child('comments')
-        .orderByChild('ts')
-        .startAt(DateTime.now().millisecondsSinceEpoch)
-        .onChildAdded
-        .listen((event) {
-          final data = event.snapshot.value;
-          if (data is Map) {
-            onComment(
-              (data['name'] as String?) ?? '',
-              (data['text'] as String?) ?? '',
-            );
-          }
-        });
-  }
+  ) => liveRooms.listenComments(roomId, onComment);
 
   /// Push a reaction (ephemeral).
   void writeLiveReaction(String roomId, String userId, String emoji) {
-    _liveRef(roomId).child('reactions').push().set(<String, dynamic>{
-      'userId': userId,
-      'emoji': emoji,
-      'ts': ServerValue.timestamp,
-    });
+    liveRooms.writeReaction(roomId, userId, emoji);
   }
 
   /// Listen for new reactions.
@@ -995,19 +578,7 @@ class FirebaseChatService {
     String roomId,
     String myUserId,
     void Function(String emoji) onReaction,
-  ) {
-    return _liveRef(roomId)
-        .child('reactions')
-        .orderByChild('ts')
-        .startAt(DateTime.now().millisecondsSinceEpoch)
-        .onChildAdded
-        .listen((event) {
-          final data = event.snapshot.value;
-          if (data is Map && data['userId'] != myUserId) {
-            onReaction((data['emoji'] as String?) ?? '❤️');
-          }
-        });
-  }
+  ) => liveRooms.listenReactions(roomId, myUserId, onReaction);
 
   /// Push a gift event (called after backend confirms economy).
   void writeLiveGift(
@@ -1017,101 +588,33 @@ class FirebaseChatService {
     String giftName,
     int quantity,
   ) {
-    _liveRef(roomId).child('gifts').push().set(<String, dynamic>{
-      'senderName': senderName,
-      'giftId': giftId,
-      'giftName': giftName,
-      'quantity': quantity,
-      'ts': ServerValue.timestamp,
-    });
+    liveRooms.writeGift(roomId, senderName, giftId, giftName, quantity);
   }
 
   /// Listen for new gifts.
   StreamSubscription<DatabaseEvent> listenLiveGifts(
     String roomId,
     void Function(String senderName, String giftName, int quantity) onGift,
-  ) {
-    return _liveRef(roomId)
-        .child('gifts')
-        .orderByChild('ts')
-        .startAt(DateTime.now().millisecondsSinceEpoch)
-        .onChildAdded
-        .listen((event) {
-          final data = event.snapshot.value;
-          if (data is Map) {
-            onGift(
-              (data['senderName'] as String?) ?? '',
-              (data['giftName'] as String?) ?? '',
-              (data['quantity'] as num?)?.toInt() ?? 1,
-            );
-          }
-        });
-  }
+  ) => liveRooms.listenGifts(roomId, onGift);
 
   /// Mark room as ended in RTDB (host calls this).
   void endLiveRoom(String roomId) {
-    _liveRef(roomId).child('status').set('ended');
-    // Clean up after 10 seconds
-    Future<void>.delayed(const Duration(seconds: 10), () {
-      _liveRef(roomId).remove();
-    });
+    liveRooms.endRoom(roomId);
   }
 
   /// Listen for room ended.
   StreamSubscription<DatabaseEvent> listenRoomEnded(
     String roomId,
     void Function() onEnded,
-  ) {
-    return _liveRef(roomId).child('status').onValue.listen((event) {
-      if (event.snapshot.value == 'ended') {
-        onEnded();
-      }
-    });
-  }
+  ) => liveRooms.listenEnded(roomId, onEnded);
 
   /// Initialize a room node when going live.
-  void initLiveRoom(String roomId) {
-    _liveRef(roomId).set(<String, dynamic>{
-      'status': 'live',
-      'audience_count': 0,
-      'started_at': ServerValue.timestamp,
-    });
-    // If host disconnects, mark room ended
-    _liveRef(roomId).child('status').onDisconnect().set('ended');
+  void initLiveRoom(String roomId, {required String hostUserId}) {
+    liveRooms.initRoom(roomId, hostUserId: hostUserId);
   }
 }
 
 // ── Models ────────────────────────────────────────────────────────────────────
-
-class RtdbProfile {
-  const RtdbProfile({
-    required this.displayName,
-    this.avatarUrl,
-    required this.countryCode,
-    required this.language,
-    this.birthday,
-  });
-
-  final String displayName;
-  final String? avatarUrl;
-  final String countryCode;
-  final String language;
-  final String? birthday;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is RtdbProfile &&
-          displayName == other.displayName &&
-          avatarUrl == other.avatarUrl &&
-          countryCode == other.countryCode &&
-          language == other.language &&
-          birthday == other.birthday;
-
-  @override
-  int get hashCode =>
-      Object.hash(displayName, avatarUrl, countryCode, language, birthday);
-}
 
 class FirebaseConversation {
   FirebaseConversation({

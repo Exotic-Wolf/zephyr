@@ -46,7 +46,8 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   Timer? _ticker;
   Timer? _heartbeatTimer;
   Timer? _tokenRenewalTimer;
-  final List<StreamSubscription<dynamic>> _rtdbSubs = <StreamSubscription<dynamic>>[];
+  final List<StreamSubscription<dynamic>> _rtdbSubs =
+      <StreamSubscription<dynamic>>[];
   final ValueNotifier<int> _viewerCountNotifier = ValueNotifier<int>(0);
   final ValueNotifier<List<LiveComment>> _commentsNotifier =
       ValueNotifier<List<LiveComment>>(<LiveComment>[]);
@@ -69,9 +70,7 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
-    widget.apiClient
-        .heartbeatRoom(widget.accessToken, widget.room.id)
-        .ignore();
+    widget.apiClient.heartbeatRoom(widget.accessToken, widget.room.id).ignore();
     _heartbeatTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => widget.apiClient
@@ -93,26 +92,32 @@ class _HostLiveScreenState extends State<HostLiveScreen>
 
     try {
       final info = await widget.apiClient.getRoomRtcToken(
-          widget.accessToken, widget.room.id);
+        widget.accessToken,
+        widget.room.id,
+      );
 
       final engine = createAgoraRtcEngine();
       await engine.initialize(RtcEngineContext(appId: info.appId));
 
       await engine.setChannelProfile(
-          ChannelProfileType.channelProfileLiveBroadcasting);
+        ChannelProfileType.channelProfileLiveBroadcasting,
+      );
       await engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
       await engine.enableVideo();
       await engine.enableAudio();
       await engine.startPreview();
 
-      engine.registerEventHandler(RtcEngineEventHandler(
-        onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
-        onConnectionStateChanged: (connection, state, reason) {
-          if (!mounted) return;
-          final bool lost = state == ConnectionStateType.connectionStateReconnecting;
-          if (lost != _reconnecting) setState(() => _reconnecting = lost);
-        },
-      ));
+      engine.registerEventHandler(
+        RtcEngineEventHandler(
+          onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
+          onConnectionStateChanged: (connection, state, reason) {
+            if (!mounted) return;
+            final bool lost =
+                state == ConnectionStateType.connectionStateReconnecting;
+            if (lost != _reconnecting) setState(() => _reconnecting = lost);
+          },
+        ),
+      );
 
       await engine.joinChannel(
         token: info.token,
@@ -132,13 +137,18 @@ class _HostLiveScreenState extends State<HostLiveScreen>
           _cameraLoading = false;
         });
         FirebaseChatService.instance.setLiveStatus(roomId: widget.room.id);
-        _ticker = Timer.periodic(
-            const Duration(seconds: 1), (_) {
+        _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
           if (mounted) setState(() => _elapsedSeconds++);
         });
         // Renew token at 50 minutes (token expires at 60 min)
-        final int renewInSeconds = (info.expiresInSeconds - 600).clamp(60, info.expiresInSeconds);
-        _tokenRenewalTimer = Timer(Duration(seconds: renewInSeconds), _renewToken);
+        final int renewInSeconds = (info.expiresInSeconds - 600).clamp(
+          60,
+          info.expiresInSeconds,
+        );
+        _tokenRenewalTimer = Timer(
+          Duration(seconds: renewInSeconds),
+          _renewToken,
+        );
       }
     } catch (e) {
       debugPrint('[Agora host] init error: $e');
@@ -149,11 +159,19 @@ class _HostLiveScreenState extends State<HostLiveScreen>
   Future<void> _renewToken() async {
     try {
       final info = await widget.apiClient.getRoomRtcToken(
-          widget.accessToken, widget.room.id);
+        widget.accessToken,
+        widget.room.id,
+      );
       await _engine?.renewToken(info.token);
       // Schedule next renewal
-      final int renewInSeconds = (info.expiresInSeconds - 600).clamp(60, info.expiresInSeconds);
-      _tokenRenewalTimer = Timer(Duration(seconds: renewInSeconds), _renewToken);
+      final int renewInSeconds = (info.expiresInSeconds - 600).clamp(
+        60,
+        info.expiresInSeconds,
+      );
+      _tokenRenewalTimer = Timer(
+        Duration(seconds: renewInSeconds),
+        _renewToken,
+      );
     } catch (e) {
       debugPrint('[Agora host] token renewal error: $e');
     }
@@ -164,37 +182,49 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     final fcs = FirebaseChatService.instance;
 
     // Initialize the live room node in RTDB
-    fcs.initLiveRoom(roomId);
+    fcs.initLiveRoom(roomId, hostUserId: widget.room.hostUserId);
 
     // Audience count
-    _rtdbSubs.add(fcs.listenAudienceCount(roomId, (int count) {
-      if (!mounted) return;
-      setState(() => _viewerCount = count);
-      _viewerCountNotifier.value = count;
-    }));
+    _rtdbSubs.add(
+      fcs.listenAudienceCount(roomId, (int count) {
+        if (!mounted) return;
+        setState(() => _viewerCount = count);
+        _viewerCountNotifier.value = count;
+      }),
+    );
 
     // Comments
-    _rtdbSubs.add(fcs.listenLiveComments(roomId, (String name, String text) {
-      if (!mounted) return;
-      _addComment(LiveComment(name: name, text: text));
-    }));
+    _rtdbSubs.add(
+      fcs.listenLiveComments(roomId, (String name, String text) {
+        if (!mounted) return;
+        _addComment(LiveComment(name: name, text: text));
+      }),
+    );
 
     // Reactions
-    _rtdbSubs.add(fcs.listenLiveReactions(roomId, '', (String emoji) {
-      if (!mounted) return;
-      final String id = DateTime.now().millisecondsSinceEpoch.toString();
-      final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
-      setState(() => _gifts.add(gift));
-      Future<void>.delayed(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _gifts.removeWhere((g) => g.id == id));
-      });
-    }));
+    _rtdbSubs.add(
+      fcs.listenLiveReactions(roomId, '', (String emoji) {
+        if (!mounted) return;
+        final String id = DateTime.now().millisecondsSinceEpoch.toString();
+        final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
+        setState(() => _gifts.add(gift));
+        Future<void>.delayed(const Duration(seconds: 3), () {
+          if (mounted) setState(() => _gifts.removeWhere((g) => g.id == id));
+        });
+      }),
+    );
 
     // Gifts
-    _rtdbSubs.add(fcs.listenLiveGifts(roomId, (String senderName, String giftName, int quantity) {
-      if (!mounted) return;
-      _addComment(LiveComment(name: senderName, text: '🎁 sent $giftName'));
-    }));
+    _rtdbSubs.add(
+      fcs.listenLiveGifts(roomId, (
+        String senderName,
+        String giftName,
+        int quantity,
+      ) {
+        if (!mounted) return;
+        _addComment(LiveComment(name: senderName, text: '🎁 sent $giftName'));
+      }),
+    );
   }
 
   void _addComment(LiveComment comment) {
@@ -234,7 +264,9 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     _ticker?.cancel();
     _heartbeatTimer?.cancel();
     _tokenRenewalTimer?.cancel();
-    for (final sub in _rtdbSubs) { sub.cancel(); }
+    for (final sub in _rtdbSubs) {
+      sub.cancel();
+    }
     _viewerCountNotifier.dispose();
     _commentsNotifier.dispose();
     _pulseCtrl.dispose();
@@ -244,9 +276,12 @@ class _HostLiveScreenState extends State<HostLiveScreen>
     FirebaseChatService.instance.clearLiveStatus();
     // Only call endRoom if not already ended by _end() or _forceEnd()
     if (!_ending) {
-      widget.apiClient.endRoom(widget.accessToken, widget.room.id)
+      widget.apiClient
+          .endRoom(widget.accessToken, widget.room.id)
           .then((_) => debugPrint('[endRoom dispose] success'))
-          .catchError((Object e) { debugPrint('[endRoom dispose] error: $e'); });
+          .catchError((Object e) {
+            debugPrint('[endRoom dispose] error: $e');
+          });
     }
     super.dispose();
   }
@@ -284,10 +319,16 @@ class _HostLiveScreenState extends State<HostLiveScreen>
         title: Text(AppLocalizations.of(context)!.endLive),
         content: Text(AppLocalizations.of(context)!.streamWillEndMessage),
         actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppLocalizations.of(context)!.cancel)),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(AppLocalizations.of(context)!.cancel),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(AppLocalizations.of(context)!.endLiveButton, style: const TextStyle(color: Colors.red)),
+            child: Text(
+              AppLocalizations.of(context)!.endLiveButton,
+              style: const TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
@@ -313,258 +354,400 @@ class _HostLiveScreenState extends State<HostLiveScreen>
       backgroundColor: Colors.black,
       body: SizedBox.expand(
         child: Stack(
-        children: <Widget>[
-          // ── Background (live camera preview or placeholder) ───────────────
-          if (_engineReady && _engine != null)
-            Positioned.fill(
-              child: AgoraVideoView(
-                controller: VideoViewController(
-                  rtcEngine: _engine!,
-                  canvas: const VideoCanvas(uid: 0),
+          children: <Widget>[
+            // ── Background (live camera preview or placeholder) ───────────────
+            if (_engineReady && _engine != null)
+              Positioned.fill(
+                child: AgoraVideoView(
+                  controller: VideoViewController(
+                    rtcEngine: _engine!,
+                    canvas: const VideoCanvas(uid: 0),
+                  ),
+                ),
+              )
+            else
+              Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      Color(0xFF1a1a2e),
+                      Color(0xFF16213e),
+                      Color(0xFF0f3460),
+                    ],
+                  ),
                 ),
               ),
-            )
-          else
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: <Color>[Color(0xFF1a1a2e), Color(0xFF16213e), Color(0xFF0f3460)],
-                ),
-              ),
-            ),
-          // Camera loading spinner
-          if (_cameraLoading)
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                  const SizedBox(height: 16),
-                  Text(AppLocalizations.of(context)!.startingCamera,
-                      style: const TextStyle(color: Colors.white70, fontSize: 14)),
-                ],
-              ),
-            ),
-          // Camera-off overlay
-          if (!_cameraOn)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black.withValues(alpha: 0.75),
+            // Camera loading spinner
+            if (_cameraLoading)
+              Center(
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    const Icon(Icons.videocam_off_rounded,
-                        color: Colors.white54, size: 56),
-                    const SizedBox(height: 12),
-                    Text(AppLocalizations.of(context)!.cameraIsOff,
-                        style: const TextStyle(color: Colors.white54, fontSize: 14)),
+                    const CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2.5,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      AppLocalizations.of(context)!.startingCamera,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // Camera-off overlay
+            if (!_cameraOn)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.75),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.videocam_off_rounded,
+                        color: Colors.white54,
+                        size: 56,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        AppLocalizations.of(context)!.cameraIsOff,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // ── Floating gift animations ────────────────────────────────────────
+            ..._gifts.map((g) => FloatingGiftWidget(gift: g)),
+
+            // ── Reconnecting overlay ────────────────────────────────────────
+            if (_reconnecting)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black54,
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          'Reconnecting...',
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // ── Top bar ────────────────────────────────────────────────────────
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          CircleAvatar(
+                            radius: 14,
+                            backgroundImage: widget.hostAvatarUrl != null
+                                ? CachedNetworkImageProvider(
+                                    widget.hostAvatarUrl!,
+                                  )
+                                : null,
+                            child: widget.hostAvatarUrl == null
+                                ? Text(
+                                    widget.hostDisplayName[0].toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            widget.hostDisplayName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    AnimatedBuilder(
+                      animation: _pulseCtrl,
+                      builder: (_, __) => Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Color.lerp(
+                            Colors.red,
+                            Colors.red.shade300,
+                            _pulseCtrl.value,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              AppLocalizations.of(context)!.liveIndicator,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: _showViewerList,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black45,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            const Icon(
+                              Icons.remove_red_eye_rounded,
+                              color: Colors.white70,
+                              size: 13,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$_viewerCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      _elapsed,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: _ending ? null : _end,
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: const BoxDecoration(
+                          color: Colors.black45,
+                          shape: BoxShape.circle,
+                        ),
+                        child: _ending
+                            ? const Padding(
+                                padding: EdgeInsets.all(6),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
 
-          // ── Floating gift animations ────────────────────────────────────────
-          ..._gifts.map((g) => FloatingGiftWidget(gift: g)),
+            // ── Comments feed ──────────────────────────────────────────────────
+            Positioned(
+              left: 12,
+              right: 120,
+              bottom: 110,
+              child: ValueListenableBuilder<List<LiveComment>>(
+                valueListenable: _commentsNotifier,
+                builder: (_, comments, __) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: comments.reversed
+                      .take(6)
+                      .toList()
+                      .reversed
+                      .map(
+                        (c) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black45,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: RichText(
+                              text: TextSpan(
+                                children: <TextSpan>[
+                                  TextSpan(
+                                    text: '${c.name}  ',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: c.text,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ),
 
-          // ── Reconnecting overlay ────────────────────────────────────────
-          if (_reconnecting)
-            Positioned.fill(
+            // ── Bottom controls ────────────────────────────────────────────────
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
               child: Container(
-                color: Colors.black54,
-                child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                      SizedBox(height: 12),
-                      Text('Reconnecting...', style: TextStyle(color: Colors.white70, fontSize: 14)),
-                    ],
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[Colors.transparent, Colors.black87],
                   ),
                 ),
-              ),
-            ),
-
-          // ── Top bar ────────────────────────────────────────────────────────
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: <Widget>[
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.black45,
-                      borderRadius: BorderRadius.circular(20),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  16,
+                  20,
+                  MediaQuery.of(context).padding.bottom + 16,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: <Widget>[
+                    LiveCtrlBtn(
+                      icon: _micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
+                      label: _micOn
+                          ? AppLocalizations.of(context)!.micOn
+                          : AppLocalizations.of(context)!.micOff,
+                      active: _micOn,
+                      onTap: () {
+                        setState(() => _micOn = !_micOn);
+                        _engine?.muteLocalAudioStream(!_micOn);
+                      },
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        CircleAvatar(
-                          radius: 14,
-                          backgroundImage: widget.hostAvatarUrl != null
-                              ? CachedNetworkImageProvider(widget.hostAvatarUrl!)
-                              : null,
-                          child: widget.hostAvatarUrl == null
-                              ? Text(widget.hostDisplayName[0].toUpperCase(),
-                                  style: const TextStyle(fontSize: 12, color: Colors.white))
-                              : null,
+                    LiveCtrlBtn(
+                      icon: _cameraOn
+                          ? Icons.videocam_rounded
+                          : Icons.videocam_off_rounded,
+                      label: _cameraOn
+                          ? AppLocalizations.of(context)!.camera
+                          : AppLocalizations.of(context)!.off,
+                      active: _cameraOn,
+                      onTap: () {
+                        setState(() => _cameraOn = !_cameraOn);
+                        _engine?.muteLocalVideoStream(!_cameraOn);
+                      },
+                    ),
+                    LiveCtrlBtn(
+                      icon: Icons.flip_camera_ios_rounded,
+                      label: AppLocalizations.of(context)!.flip,
+                      active: true,
+                      onTap: _flipCamera,
+                    ),
+                    GestureDetector(
+                      onTap: _ending ? null : _end,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
                         ),
-                        const SizedBox(width: 8),
-                        Text(widget.hostDisplayName,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  AnimatedBuilder(
-                    animation: _pulseCtrl,
-                    builder: (_, __) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Color.lerp(Colors.red, Colors.red.shade300, _pulseCtrl.value),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Container(width: 6, height: 6,
-                              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
-                          const SizedBox(width: 4),
-                          Text(AppLocalizations.of(context)!.liveIndicator, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: _showViewerList,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.black45,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          const Icon(Icons.remove_red_eye_rounded, color: Colors.white70, size: 13),
-                          const SizedBox(width: 4),
-                          Text('$_viewerCount', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(_elapsed, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: _ending ? null : _end,
-                    child: Container(
-                      width: 32, height: 32,
-                      decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                      child: _ending
-                          ? const Padding(padding: EdgeInsets.all(6), child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.close_rounded, color: Colors.white, size: 18),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // ── Comments feed ──────────────────────────────────────────────────
-          Positioned(
-            left: 12,
-            right: 120,
-            bottom: 110,
-            child: ValueListenableBuilder<List<LiveComment>>(
-              valueListenable: _commentsNotifier,
-              builder: (_, comments, __) => Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: comments.reversed.take(6).toList().reversed.map((c) =>
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black45,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: RichText(
-                        text: TextSpan(
-                          children: <TextSpan>[
-                            TextSpan(text: '${c.name}  ', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
-                            TextSpan(text: c.text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                          ],
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Text(
+                          AppLocalizations.of(context)!.endLive,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ).toList(),
-              ),
-            ),
-          ),
-
-          // ── Bottom controls ────────────────────────────────────────────────
-          Positioned(
-            left: 0, right: 0, bottom: 0,
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: <Color>[Colors.transparent, Colors.black87],
+                  ],
                 ),
               ),
-              padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).padding.bottom + 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: <Widget>[
-                  LiveCtrlBtn(
-                    icon: _micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
-                    label: _micOn ? AppLocalizations.of(context)!.micOn : AppLocalizations.of(context)!.micOff,
-                    active: _micOn,
-                    onTap: () {
-                      setState(() => _micOn = !_micOn);
-                      _engine?.muteLocalAudioStream(!_micOn);
-                    },
-                  ),
-                  LiveCtrlBtn(
-                    icon: _cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
-                    label: _cameraOn ? AppLocalizations.of(context)!.camera : AppLocalizations.of(context)!.off,
-                    active: _cameraOn,
-                    onTap: () {
-                      setState(() => _cameraOn = !_cameraOn);
-                      _engine?.muteLocalVideoStream(!_cameraOn);
-                    },
-                  ),
-                  LiveCtrlBtn(
-                    icon: Icons.flip_camera_ios_rounded,
-                    label: AppLocalizations.of(context)!.flip,
-                    active: true,
-                    onTap: _flipCamera,
-                  ),
-                  GestureDetector(
-                    onTap: _ending ? null : _end,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Text(AppLocalizations.of(context)!.endLive,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
-                    ),
-                  ),
-                ],
-              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
@@ -656,11 +839,19 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: <Widget>[
-                const Icon(Icons.remove_red_eye_rounded, color: Colors.white70, size: 18),
+                const Icon(
+                  Icons.remove_red_eye_rounded,
+                  color: Colors.white70,
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   AppLocalizations.of(context)!.totalWatching(_total),
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -669,12 +860,18 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
           if (_loading)
             const Padding(
               padding: EdgeInsets.all(32),
-              child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2),
+              child: CircularProgressIndicator(
+                color: Colors.white54,
+                strokeWidth: 2,
+              ),
             )
           else if (_viewers.isEmpty)
             Padding(
               padding: const EdgeInsets.all(32),
-              child: Text(AppLocalizations.of(context)!.noViewersYet, style: const TextStyle(color: Colors.white54)),
+              child: Text(
+                AppLocalizations.of(context)!.noViewersYet,
+                style: const TextStyle(color: Colors.white54),
+              ),
             )
           else
             ConstrainedBox(
@@ -692,13 +889,23 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
                     leading: CircleAvatar(
                       radius: 18,
                       backgroundColor: Colors.white12,
-                      backgroundImage: avatar != null ? CachedNetworkImageProvider(avatar) : null,
+                      backgroundImage: avatar != null
+                          ? CachedNetworkImageProvider(avatar)
+                          : null,
                       child: avatar == null
-                          ? Text(name[0].toUpperCase(),
-                              style: const TextStyle(color: Colors.white, fontSize: 14))
+                          ? Text(
+                              name[0].toUpperCase(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                              ),
+                            )
                           : null,
                     ),
-                    title: Text(name, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                    title: Text(
+                      name,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
                   );
                 },
               ),
@@ -707,7 +914,9 @@ class _ViewerListSheetState extends State<_ViewerListSheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
               child: Text(
-                AppLocalizations.of(context)!.andMoreWatching(_total - _viewers.length),
+                AppLocalizations.of(
+                  context,
+                )!.andMoreWatching(_total - _viewers.length),
                 style: const TextStyle(color: Colors.white38, fontSize: 13),
               ),
             )

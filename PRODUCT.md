@@ -1140,4 +1140,15 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Direct-call routeability | A | Profile/chat UI and backend direct-call creation reject offline, busy, and premium-live receivers using canonical availability/routing. |
 | Random-call routeability | A | Live-host and online fallback matchmaking require `presence_availability='available'` and `can_random_call=true`; away, busy, offline, and premium-live users are skipped. |
 | Compatibility | A | Existing UI readers still work through legacy `state`, while new readers prefer `displayStatus`. This allows gradual module extraction without breaking current screens. |
-| Remaining A+ gates | B | Extract `PresenceRealtime` from the `FirebaseChatService` facade, add RTDB rules/emulator tests for canonical field validation, and implement premium-live enter/exit transitions end-to-end. |
+| Remaining A+ gates | B+ | Premium-live enter/exit transitions still need end-to-end implementation; RTDB emulator execution is blocked locally until Java is installed. |
+
+### RTDB Module Ownership — 6 Jun 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Presence module | A+ | `PresenceRealtime` owns `presence/{userId}` payloads, onDisconnect, local LRU cache, foreground/background/live/call transitions, and display-status derivation. |
+| Profile module | A+ | `ProfilesRealtime` owns `profiles/{userId}` writes, profile cache, and profile listener lifecycle. |
+| Direct-call signals | A | `DirectCallSignals` owns `direct_calls/{userId}` ringing/status/remove/listen behavior. Rules now restrict caller/receiver ownership and validate payload shape. |
+| Live-room realtime | A- | `LiveRoomRealtime` owns comments, reactions, gifts, audience count, status listen/end, and room initialization. Room nodes now include `hostUserId` for host-owned status writes. |
+| Facade compatibility | A+ | `FirebaseChatService.instance` remains as the stable app-facing facade, forwarding to modules so existing screens do not churn. |
+| Rules enforcement | A- | RTDB rules validate canonical presence, profiles, direct-call signals, live-room host ownership, status enums, event shapes, and reaction sender identity. Emulator load could not run locally because Java is not installed. |
+| Remaining A+ gates | B+ | Add executable RTDB emulator tests once Java/test tooling is available, then implement premium-live transition methods and rules. |
