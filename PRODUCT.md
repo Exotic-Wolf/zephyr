@@ -6,10 +6,46 @@
 
 ## Product Vision
 
-- **Chamet/Olamet-style MVP** in Flutter + NestJS
-- Target market: **Arab Gulf users** calling Philippines/Asia hosts
-- Revenue: coin-based gifts + random video calls (Agora)
-- Ship fast. Scale infra after revenue.
+- **Goal:** build a flawless, top-tier, Steve Jobs-level Chamet/Olamet-style social video app.
+- **Primary mobile audience:** iPhone users first, with Android parity through Flutter.
+- **Stack choice:** Flutter is intentional because one product-quality codebase can serve iOS and Android while keeping interaction, animation, and realtime behavior consistent.
+- **Target market:** Arab Gulf users calling Philippines/Asia hosts.
+- **Core revenue:** coin-based gifts + direct/random video calls + live streaming.
+- **Original bonus idea:** premium live / premium room flow where hosts can start premium directly or upgrade free live into a paid-per-minute room.
+- **Execution style:** build robust reusable cells first, then compose flawless modules and product organs.
+
+---
+
+## Operating Rule
+
+Every meaningful work slice must update this file before commit/push:
+
+- Update **Current TODO Tracker** with what changed, what is next, and what is blocked.
+- Update **Audit Log** when a feature/module quality grade changes.
+- Remove or rewrite stale product claims as soon as implementation makes them outdated.
+- Preserve one source of truth per domain; do not add parallel truth systems for convenience.
+- Keep iPhone user experience as the primary polish bar, while preserving Flutter Android parity.
+
+---
+
+## Current TODO Tracker
+
+| Priority | Status | Owner | Item | Why it matters |
+|---|---|---|---|---|
+| P0 | Blocked on user | User | Install Java 17 JDK for Apple Silicon/M4 Mac | Required to run Firebase RTDB emulator and prove rules/security automatically |
+| P0 | Next | Codex | Add executable RTDB emulator tests after Java works | Proves canonical presence, profile ownership, direct-call ownership, live-room host ownership, and event validation |
+| P0 | Next | Codex | Run RTDB emulator rules suite and record results in Audit Log | Moves RTDB rules from "tightened" to proven |
+| P1 | Planned | Codex | Implement premium live lifecycle | Free live -> premium, start premium directly, paid entry, per-minute billing, lock screen, cleanup |
+| P1 | Planned | Codex | Add `PremiumLiveRealtime` module once lifecycle exists | Keeps premium live non-interruptible and owned by a dedicated realtime module |
+| P1 | Planned | Codex | Replace live audience counter with per-viewer presence/count derivation | Prevents inaccurate counts from duplicate joins/disconnect edge cases |
+| P2 | Planned | Codex | Move trusted gift event fan-out toward backend/Admin SDK confirmation | Prevents spoofed gift display events while keeping gift economy reusable |
+
+Immediate user action:
+
+1. Install **Eclipse Temurin JDK 17** for macOS Apple Silicon / `aarch64`.
+2. Restart Terminal and VS Code.
+3. Confirm with `java -version`.
+4. Tell Codex, then run the RTDB emulator tests.
 
 ---
 
