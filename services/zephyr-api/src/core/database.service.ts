@@ -6,6 +6,8 @@ import { Pool, type QueryResult, type QueryResultRow } from 'pg';
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
   private pool: Pool | null = null;
+  private schemaReadyPromise: Promise<void> | null = null;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   onModuleInit(): void {
     const databaseUrl = process.env.DATABASE_URL;
@@ -23,14 +25,25 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Idle DB client error', err.message);
     });
 
-    void this.ensureSchema();
+    this.schemaReadyPromise = this.ensureSchema();
   }
 
   async onModuleDestroy(): Promise<void> {
+    if (this.schemaReadyPromise) {
+      await this.schemaReadyPromise.catch(() => undefined);
+    }
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
     if (this.pool) {
       await this.pool.end();
       this.pool = null;
     }
+  }
+
+  async waitUntilReady(): Promise<void> {
+    await this.schemaReadyPromise;
   }
 
   isEnabled(): boolean {
@@ -184,6 +197,24 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       CREATE UNIQUE INDEX IF NOT EXISTS wallet_transactions_iap_refund_transaction_unique_idx
       ON wallet_transactions ((metadata->>'transactionId'))
       WHERE type = 'iap_refund';
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS ledger_idempotency (
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL,
+        operation_type TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        response_json JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ,
+        PRIMARY KEY (user_id, idempotency_key)
+      );
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS ledger_idempotency_created_idx
+      ON ledger_idempotency(created_at DESC);
     `);
 
     await this.pool.query(`
@@ -444,8 +475,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     // Periodic cleanup every 10s:
     //  - no heartbeat for 40s → dead (heartbeat sent every 15s, so 2.5x grace)
     //  - any room older than 30 min → dead (host gone / crashed / forgot to end)
-    setInterval(() => {
-      void this.pool!.query(`
+    const pool = this.pool;
+    this.cleanupInterval = setInterval(() => {
+      void pool!.query(`
         DELETE FROM rooms
         WHERE status = 'live'
           AND (

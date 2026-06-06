@@ -459,12 +459,16 @@ class ZephyrApiClient {
     String roomId,
     String giftId, {
     int quantity = 1,
+    String? idempotencyKey,
   }) async {
     final Map<String, dynamic> data = await _request(
       method: 'POST',
       path: '/v1/rooms/$roomId/gift',
       accessToken: accessToken,
       body: <String, dynamic>{'giftId': giftId, 'quantity': quantity},
+      extraHeaders: idempotencyKey != null
+          ? <String, String>{'X-Idempotency-Key': idempotencyKey}
+          : null,
     );
     return data;
   }
@@ -615,12 +619,16 @@ class ZephyrApiClient {
     required String accessToken,
     required String sessionId,
     int elapsedSeconds = 10,
+    String? idempotencyKey,
   }) async {
     final Map<String, dynamic> data = await _request(
       method: 'POST',
       path: '/v1/economy/calls/$sessionId/tick',
       accessToken: accessToken,
       body: <String, dynamic>{'elapsedSeconds': elapsedSeconds},
+      extraHeaders: idempotencyKey != null
+          ? <String, String>{'X-Idempotency-Key': idempotencyKey}
+          : null,
     );
 
     return CallSessionTickResult.fromJson(data);

@@ -61,6 +61,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   Timer? _tickTimer;
   StreamSubscription<dynamic>? _randomSignalSub;
   bool _disposed = false;
+  int _billingTickSequence = 0;
 
   @override
   void initState() {
@@ -227,11 +228,15 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   }
 
   Future<void> _tick() async {
+    final int tickSequence = ++_billingTickSequence;
+    final String idempotencyKey =
+        'call-tick:${widget.sessionId}:$tickSequence:$_kTickSeconds';
     try {
       final result = await widget.apiClient.tickCallSession(
         accessToken: widget.accessToken,
         sessionId: widget.sessionId,
         elapsedSeconds: _kTickSeconds,
+        idempotencyKey: idempotencyKey,
       );
       if (result.stoppedForInsufficientBalance && !_disposed) {
         _showSnack('Insufficient balance — call ended');

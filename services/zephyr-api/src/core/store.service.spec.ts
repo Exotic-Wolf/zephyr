@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -140,6 +141,87 @@ describe('StoreService', () => {
       receiverWalletBefore.sparkBalance,
     );
     expect(receiverWalletAfter.coinBalance).toBe(receiverWalletBefore.coinBalance);
+  });
+
+  it('replays duplicate call tick idempotency keys without charging twice', async () => {
+    const caller = await storeService.issueGuestSession('idem_tick_caller');
+    const receiver = await storeService.issueGuestSession('idem_tick_receiver');
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+    const walletBefore = await storeService.getWalletSummary(caller.user.id);
+    const idempotencyKey = `tick:${session.id}:0001`;
+
+    const first = await storeService.tickCallSession(
+      caller.user.id,
+      session.id,
+      10,
+      idempotencyKey,
+    );
+    const second = await storeService.tickCallSession(
+      caller.user.id,
+      session.id,
+      10,
+      idempotencyKey,
+    );
+    const walletAfter = await storeService.getWalletSummary(caller.user.id);
+
+    expect(second).toEqual(first);
+    expect(walletAfter.coinBalance).toBe(
+      walletBefore.coinBalance - first.chargedCoins,
+    );
+  });
+
+  it('rejects reusing a call tick idempotency key for different details', async () => {
+    const caller = await storeService.issueGuestSession('idem_conflict_caller');
+    const receiver = await storeService.issueGuestSession('idem_conflict_receiver');
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+    const idempotencyKey = `tick:${session.id}:conflict`;
+
+    await storeService.tickCallSession(caller.user.id, session.id, 10, idempotencyKey);
+
+    await expect(
+      storeService.tickCallSession(caller.user.id, session.id, 15, idempotencyKey),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('replays duplicate gift idempotency keys without charging twice', async () => {
+    const caller = await storeService.issueGuestSession('idem_gift_caller');
+    const receiver = await storeService.issueGuestSession('idem_gift_receiver');
+
+    await storeService.purchaseCoins(caller.user.id, 'pack_299');
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+    const walletBefore = await storeService.getWalletSummary(caller.user.id);
+    const idempotencyKey = `gift:${session.id}:lion:1`;
+
+    const first = await storeService.sendGiftInCall(caller.user.id, {
+      sessionId: session.id,
+      giftId: 'lion',
+      quantity: 1,
+      idempotencyKey,
+    });
+    const second = await storeService.sendGiftInCall(caller.user.id, {
+      sessionId: session.id,
+      giftId: 'lion',
+      quantity: 1,
+      idempotencyKey,
+    });
+    const walletAfter = await storeService.getWalletSummary(caller.user.id);
+
+    expect(second).toEqual(first);
+    expect(walletAfter.coinBalance).toBe(
+      walletBefore.coinBalance - first.totalGiftCoins,
+    );
   });
 
   it('uses a single database transaction and row locks for call ticks', async () => {

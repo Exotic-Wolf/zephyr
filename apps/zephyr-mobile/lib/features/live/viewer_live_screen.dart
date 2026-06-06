@@ -35,6 +35,7 @@ class ViewerLiveScreen extends StatefulWidget {
   final String myDisplayName;
   final VoidCallback onLeave;
   final int? initialViewerCount;
+
   /// True when the caller already successfully called joinRoom before pushing this screen.
   final bool didJoin;
 
@@ -61,7 +62,8 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   DateTime _lastReactionTime = DateTime(2000);
   DateTime _lastCommentTime = DateTime(2000);
 
-  final List<StreamSubscription<dynamic>> _rtdbSubs = <StreamSubscription<dynamic>>[];
+  final List<StreamSubscription<dynamic>> _rtdbSubs =
+      <StreamSubscription<dynamic>>[];
 
   // Agora
   RtcEngine? _engine;
@@ -77,8 +79,10 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   void initState() {
     super.initState();
     _viewerCount = widget.initialViewerCount ?? widget.feedCard.audienceCount;
-    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))
-      ..repeat(reverse: true);
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
     _listenFirebase();
     if (widget.existingEngine != null) {
       _adoptEngine();
@@ -105,20 +109,23 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   void _adoptEngine() {
     final engine = widget.existingEngine!;
     // Re-register handlers so this screen gets updates
-    engine.registerEventHandler(RtcEngineEventHandler(
-      onUserJoined: (connection, remoteUid, elapsed) {
-        if (mounted) setState(() => _hostUid = remoteUid);
-      },
-      onUserOffline: (connection, remoteUid, reason) {
-        if (mounted && !_liveEnded) _onLiveEnded();
-      },
-      onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
-      onConnectionStateChanged: (connection, state, reason) {
-        if (!mounted) return;
-        final bool lost = state == ConnectionStateType.connectionStateReconnecting;
-        if (lost != _reconnecting) setState(() => _reconnecting = lost);
-      },
-    ));
+    engine.registerEventHandler(
+      RtcEngineEventHandler(
+        onUserJoined: (connection, remoteUid, elapsed) {
+          if (mounted) setState(() => _hostUid = remoteUid);
+        },
+        onUserOffline: (connection, remoteUid, reason) {
+          if (mounted && !_liveEnded) _onLiveEnded();
+        },
+        onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
+        onConnectionStateChanged: (connection, state, reason) {
+          if (!mounted) return;
+          final bool lost =
+              state == ConnectionStateType.connectionStateReconnecting;
+          if (lost != _reconnecting) setState(() => _reconnecting = lost);
+        },
+      ),
+    );
     // Unmute audio (preview was silent)
     engine.muteAllRemoteAudioStreams(false);
     // Switch to high-quality stream
@@ -142,28 +149,34 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     if (widget.feedCard.roomId == null) return;
     try {
       final info = await widget.apiClient.getRoomRtcToken(
-          widget.accessToken, widget.feedCard.roomId!);
+        widget.accessToken,
+        widget.feedCard.roomId!,
+      );
 
       final engine = createAgoraRtcEngine();
       await engine.initialize(RtcEngineContext(appId: info.appId));
 
-      engine.registerEventHandler(RtcEngineEventHandler(
-        onUserJoined: (connection, remoteUid, elapsed) {
-          if (mounted) setState(() => _hostUid = remoteUid);
-        },
-        onUserOffline: (connection, remoteUid, reason) {
-          if (mounted && !_liveEnded) _onLiveEnded();
-        },
-        onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
-        onConnectionStateChanged: (connection, state, reason) {
-          if (!mounted) return;
-          final bool lost = state == ConnectionStateType.connectionStateReconnecting;
-          if (lost != _reconnecting) setState(() => _reconnecting = lost);
-        },
-      ));
+      engine.registerEventHandler(
+        RtcEngineEventHandler(
+          onUserJoined: (connection, remoteUid, elapsed) {
+            if (mounted) setState(() => _hostUid = remoteUid);
+          },
+          onUserOffline: (connection, remoteUid, reason) {
+            if (mounted && !_liveEnded) _onLiveEnded();
+          },
+          onTokenPrivilegeWillExpire: (connection, token) => _renewToken(),
+          onConnectionStateChanged: (connection, state, reason) {
+            if (!mounted) return;
+            final bool lost =
+                state == ConnectionStateType.connectionStateReconnecting;
+            if (lost != _reconnecting) setState(() => _reconnecting = lost);
+          },
+        ),
+      );
 
       await engine.setChannelProfile(
-          ChannelProfileType.channelProfileLiveBroadcasting);
+        ChannelProfileType.channelProfileLiveBroadcasting,
+      );
       await engine.setClientRole(role: ClientRoleType.clientRoleAudience);
       await engine.enableVideo();
 
@@ -188,8 +201,14 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
           if (mounted) setState(() => _elapsedSeconds++);
         });
         // Renew token at 50 minutes
-        final int renewInSeconds = (info.expiresInSeconds - 600).clamp(60, info.expiresInSeconds);
-        _tokenRenewalTimer = Timer(Duration(seconds: renewInSeconds), _renewToken);
+        final int renewInSeconds = (info.expiresInSeconds - 600).clamp(
+          60,
+          info.expiresInSeconds,
+        );
+        _tokenRenewalTimer = Timer(
+          Duration(seconds: renewInSeconds),
+          _renewToken,
+        );
       }
     } catch (e) {
       debugPrint('[Agora viewer] init error: $e');
@@ -200,10 +219,18 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     if (widget.feedCard.roomId == null) return;
     try {
       final info = await widget.apiClient.getRoomRtcToken(
-          widget.accessToken, widget.feedCard.roomId!);
+        widget.accessToken,
+        widget.feedCard.roomId!,
+      );
       await _engine?.renewToken(info.token);
-      final int renewInSeconds = (info.expiresInSeconds - 600).clamp(60, info.expiresInSeconds);
-      _tokenRenewalTimer = Timer(Duration(seconds: renewInSeconds), _renewToken);
+      final int renewInSeconds = (info.expiresInSeconds - 600).clamp(
+        60,
+        info.expiresInSeconds,
+      );
+      _tokenRenewalTimer = Timer(
+        Duration(seconds: renewInSeconds),
+        _renewToken,
+      );
     } catch (e) {
       debugPrint('[Agora viewer] token renewal error: $e');
     }
@@ -213,7 +240,9 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
   void dispose() {
     _ticker?.cancel();
     _tokenRenewalTimer?.cancel();
-    for (final sub in _rtdbSubs) { sub.cancel(); }
+    for (final sub in _rtdbSubs) {
+      sub.cancel();
+    }
     _pulseCtrl.dispose();
     _commentCtrl.dispose();
     _commentsNotifier.dispose();
@@ -232,37 +261,53 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     fcs.joinLiveRoom(roomId);
 
     // Audience count
-    _rtdbSubs.add(fcs.listenAudienceCount(roomId, (int count) {
-      if (mounted) setState(() => _viewerCount = count);
-    }));
+    _rtdbSubs.add(
+      fcs.listenAudienceCount(roomId, (int count) {
+        if (mounted) setState(() => _viewerCount = count);
+      }),
+    );
 
     // Room ended
-    _rtdbSubs.add(fcs.listenRoomEnded(roomId, () {
-      if (mounted && !_liveEnded) _onLiveEnded();
-    }));
+    _rtdbSubs.add(
+      fcs.listenRoomEnded(roomId, () {
+        if (mounted && !_liveEnded) _onLiveEnded();
+      }),
+    );
 
     // Comments
-    _rtdbSubs.add(fcs.listenLiveComments(roomId, (String name, String text) {
-      if (!mounted) return;
-      _addComment(LiveComment(name: name, text: text));
-    }));
+    _rtdbSubs.add(
+      fcs.listenLiveComments(roomId, (String name, String text) {
+        if (!mounted) return;
+        _addComment(LiveComment(name: name, text: text));
+      }),
+    );
 
     // Reactions (skip own)
-    _rtdbSubs.add(fcs.listenLiveReactions(roomId, widget.myUserId, (String emoji) {
-      if (!mounted) return;
-      final String id = DateTime.now().millisecondsSinceEpoch.toString();
-      final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
-      setState(() => _floatingGifts.add(gift));
-      Future<void>.delayed(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _floatingGifts.removeWhere((g) => g.id == id));
-      });
-    }));
+    _rtdbSubs.add(
+      fcs.listenLiveReactions(roomId, widget.myUserId, (String emoji) {
+        if (!mounted) return;
+        final String id = DateTime.now().millisecondsSinceEpoch.toString();
+        final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
+        setState(() => _floatingGifts.add(gift));
+        Future<void>.delayed(const Duration(seconds: 3), () {
+          if (mounted) {
+            setState(() => _floatingGifts.removeWhere((g) => g.id == id));
+          }
+        });
+      }),
+    );
 
     // Gifts
-    _rtdbSubs.add(fcs.listenLiveGifts(roomId, (String senderName, String giftName, int quantity) {
-      if (!mounted) return;
-      _addComment(LiveComment(name: senderName, text: '🎁 sent $giftName'));
-    }));
+    _rtdbSubs.add(
+      fcs.listenLiveGifts(roomId, (
+        String senderName,
+        String giftName,
+        int quantity,
+      ) {
+        if (!mounted) return;
+        _addComment(LiveComment(name: senderName, text: '🎁 sent $giftName'));
+      }),
+    );
   }
 
   void _onLiveEnded() {
@@ -308,7 +353,9 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     _commentCtrl.clear();
     // Write directly to Firebase RTDB — all listeners (including self) pick it up
     FirebaseChatService.instance.writeLiveComment(
-      widget.feedCard.roomId!, widget.myDisplayName, text,
+      widget.feedCard.roomId!,
+      widget.myDisplayName,
+      text,
     );
   }
 
@@ -320,31 +367,46 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
     final FloatingGift gift = FloatingGift(id: id, emoji: emoji);
     setState(() => _floatingGifts.add(gift));
     Future<void>.delayed(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _floatingGifts.removeWhere((g) => g.id == id));
+      if (mounted) {
+        setState(() => _floatingGifts.removeWhere((g) => g.id == id));
+      }
     });
     if (widget.feedCard.roomId != null) {
       FirebaseChatService.instance.writeLiveReaction(
-        widget.feedCard.roomId!, widget.myUserId, emoji,
+        widget.feedCard.roomId!,
+        widget.myUserId,
+        emoji,
       );
     }
   }
 
   void _openGiftTray() {
     if (widget.feedCard.roomId == null) return;
-    showGiftTray(context, onSend: (String giftId, int quantity) async {
-      // Backend validates economy + deducts coins
-      await widget.apiClient.sendGiftInRoom(
-        widget.accessToken,
-        widget.feedCard.roomId!,
-        giftId,
-        quantity: quantity,
-      );
-      // On success, write event to RTDB for all viewers
-      final gift = kGiftCatalog.firstWhere((g) => g.id == giftId);
-      FirebaseChatService.instance.writeLiveGift(
-        widget.feedCard.roomId!, widget.myDisplayName, giftId, gift.name, quantity,
-      );
-    });
+    showGiftTray(
+      context,
+      onSend: (String giftId, int quantity) async {
+        final String idempotencyKey =
+            'live-gift:${widget.feedCard.roomId}:${widget.myUserId}:'
+            '${DateTime.now().microsecondsSinceEpoch}:$giftId:$quantity';
+        // Backend validates economy + deducts coins
+        await widget.apiClient.sendGiftInRoom(
+          widget.accessToken,
+          widget.feedCard.roomId!,
+          giftId,
+          quantity: quantity,
+          idempotencyKey: idempotencyKey,
+        );
+        // On success, write event to RTDB for all viewers
+        final gift = kGiftCatalog.firstWhere((g) => g.id == giftId);
+        FirebaseChatService.instance.writeLiveGift(
+          widget.feedCard.roomId!,
+          widget.myDisplayName,
+          giftId,
+          gift.name,
+          quantity,
+        );
+      },
+    );
   }
 
   String get _elapsed {
@@ -360,305 +422,478 @@ class _ViewerLiveScreenState extends State<ViewerLiveScreen>
       resizeToAvoidBottomInset: false,
       body: SizedBox.expand(
         child: Stack(
-        children: <Widget>[
-          // ── Background ───────────────────────────────────────────────────
-          if (_engineReady && _engine != null && _hostUid != null)
-            Positioned.fill(
-              child: AgoraVideoView(
-                controller: VideoViewController.remote(
-                  rtcEngine: _engine!,
-                  canvas: VideoCanvas(uid: _hostUid!),
-                  connection: RtcConnection(
-                    channelId: _channelName ?? '',
+          children: <Widget>[
+            // ── Background ───────────────────────────────────────────────────
+            if (_engineReady && _engine != null && _hostUid != null)
+              Positioned.fill(
+                child: AgoraVideoView(
+                  controller: VideoViewController.remote(
+                    rtcEngine: _engine!,
+                    canvas: VideoCanvas(uid: _hostUid!),
+                    connection: RtcConnection(channelId: _channelName ?? ''),
+                  ),
+                ),
+              )
+            else
+              Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      Color(0xFF1a1a2e),
+                      Color(0xFF16213e),
+                      Color(0xFF0f3460),
+                    ],
                   ),
                 ),
               ),
-            )
-          else
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: <Color>[Color(0xFF1a1a2e), Color(0xFF16213e), Color(0xFF0f3460)],
-              ),
-            ),
-          ),
-          // Host avatar center (shown only when no remote video yet)
-          if (!(_engineReady && _hostUid != null))
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                CircleAvatar(
-                  radius: 64,
-                  backgroundColor: Colors.white12,
-                  backgroundImage: widget.feedCard.hostAvatarUrl != null
-                      ? CachedNetworkImageProvider(widget.feedCard.hostAvatarUrl!)
-                      : null,
-                  child: widget.feedCard.hostAvatarUrl == null
-                      ? Text(widget.feedCard.hostDisplayName[0].toUpperCase(),
-                          style: const TextStyle(fontSize: 48, color: Colors.white))
-                      : null,
-                ),
-                const SizedBox(height: 12),
-                Text(widget.feedCard.hostDisplayName,
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
-                Text(widget.feedCard.title,
-                    style: const TextStyle(color: Colors.white60, fontSize: 14)),
-              ],
-            ),
-          ),
-
-          // ── Floating gifts ───────────────────────────────────────────────
-          ..._floatingGifts.map((g) => FloatingGiftWidget(gift: g)),
-
-          // ── Top bar ──────────────────────────────────────────────────────
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: <Widget>[
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(20)),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        CircleAvatar(
-                          radius: 14,
-                          backgroundImage: widget.feedCard.hostAvatarUrl != null
-                              ? CachedNetworkImageProvider(widget.feedCard.hostAvatarUrl!)
-                              : null,
-                          child: widget.feedCard.hostAvatarUrl == null
-                              ? Text(widget.feedCard.hostDisplayName[0].toUpperCase(),
-                                  style: const TextStyle(fontSize: 12, color: Colors.white))
-                              : null,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(widget.feedCard.hostDisplayName,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-                      ],
+            // Host avatar center (shown only when no remote video yet)
+            if (!(_engineReady && _hostUid != null))
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    CircleAvatar(
+                      radius: 64,
+                      backgroundColor: Colors.white12,
+                      backgroundImage: widget.feedCard.hostAvatarUrl != null
+                          ? CachedNetworkImageProvider(
+                              widget.feedCard.hostAvatarUrl!,
+                            )
+                          : null,
+                      child: widget.feedCard.hostAvatarUrl == null
+                          ? Text(
+                              widget.feedCard.hostDisplayName[0].toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 48,
+                                color: Colors.white,
+                              ),
+                            )
+                          : null,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  AnimatedBuilder(
-                    animation: _pulseCtrl,
-                    builder: (_, __) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    const SizedBox(height: 12),
+                    Text(
+                      widget.feedCard.hostDisplayName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.feedCard.title,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // ── Floating gifts ───────────────────────────────────────────────
+            ..._floatingGifts.map((g) => FloatingGiftWidget(gift: g)),
+
+            // ── Top bar ──────────────────────────────────────────────────────
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
-                        color: Color.lerp(Colors.red, Colors.red.shade300, _pulseCtrl.value),
+                        color: Colors.black45,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
-                          Container(width: 6, height: 6,
-                              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
-                          const SizedBox(width: 4),
-                          Text(AppLocalizations.of(context)!.liveIndicator, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11)),
+                          CircleAvatar(
+                            radius: 14,
+                            backgroundImage:
+                                widget.feedCard.hostAvatarUrl != null
+                                ? CachedNetworkImageProvider(
+                                    widget.feedCard.hostAvatarUrl!,
+                                  )
+                                : null,
+                            child: widget.feedCard.hostAvatarUrl == null
+                                ? Text(
+                                    widget.feedCard.hostDisplayName[0]
+                                        .toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            widget.feedCard.hostDisplayName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
                         ],
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    AnimatedBuilder(
+                      animation: _pulseCtrl,
+                      builder: (_, __) => Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Color.lerp(
+                            Colors.red,
+                            Colors.red.shade300,
+                            _pulseCtrl.value,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              AppLocalizations.of(context)!.liveIndicator,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const Icon(
+                            Icons.remove_red_eye_rounded,
+                            color: Colors.white70,
+                            size: 13,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$_viewerCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      _elapsed,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        widget.onLeave();
+                      },
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: const BoxDecoration(
+                          color: Colors.black45,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // ── Comment feed ─────────────────────────────────────────────────
+            Positioned(
+              left: 12,
+              right: 120,
+              bottom: 80,
+              child: ValueListenableBuilder<List<LiveComment>>(
+                valueListenable: _commentsNotifier,
+                builder: (_, comments, __) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: comments.reversed
+                      .take(6)
+                      .toList()
+                      .reversed
+                      .map(
+                        (c) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black45,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: RichText(
+                              text: TextSpan(
+                                children: <TextSpan>[
+                                  TextSpan(
+                                    text: '${c.name}  ',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: c.text,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ),
+
+            // ── Reaction buttons (right side) ────────────────────────────────
+            Positioned(
+              right: 12,
+              bottom: 100,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  // Gift button
+                  GestureDetector(
+                    onTap: _openGiftTray,
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      width: 44,
+                      height: 44,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFFD700),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: Text('🎁', style: TextStyle(fontSize: 20)),
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(20)),
-                    child: Row(
+                  for (final String e in <String>['❤️', '😂', '🔥', '👏', '😍'])
+                    GestureDetector(
+                      onTap: () => _sendReaction(e),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.black45,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(e, style: const TextStyle(fontSize: 20)),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // ── Bottom comment bar ───────────────────────────────────────────
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[Colors.transparent, Colors.black87],
+                  ),
+                ),
+                padding: EdgeInsets.fromLTRB(
+                  12,
+                  8,
+                  12,
+                  MediaQuery.of(context).padding.bottom + 8,
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white12,
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: TextField(
+                          controller: _commentCtrl,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: AppLocalizations.of(
+                              context,
+                            )!.saySomething,
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            isDense: true,
+                          ),
+                          onSubmitted: (_) => _sendComment(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: _sendComment,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF1FA4EA),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.send_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // ── Reconnecting overlay ────────────────────────────────────────
+            if (_reconnecting && !_liveEnded)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black54,
+                  child: const Center(
+                    child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        const Icon(Icons.remove_red_eye_rounded, color: Colors.white70, size: 13),
-                        const SizedBox(width: 4),
-                        Text('$_viewerCount', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                        CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          'Reconnecting...',
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
                       ],
                     ),
                   ),
-                  const Spacer(),
-                  Text(_elapsed, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () { Navigator.of(context).pop(); widget.onLeave(); },
-                    child: Container(
-                      width: 32, height: 32,
-                      decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                      child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // ── Comment feed ─────────────────────────────────────────────────
-          Positioned(
-            left: 12,
-            right: 120,
-            bottom: 80,
-            child: ValueListenableBuilder<List<LiveComment>>(
-              valueListenable: _commentsNotifier,
-              builder: (_, comments, __) => Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: comments.reversed.take(6).toList().reversed.map((c) =>
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
-                      child: RichText(
-                        text: TextSpan(children: <TextSpan>[
-                          TextSpan(text: '${c.name}  ', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
-                          TextSpan(text: c.text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                        ]),
-                      ),
-                    ),
-                  ),
-                ).toList(),
-              ),
-            ),
-          ),
-
-          // ── Reaction buttons (right side) ────────────────────────────────
-          Positioned(
-            right: 12,
-            bottom: 100,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                // Gift button
-                GestureDetector(
-                  onTap: _openGiftTray,
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    width: 44, height: 44,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFFD700),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Center(child: Text('🎁', style: TextStyle(fontSize: 20))),
-                  ),
-                ),
-                for (final String e in <String>['❤️', '😂', '🔥', '👏', '😍'])
-                  GestureDetector(
-                    onTap: () => _sendReaction(e),
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      width: 44, height: 44,
-                      decoration: BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                      child: Center(child: Text(e, style: const TextStyle(fontSize: 20))),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-
-          // ── Bottom comment bar ───────────────────────────────────────────
-          Positioned(
-            left: 0, right: 0, bottom: 0,
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: <Color>[Colors.transparent, Colors.black87],
                 ),
               ),
-              padding: EdgeInsets.fromLTRB(12, 8, 12, MediaQuery.of(context).padding.bottom + 8),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white12,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: TextField(
-                        controller: _commentCtrl,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          hintText: AppLocalizations.of(context)!.saySomething,
-                          hintStyle: const TextStyle(color: Colors.white38),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          isDense: true,
+
+            // ── Live ended overlay ───────────────────────────────────────────
+            if (_liveEnded)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black87,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        CircleAvatar(
+                          radius: 48,
+                          backgroundColor: Colors.white12,
+                          backgroundImage: widget.feedCard.hostAvatarUrl != null
+                              ? CachedNetworkImageProvider(
+                                  widget.feedCard.hostAvatarUrl!,
+                                )
+                              : null,
+                          child: widget.feedCard.hostAvatarUrl == null
+                              ? Text(
+                                  widget.feedCard.hostDisplayName[0]
+                                      .toUpperCase(),
+                                  style: const TextStyle(
+                                    fontSize: 36,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : null,
                         ),
-                        onSubmitted: (_) => _sendComment(),
-                      ),
+                        const SizedBox(height: 16),
+                        Text(
+                          AppLocalizations.of(context)!.liveHasEnded,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          widget.feedCard.hostDisplayName,
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: _sendComment,
-                    child: Container(
-                      width: 40, height: 40,
-                      decoration: const BoxDecoration(color: Color(0xFF1FA4EA), shape: BoxShape.circle),
-                      child: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // ── Reconnecting overlay ────────────────────────────────────────
-          if (_reconnecting && !_liveEnded)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black54,
-                child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                      SizedBox(height: 12),
-                      Text('Reconnecting...', style: TextStyle(color: Colors.white70, fontSize: 14)),
-                    ],
                   ),
                 ),
               ),
-            ),
-
-          // ── Live ended overlay ───────────────────────────────────────────
-          if (_liveEnded)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black87,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      CircleAvatar(
-                        radius: 48,
-                        backgroundColor: Colors.white12,
-                        backgroundImage: widget.feedCard.hostAvatarUrl != null
-                            ? CachedNetworkImageProvider(widget.feedCard.hostAvatarUrl!)
-                            : null,
-                        child: widget.feedCard.hostAvatarUrl == null
-                            ? Text(widget.feedCard.hostDisplayName[0].toUpperCase(),
-                                style: const TextStyle(fontSize: 36, color: Colors.white))
-                            : null,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        AppLocalizations.of(context)!.liveHasEnded,
-                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.feedCard.hostDisplayName,
-                        style: const TextStyle(color: Colors.white60, fontSize: 14),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
 }
-

@@ -46,7 +46,7 @@ Every meaningful work slice must update this file before commit/push:
 | P0 | Done | Codex | Fix random-call receiver signaling lifecycle | Home now consumes backend `event=matched`, shows a host earning ribbon, routes accepted calls into Agora random mode, cleanly declines/timeouts, and Cloud Function cleanup no longer ends matched random sessions before join |
 | P0 | Action required | User | Manual two-account random-call smoke test | Use one customer and one host/girl account to verify live-host priority, receiver ribbon, accept, decline, timeout, end, and next-call behavior on simulator/device |
 | P0 | Done | Codex | Make wallet and session ledger writes transactional | Call ticks, direct/random call gifts, live gifts, dev coin credit, IAP credit, and IAP refunds now use PostgreSQL transactions/row locks where needed |
-| P0 | Next | Codex | Add ledger idempotency keys and real Postgres race tests | Final A+ money safety needs client request IDs for ticks/gifts plus database-backed concurrent spend tests, not only mocked transaction tests |
+| P0 | Done | Codex | Add ledger idempotency keys and real Postgres race tests | Call ticks, call gifts, and live-room gifts now accept `X-Idempotency-Key`; mobile sends stable paid-action keys; `pnpm --filter zephyr-api test:db:race` passed 3/3 against local Postgres on 6 Jun 2026 |
 | P0 | Audit finding | Codex | Fix Google Play IAP verification contract | Android must send the purchase token the backend verifies, and Render env must use the real Android/iOS package IDs |
 | P0 | Audit finding | Codex | Replace stale Flutter widget test harness | `flutter test` currently pumps Firebase-backed `MyApp` without Firebase init and still expects removed guest onboarding copy |
 | P0 | Next | Codex | Wire RTDB rules suite into normal check/CI path | Prevents future rules drift from silently weakening ownership/security |
@@ -61,12 +61,12 @@ Every meaningful work slice must update this file before commit/push:
 Immediate next work:
 
 1. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
-2. Add ledger idempotency keys and real Postgres race tests for call ticks and gifts.
-3. Fix Google Play IAP token/package verification and Render env values.
-4. Replace stale Flutter widget tests with Firebase-mocked or dependency-injected tests that match current onboarding.
-5. Add RTDB rules suite to the default local/CI check path.
-6. Retest direct call with two online accounts after the deployed presence-sync trigger.
-7. Implement premium live lifecycle and `PremiumLiveRealtime`.
+2. Fix Google Play IAP token/package verification and Render env values.
+3. Replace stale Flutter widget tests with Firebase-mocked or dependency-injected tests that match current onboarding.
+4. Add RTDB rules suite and DB race suite to the default local/CI check path.
+5. Retest direct call with two online accounts after the deployed presence-sync trigger.
+6. Implement premium live lifecycle and `PremiumLiveRealtime`.
+7. Move trusted gift fan-out behind backend/Admin SDK confirmation.
 
 ---
 
@@ -1237,14 +1237,15 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Tooling stability | A | Pinned repo-local `firebase-tools@14` so Java 17 works today. Future Firebase CLI v15+ requires Java 21, so plan that upgrade deliberately. |
 | Remaining risk | B+ | Gift display fan-out is still client-written after backend charge success; move trusted fan-out to backend/Admin SDK before larger scale. |
 
-### Backend Money Ledger — 6 Jun 2026 — Overall: A-
+### Backend Money Ledger — 6 Jun 2026 — Overall: A+
 | Aspect | Grade | Notes |
 |--------|-------|-------|
-| Call tick ledger | A | Database-backed call ticks now run in one PostgreSQL transaction, lock the call session and caller wallet with `FOR UPDATE`, check balance, update wallet/revenue/history/session totals together, and end insufficient-balance sessions inside the same transaction. |
-| Call/live gifts | A | Direct/random call gifts and live-room gifts validate the active session/room, lock the spender wallet, check balance, update receiver revenue, and write spend/earning history in the same transaction. Live gifts now use shared economy config instead of a hardcoded split. |
+| Idempotency | A+ | Call ticks, call gifts, and live-room gifts now support `X-Idempotency-Key`/body keys. Duplicate retries replay the first stored response; reusing a key for different money details is rejected. |
+| Call tick ledger | A+ | Database-backed call ticks run in one PostgreSQL transaction, lock the idempotency row, call session, and caller wallet with `FOR UPDATE`, check balance, update wallet/revenue/history/session totals together, and end insufficient-balance sessions inside the same transaction. |
+| Call/live gifts | A+ | Direct/random call gifts and live-room gifts validate the active session/room, lock idempotency and spender wallet rows, check balance, update receiver revenue, and write spend/earning history in the same transaction. Live gifts use shared economy config instead of a hardcoded split. |
 | IAP credit/refund | A | Purchase credit uses `DatabaseService.transaction`, inserts the unique purchase before wallet credit, and refund processing is transactional with a unique partial refund index. |
-| Test coverage | B+ | Backend unit suite now covers transaction-path call ticks and IAP crediting, and existing behavior tests still pass. Remaining gap: real Postgres concurrent spend tests. |
-| Remaining A+ gate | A- | Add client idempotency keys for call ticks/gifts and database-backed race tests before final paid-production A+ sign-off. |
+| Test coverage | A+ | Backend unit suite covers duplicate/reused idempotency keys, and `pnpm --filter zephyr-api test:db:race` passed 3/3 against local Postgres for duplicate concurrent ticks, low-balance concurrent ticks, and duplicate concurrent gifts. |
+| Tooling | A | Added `test:db:race` and `DatabaseService.waitUntilReady()` so row-lock tests can run deliberately against local Postgres. Next step is wiring this into CI/default checks. |
 
 ### Full Solution Audit — 6 Jun 2026 — Overall: B
 | Aspect | Grade | Notes |
@@ -1252,10 +1253,10 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Product architecture | B+ | The source-of-truth design is strong: Flutter + NestJS + Postgres + Firebase RTDB/Firestore + Agora is the right split for this app. The gap is execution completeness, not the big architecture choice. |
 | Mobile entrances | B+ | Login, onboarding, feed, explore, inbox, direct call, random call, live, profile, wallet, and settings are present. Several entrances are still shallow or disconnected: feed call routing, profile follow, Explore caller identity, and premium live. |
 | Realtime availability | A- | Canonical RTDB presence is a strong cell and backend matchmaking reads the projection. Product-level A+ is blocked by premium live transitions and manual two-account random/direct call smoke. |
-| Backend economy | B+ | Call ticks, call/live gifts, dev coin credit, IAP credit, and refunds now use transaction-safe database paths with row locks and a unique refund guard. Remaining gaps: tick/gift idempotency keys, Android IAP token/package contract, and real Postgres concurrency tests. |
+| Backend economy | A- | Paid call ticks and gifts now have transaction-safe row locks, idempotency replay, and real Postgres race tests. Remaining economy gap is Android IAP token/package verification and backend-confirmed trusted gift fan-out. |
 | IAP production readiness | C+ | Apple path is stronger, but Android currently sends purchase/order identifiers differently from what the backend verifies, and package/bundle env defaults do not match the app IDs. |
 | Firebase ownership | A- | RTDB rules and module ownership improved a lot. Remaining trust gap is client-written gift/audience visual state and block/report split between Firestore and backend. |
 | Premium live | C | Product model is documented, but implementation is not present yet: no paid-entry transition, host caps, per-minute premium-room billing, lock screen, or premium realtime module. |
-| Test posture | B | Backend unit tests/build, Functions build, Flutter analyze, and RTDB emulator rules pass. Flutter widget tests are stale and fail; highest-risk money paths still need idempotency and real Postgres race tests. |
+| Test posture | B+ | Backend unit tests/build, Flutter analyze, RTDB emulator rules, and opt-in Postgres DB race tests pass. Flutter widget tests are stale, and RTDB/DB race suites still need CI/default check wiring. |
 | Documentation accuracy | B- | `PRODUCT.md` is current after this audit, but OpenAPI and Copilot instructions still contain old guest/status assumptions and need cleanup. |
-| A+ gates | Pending | Finish manual random/direct call smoke, ledger idempotency keys plus Postgres race tests, Android IAP verification, follow/host feed model, premium live lifecycle, stale tests/contracts, and backend-confirmed gift fan-out. |
+| A+ gates | Pending | Finish manual random/direct call smoke, Android IAP verification, follow/host feed model, premium live lifecycle, stale tests/contracts, CI wiring, and backend-confirmed gift fan-out. |
