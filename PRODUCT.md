@@ -34,7 +34,7 @@ Every meaningful work slice must update this file before commit/push:
 |---|---|---|---|---|
 | P0 | Done | User | Install Java 17 JDK for Apple Silicon/M4 Mac | Verified locally with Temurin `17.0.19`; Firebase RTDB emulator can run through repo-local `firebase-tools@14` |
 | P0 | Done | Codex | Add executable RTDB emulator tests | `tests/rtdb/rules.test.mjs` proves canonical presence, profile ownership, direct-call ownership, live-room host ownership, and event validation |
-| P0 | Done | Codex | Run RTDB emulator rules suite and record results in Audit Log | `pnpm test:rtdb:rules` passed 5/5 tests on 6 Jun 2026 |
+| P0 | Done | Codex | Run RTDB emulator rules suite and record results in Audit Log | `pnpm test:rtdb:rules` passed 6/6 tests on 6 Jun 2026 |
 | P0 | Action required | User | Update Render billing payment method | Render reported invalid payment info on 6 Jun 2026; service is healthy now but can be suspended if payment fails again |
 | P0 | Done | Codex | Deploy `dev` to Render backend through `main` | PR #2 merged on 6 Jun 2026; Render health returned `ok` after merge |
 | P0 | Done | Codex | Launch iPhone 17 Pro Max simulator against Render API | `com.zephyr.zephyrMobile` launched on simulator with `API_BASE_URL=https://zephyr-api-wr1s.onrender.com` |
@@ -43,7 +43,18 @@ Every meaningful work slice must update this file before commit/push:
 | P0 | Done | Codex | Promote Android internal testing build `1.0.4+5` to `main` | PR #3 carries the Play version bump and release tracker to `main` so Render/GitHub state matches the upload build |
 | P0 | Done | Codex | Fix direct-call `API 400` user experience | Mobile now parses backend error envelopes into product messages; Firebase `onPresenceChanged` now mirrors RTDB create/update/delete writes into Postgres availability and was deployed on 6 Jun 2026 |
 | P0 | Action required | User | Retest direct call with two online accounts | Open/log in both accounts after the Functions deploy so each account rewrites presence, then call only when the receiver badge is online/live and not busy |
+| P0 | Done | Codex | Fix random-call receiver signaling lifecycle | Home now consumes backend `event=matched`, shows a host earning ribbon, routes accepted calls into Agora random mode, cleanly declines/timeouts, and Cloud Function cleanup no longer ends matched random sessions before join |
+| P0 | Action required | User | Manual two-account random-call smoke test | Use one customer and one host/girl account to verify live-host priority, receiver ribbon, accept, decline, timeout, end, and next-call behavior on simulator/device |
+| P0 | Done | Codex | Make wallet and session ledger writes transactional | Call ticks, direct/random call gifts, live gifts, dev coin credit, IAP credit, and IAP refunds now use PostgreSQL transactions/row locks where needed |
+| P0 | Done | Codex | Add ledger idempotency keys and real Postgres race tests | Call ticks, call gifts, and live-room gifts now accept `X-Idempotency-Key`; mobile sends stable paid-action keys; `pnpm --filter zephyr-api test:db:race` passed 3/3 against local Postgres on 6 Jun 2026 |
+| P0 | Done | Codex | Fix Google Play IAP verification contract | Android now sends the Play purchase token as canonical transaction ID, consumes coin packs after backend credit, backend defaults match real app IDs, and Google RTDN refunds resolve by purchase token |
+| P0 | Action required | User | Set production IAP env on Render | Add `GOOGLE_PLAY_PACKAGE_NAME=com.zephyr.zephyr_mobile`, `APPLE_BUNDLE_ID=com.zephyr.zephyrMobile`, and a real `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY` or base64 equivalent before production Android IAP verification |
+| P0 | Action required | User | Manual Google Play internal-test purchase smoke | After deploy/env setup, buy one coin pack from internal testing and verify backend credit, Android consume/rebuy, duplicate retry, and refund RTDN behavior |
+| P0 | Audit finding | Codex | Replace stale Flutter widget test harness | `flutter test` currently pumps Firebase-backed `MyApp` without Firebase init and still expects removed guest onboarding copy |
 | P0 | Next | Codex | Wire RTDB rules suite into normal check/CI path | Prevents future rules drift from silently weakening ownership/security |
+| P1 | Audit finding | Codex | Wire follow/profile/feed host model end-to-end | Profile follow is local-only, following list parsing is wrong, and live feed should filter canonical host accounts |
+| P1 | Audit finding | Codex | Unify block/report ownership | Thread chat uses Firestore block/report state while profile uses backend `user_blocks`; product should have one moderation truth |
+| P1 | Audit finding | Codex | Refresh stale contracts and instructions | OpenAPI and Copilot instructions still describe old guest/status behavior and do not match the current canonical availability architecture |
 | P1 | Planned | Codex | Implement premium live lifecycle | Free live -> premium, start premium directly, paid entry, per-minute billing, lock screen, cleanup |
 | P1 | Planned | Codex | Add `PremiumLiveRealtime` module once lifecycle exists | Keeps premium live non-interruptible and owned by a dedicated realtime module |
 | P1 | Planned | Codex | Replace live audience counter with per-viewer presence/count derivation | Prevents inaccurate counts from duplicate joins/disconnect edge cases |
@@ -51,11 +62,13 @@ Every meaningful work slice must update this file before commit/push:
 
 Immediate next work:
 
-1. Add RTDB rules suite to the default local/CI check path.
-2. Update Render billing, then verify post-deploy health at `https://zephyr-api-wr1s.onrender.com/v1/health/ready`.
-3. Retest direct call with two online accounts after the deployed presence-sync trigger.
-4. Implement premium live lifecycle and `PremiumLiveRealtime`.
-5. Move trusted gift fan-out behind backend confirmation.
+1. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
+2. Set production IAP env on Render, then smoke one Google Play internal-test purchase.
+3. Replace stale Flutter widget tests with Firebase-mocked or dependency-injected tests that match current onboarding.
+4. Add RTDB rules suite and DB race suite to the default local/CI check path.
+5. Retest direct call with two online accounts after the deployed presence-sync trigger.
+6. Implement premium live lifecycle and `PremiumLiveRealtime`.
+7. Move trusted gift fan-out behind backend/Admin SDK confirmation.
 
 ---
 
@@ -122,6 +135,9 @@ cd apps/zephyr-mobile && flutter test
 | `CORS_ORIGINS` | Production | Comma-separated allowed origins |
 | `GOOGLE_CLIENT_IDS` | Yes | Comma-separated Google client IDs (iOS + Android) |
 | `APPLE_CLIENT_ID` | Yes | e.g. `com.zephyr.zephyrMobile` |
+| `APPLE_BUNDLE_ID` | Production IAP | `com.zephyr.zephyrMobile` |
+| `GOOGLE_PLAY_PACKAGE_NAME` | Production IAP | `com.zephyr.zephyr_mobile` |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY` or `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY_BASE64` | Production IAP | Google Play Developer API service account JSON for Android Publisher verification |
 | `AGORA_APP_ID` | Yes | Agora RTC app ID |
 | `AGORA_APP_CERTIFICATE` | Yes | Agora RTC certificate |
 | `DIRECT_CALL_ALLOWED_RATES` | No | Comma-separated coins/min (default: `2100,3200,4200,5400,6400,8000,27000`) |
@@ -1124,10 +1140,10 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 |--------|-------|-------|
 | Architecture | A+ | Flutter `in_app_purchase` → backend verify-purchase → credit coins. StoreKit 2 + Google Play Billing. Direct credit endpoint blocked in production. |
 | Apple verification | A+ | Full JWS certificate chain verified against Apple G3 root CA via `decodeTransaction()`. Forged receipts detected as `CertificateValidationError`. Validates bundleId + productId cryptographically. Rejects revoked transactions. |
-| Google verification | A+ | Publisher API token verification via `google-auth-library`. Validates packageName + productId. Checks `purchaseState === 0` (purchased) and `consumptionState === 0` (unconsumed). |
-| Refund handling | A+ | Apple ASNS V2 webhook + Google RTDN webhook. `processRefund()` deducts coins immediately, records `iap_refund` transaction. Idempotent (skips if already refunded). Balance can go negative (fraud protection). |
+| Google verification | A+ | Android now sends the Play purchase token, backend verifies `packageName + productId + token` with Android Publisher API, requires service-account credentials in production, and checks purchased/unconsumed state. |
+| Refund handling | A+ | Apple ASNS V2 webhook + Google RTDN webhook. Google voided purchases now refund by purchase token, not order ID. `processRefund()` deducts coins immediately, records `iap_refund`, and is idempotent. |
 | Idempotency | A+ | `iap_purchases.transaction_id` UNIQUE constraint. Check-before-insert prevents double-credit. Race conditions caught by PostgreSQL. |
-| Retry safety | A+ | `completePurchase()` only called after backend confirms credit. Failed verifications retry on next app launch automatically. |
+| Retry safety | A+ | Store completion happens only after backend confirms credit. Android consumable coin packs are consumed after credit, so users can rebuy the same pack safely. Failed verifications retry on next app launch automatically. |
 | Production hardening | A+ | `POST /v1/economy/purchase-coins` blocked unless `ALLOW_FAKE_PURCHASES=true`. Flutter fallback restricted to `kDebugMode`. |
 | Code quality | A+ | Singleton `IapService.instance`. Clean separation: Flutter handles store interaction, backend handles all validation + crediting. Zero trust on client. |
 
@@ -1186,7 +1202,7 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Direct-call routeability | A | Profile/chat UI and backend direct-call creation reject offline, busy, and premium-live receivers using canonical availability/routing. |
 | Random-call routeability | A | Live-host and online fallback matchmaking require `presence_availability='available'` and `can_random_call=true`; away, busy, offline, and premium-live users are skipped. |
 | Compatibility | A | Existing UI readers still work through legacy `state`, while new readers prefer `displayStatus`. This allows gradual module extraction without breaking current screens. |
-| Remaining A+ gates | A- | RTDB emulator suite now passes locally (`pnpm test:rtdb:rules`, 5/5). Premium-live enter/exit transitions still need end-to-end implementation. |
+| Remaining A+ gates | A- | RTDB emulator suite now passes locally (`pnpm test:rtdb:rules`, 6/6). Premium-live enter/exit transitions still need end-to-end implementation. |
 
 ### Direct Call Availability Hotfix — 6 Jun 2026 — Overall: A
 | Aspect | Grade | Notes |
@@ -1194,6 +1210,17 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Error UX | A | Mobile parses backend error envelopes and maps direct-call failures to product messages instead of raw `API 400` transport text. |
 | Presence projection | A | `onPresenceChanged` now uses RTDB written events, so first-time presence creates, updates, and deletes all mirror into Postgres availability. Deployed to Firebase project `zephyr-495115` on 6 Jun 2026. |
 | Remaining risk | B+ | Manual two-account call retest is still required. Existing online users may need app foreground/login after deploy to rewrite their presence. |
+
+### Random Call Receiver Lifecycle — 6 Jun 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Receiver entrance | A+ | `HomeScreen` now consumes backend `event=matched` from any app tab and shows a floating earning ribbon instead of requiring the receiver to already be inside `RandomCallScreen`. |
+| Host UX | A | Ribbon shows caller name, host earning per minute, customer price per minute, accept, and decline. Host earning is derived from backend rate/share, not a hardcoded mobile claim. |
+| Session cleanup | A | Accept removes the matched signal without triggering premature Cloud Function session end; decline, timeout, app pause, and partner-left events call backend random cleanup. |
+| Shared call engine | A+ | Accepted random calls still enter `DirectCallScreen(mode=random)`, so Agora, billing, presence busy state, token renewal, and media controls stay reusable. |
+| Matchmaking priority | A | Backend already favors available free-live hosts first, then available online hosts, while respecting block lists, busy sessions, routeability, and recent-match cooldown. |
+| Rules coverage | A | RTDB emulator now covers random matched signal participant read/delete behavior. |
+| Remaining A+ gate | A- | Needs manual two-account smoke on simulator/device before final A+ sign-off. Deeper telemetry-based host ranking can come after real usage data. |
 
 ### RTDB Module Ownership — 6 Jun 2026 — Overall: A
 | Aspect | Grade | Notes |
@@ -1211,6 +1238,30 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 |--------|-------|-------|
 | Test harness | A+ | Added repo-local `test:rtdb:rules` using Firebase Database emulator + `@firebase/rules-unit-testing`. |
 | Coverage | A | Covers presence owner/schema, profile owner/shape, direct-call caller/receiver access, immutable call metadata, live-room host ownership, viewer comments/reactions, audience count validation, and gift payload bounds. |
-| Execution | A+ | `pnpm test:rtdb:rules` passed 5 tests / 0 failures on 6 Jun 2026. |
+| Execution | A+ | `pnpm test:rtdb:rules` passed 6 tests / 0 failures on 6 Jun 2026, including random matched signal participant read/delete coverage. |
 | Tooling stability | A | Pinned repo-local `firebase-tools@14` so Java 17 works today. Future Firebase CLI v15+ requires Java 21, so plan that upgrade deliberately. |
 | Remaining risk | B+ | Gift display fan-out is still client-written after backend charge success; move trusted fan-out to backend/Admin SDK before larger scale. |
+
+### Backend Money Ledger — 6 Jun 2026 — Overall: A+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Idempotency | A+ | Call ticks, call gifts, and live-room gifts now support `X-Idempotency-Key`/body keys. Duplicate retries replay the first stored response; reusing a key for different money details is rejected. |
+| Call tick ledger | A+ | Database-backed call ticks run in one PostgreSQL transaction, lock the idempotency row, call session, and caller wallet with `FOR UPDATE`, check balance, update wallet/revenue/history/session totals together, and end insufficient-balance sessions inside the same transaction. |
+| Call/live gifts | A+ | Direct/random call gifts and live-room gifts validate the active session/room, lock idempotency and spender wallet rows, check balance, update receiver revenue, and write spend/earning history in the same transaction. Live gifts use shared economy config instead of a hardcoded split. |
+| IAP credit/refund | A | Purchase credit uses `DatabaseService.transaction`, inserts the unique purchase before wallet credit, and refund processing is transactional with a unique partial refund index. |
+| Test coverage | A+ | Backend unit suite covers duplicate/reused idempotency keys, and `pnpm --filter zephyr-api test:db:race` passed 3/3 against local Postgres for duplicate concurrent ticks, low-balance concurrent ticks, and duplicate concurrent gifts. |
+| Tooling | A | Added `test:db:race` and `DatabaseService.waitUntilReady()` so row-lock tests can run deliberately against local Postgres. Next step is wiring this into CI/default checks. |
+
+### Full Solution Audit — 6 Jun 2026 — Overall: B
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Product architecture | B+ | The source-of-truth design is strong: Flutter + NestJS + Postgres + Firebase RTDB/Firestore + Agora is the right split for this app. The gap is execution completeness, not the big architecture choice. |
+| Mobile entrances | B+ | Login, onboarding, feed, explore, inbox, direct call, random call, live, profile, wallet, and settings are present. Several entrances are still shallow or disconnected: feed call routing, profile follow, Explore caller identity, and premium live. |
+| Realtime availability | A- | Canonical RTDB presence is a strong cell and backend matchmaking reads the projection. Product-level A+ is blocked by premium live transitions and manual two-account random/direct call smoke. |
+| Backend economy | A | Paid call ticks and gifts now have transaction-safe row locks, idempotency replay, and real Postgres race tests. IAP credit/refund is transactional, and Android token verification contract is fixed. Remaining economy gap is backend-confirmed trusted gift fan-out. |
+| IAP production readiness | A- | Android code/backend contract now matches Google Play token verification and real app IDs. Remaining sign-off: set Render service-account env and run one internal-test purchase/refund smoke. |
+| Firebase ownership | A- | RTDB rules and module ownership improved a lot. Remaining trust gap is client-written gift/audience visual state and block/report split between Firestore and backend. |
+| Premium live | C | Product model is documented, but implementation is not present yet: no paid-entry transition, host caps, per-minute premium-room billing, lock screen, or premium realtime module. |
+| Test posture | B+ | Backend unit tests/build, Flutter analyze, RTDB emulator rules, and opt-in Postgres DB race tests pass. Flutter widget tests are stale, and RTDB/DB race suites still need CI/default check wiring. |
+| Documentation accuracy | B- | `PRODUCT.md` is current after this audit, but OpenAPI and Copilot instructions still contain old guest/status assumptions and need cleanup. |
+| A+ gates | Pending | Finish manual random/direct call smoke, Google Play internal-test IAP smoke after Render env setup, follow/host feed model, premium live lifecycle, stale tests/contracts, CI wiring, and backend-confirmed gift fan-out. |

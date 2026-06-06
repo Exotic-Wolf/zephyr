@@ -112,14 +112,20 @@ export class RoomsController {
   @Post(':roomId/gift')
   async postGift(
     @Headers('authorization') authorization: string | undefined,
+    @Headers('x-idempotency-key') idempotencyKeyHeader: string | undefined,
     @Param('roomId', new ParseUUIDPipe()) roomId: string,
-    @Body() body: { giftId?: string; quantity?: number },
+    @Body() body: {
+      giftId?: string;
+      quantity?: number;
+      idempotencyKey?: string;
+    },
   ): Promise<GiftSendResult> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
     return this.storeService.sendGiftInRoom(user.id, {
       roomId,
       giftId: body?.giftId ?? '',
       quantity: body?.quantity,
+      idempotencyKey: idempotencyKeyHeader ?? body?.idempotencyKey,
     });
   }
 }

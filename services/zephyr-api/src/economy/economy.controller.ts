@@ -149,6 +149,7 @@ export class EconomyController {
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   async sendGift(
     @Headers('authorization') authorization: string | undefined,
+    @Headers('x-idempotency-key') idempotencyKeyHeader: string | undefined,
     @Body() body: SendGiftDto,
   ): Promise<GiftSendResult> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
@@ -156,6 +157,7 @@ export class EconomyController {
       sessionId: body.sessionId,
       giftId: body.giftId,
       quantity: body.quantity,
+      idempotencyKey: idempotencyKeyHeader ?? body.idempotencyKey,
     });
   }
 
@@ -193,6 +195,7 @@ export class EconomyController {
   @Post('calls/:sessionId/tick')
   async tickCallSession(
     @Headers('authorization') authorization: string | undefined,
+    @Headers('x-idempotency-key') idempotencyKeyHeader: string | undefined,
     @Param('sessionId') sessionId: string,
     @Body() body: TickCallSessionDto,
   ): Promise<CallSessionTickResult> {
@@ -201,6 +204,7 @@ export class EconomyController {
       user.id,
       sessionId,
       body.elapsedSeconds,
+      idempotencyKeyHeader ?? body.idempotencyKey,
     );
   }
 

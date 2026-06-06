@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -140,6 +141,158 @@ describe('StoreService', () => {
       receiverWalletBefore.sparkBalance,
     );
     expect(receiverWalletAfter.coinBalance).toBe(receiverWalletBefore.coinBalance);
+  });
+
+  it('replays duplicate call tick idempotency keys without charging twice', async () => {
+    const caller = await storeService.issueGuestSession('idem_tick_caller');
+    const receiver = await storeService.issueGuestSession('idem_tick_receiver');
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+    const walletBefore = await storeService.getWalletSummary(caller.user.id);
+    const idempotencyKey = `tick:${session.id}:0001`;
+
+    const first = await storeService.tickCallSession(
+      caller.user.id,
+      session.id,
+      10,
+      idempotencyKey,
+    );
+    const second = await storeService.tickCallSession(
+      caller.user.id,
+      session.id,
+      10,
+      idempotencyKey,
+    );
+    const walletAfter = await storeService.getWalletSummary(caller.user.id);
+
+    expect(second).toEqual(first);
+    expect(walletAfter.coinBalance).toBe(
+      walletBefore.coinBalance - first.chargedCoins,
+    );
+  });
+
+  it('rejects reusing a call tick idempotency key for different details', async () => {
+    const caller = await storeService.issueGuestSession('idem_conflict_caller');
+    const receiver = await storeService.issueGuestSession('idem_conflict_receiver');
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+    const idempotencyKey = `tick:${session.id}:conflict`;
+
+    await storeService.tickCallSession(caller.user.id, session.id, 10, idempotencyKey);
+
+    await expect(
+      storeService.tickCallSession(caller.user.id, session.id, 15, idempotencyKey),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('replays duplicate gift idempotency keys without charging twice', async () => {
+    const caller = await storeService.issueGuestSession('idem_gift_caller');
+    const receiver = await storeService.issueGuestSession('idem_gift_receiver');
+
+    await storeService.purchaseCoins(caller.user.id, 'pack_299');
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+    const walletBefore = await storeService.getWalletSummary(caller.user.id);
+    const idempotencyKey = `gift:${session.id}:lion:1`;
+
+    const first = await storeService.sendGiftInCall(caller.user.id, {
+      sessionId: session.id,
+      giftId: 'lion',
+      quantity: 1,
+      idempotencyKey,
+    });
+    const second = await storeService.sendGiftInCall(caller.user.id, {
+      sessionId: session.id,
+      giftId: 'lion',
+      quantity: 1,
+      idempotencyKey,
+    });
+    const walletAfter = await storeService.getWalletSummary(caller.user.id);
+
+    expect(second).toEqual(first);
+    expect(walletAfter.coinBalance).toBe(
+      walletBefore.coinBalance - first.totalGiftCoins,
+    );
+  });
+
+  it('uses a single database transaction and row locks for call ticks', async () => {
+    const callerUserId = '11111111-1111-4111-8111-111111111111';
+    const receiverUserId = '22222222-2222-4222-8222-222222222222';
+    const sessionId = '33333333-3333-4333-8333-333333333333';
+    const baseSessionRow = {
+      id: sessionId,
+      caller_user_id: callerUserId,
+      receiver_user_id: receiverUserId,
+      mode: 'random',
+      rate_coins_per_minute: 600,
+      receiver_share_bps: 6000,
+      coins_per_usd_receiver: 10000,
+      spark_per_usd: 10000,
+      total_billed_coins: 0,
+      total_receiver_coins: 0,
+      total_receiver_usd: 0,
+      total_receiver_spark: 0,
+      status: 'live',
+      end_reason: null,
+      started_at: new Date('2026-06-06T00:00:00.000Z'),
+      updated_at: new Date('2026-06-06T00:00:00.000Z'),
+      ended_at: null,
+    };
+    const updatedSessionRow = {
+      ...baseSessionRow,
+      total_billed_coins: 100,
+      total_receiver_coins: 60,
+      total_receiver_usd: 0.006,
+      total_receiver_spark: 60,
+      updated_at: new Date('2026-06-06T00:00:10.000Z'),
+    };
+
+    const client = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('FROM call_sessions')) {
+          return { rowCount: 1, rows: [baseSessionRow] };
+        }
+        if (sql.includes('FROM wallets')) {
+          return { rowCount: 1, rows: [{ coin_balance: 1200 }] };
+        }
+        if (sql.includes('UPDATE wallets')) {
+          return { rowCount: 1, rows: [{ coin_balance: 1100 }] };
+        }
+        if (sql.includes('UPDATE call_sessions')) {
+          return { rowCount: 1, rows: [updatedSessionRow] };
+        }
+        return { rowCount: 1, rows: [] };
+      }),
+    };
+    const databaseService = {
+      isEnabled: () => true,
+      transaction: jest.fn(async (work) => work(client)),
+      query: jest.fn(),
+    };
+    const dbBackedStore = new StoreService(databaseService as any);
+
+    const result = await dbBackedStore.tickCallSession(
+      callerUserId,
+      sessionId,
+      10,
+    );
+
+    expect(databaseService.transaction).toHaveBeenCalledTimes(1);
+    expect(result.chargedCoins).toBe(100);
+    expect(result.callerCoinBalanceAfter).toBe(1100);
+    expect(
+      client.query.mock.calls.some(([sql]) => String(sql).includes('FOR UPDATE')),
+    ).toBe(true);
+    expect(databaseService.query).not.toHaveBeenCalled();
   });
 
   it('prevents a busy caller from starting another live call', async () => {

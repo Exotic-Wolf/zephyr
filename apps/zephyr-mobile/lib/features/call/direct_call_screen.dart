@@ -24,6 +24,7 @@ class DirectCallScreen extends StatefulWidget {
     required this.partnerId,
     this.partnerAvatarUrl,
     this.mode = 'direct',
+    this.allowRandomNext = true,
   });
 
   final ZephyrApiClient apiClient;
@@ -39,6 +40,7 @@ class DirectCallScreen extends StatefulWidget {
 
   /// 'direct' or 'random'. Random mode adds Next button and pops with result.
   final String mode;
+  final bool allowRandomNext;
 
   bool get isRandom => mode == 'random';
 
@@ -57,7 +59,9 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   int _elapsed = 0;
   Timer? _elapsedTimer;
   Timer? _tickTimer;
+  StreamSubscription<dynamic>? _randomSignalSub;
   bool _disposed = false;
+  int _billingTickSequence = 0;
 
   @override
   void initState() {
@@ -71,8 +75,31 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
       sessionId: widget.sessionId,
       activity: widget.isRandom ? 'random_call' : 'direct_call',
     );
+    if (widget.isRandom) {
+      _listenForRandomPartnerEvents();
+    }
     await _initAgora();
     _startTimers();
+  }
+
+  void _listenForRandomPartnerEvents() {
+    _randomSignalSub?.cancel();
+    _randomSignalSub = FirebaseChatService.instance.listenCallSignal(
+      FirebaseChatService.instance.myUserId,
+      (Map<String, dynamic>? data) {
+        if (_disposed || !mounted || data == null) return;
+        if (data['event'] != 'partner_left') return;
+
+        final sessionId = data['sessionId'] as String?;
+        if (sessionId != null && sessionId != widget.sessionId) return;
+
+        FirebaseChatService.instance
+            .removeCallSignal(FirebaseChatService.instance.myUserId)
+            .ignore();
+        _showSnack('Partner left');
+        _leaveWithResult('partner_left');
+      },
+    );
   }
 
   Future<void> _initAgora() async {
@@ -201,11 +228,15 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   }
 
   Future<void> _tick() async {
+    final int tickSequence = ++_billingTickSequence;
+    final String idempotencyKey =
+        'call-tick:${widget.sessionId}:$tickSequence:$_kTickSeconds';
     try {
       final result = await widget.apiClient.tickCallSession(
         accessToken: widget.accessToken,
         sessionId: widget.sessionId,
         elapsedSeconds: _kTickSeconds,
+        idempotencyKey: idempotencyKey,
       );
       if (result.stoppedForInsufficientBalance && !_disposed) {
         _showSnack('Insufficient balance — call ended');
@@ -256,16 +287,23 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
 
   void _endCall() {
     if (_disposed) return;
-    widget.apiClient
-        .endCallSession(
-          accessToken: widget.accessToken,
-          sessionId: widget.sessionId,
-          reason: 'user_ended',
-        )
-        .ignore();
     if (widget.isRandom) {
+      widget.apiClient
+          .endRandomCall(
+            widget.accessToken,
+            sessionId: widget.sessionId,
+            partnerId: widget.partnerId,
+          )
+          .ignore();
       _leaveWithResult('ended');
     } else {
+      widget.apiClient
+          .endCallSession(
+            accessToken: widget.accessToken,
+            sessionId: widget.sessionId,
+            reason: 'user_ended',
+          )
+          .ignore();
       _leave();
     }
   }
@@ -282,6 +320,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
     _disposed = true;
     _elapsedTimer?.cancel();
     _tickTimer?.cancel();
+    _randomSignalSub?.cancel();
     FirebaseChatService.instance.clearBusyStatus();
     final engine = _engine;
     _engine = null;
@@ -302,6 +341,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
     _disposed = true;
     _elapsedTimer?.cancel();
     _tickTimer?.cancel();
+    _randomSignalSub?.cancel();
     FirebaseChatService.instance.clearBusyStatus();
     final engine = _engine;
     _engine = null;
@@ -315,18 +355,29 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   void dispose() {
     if (!_disposed) {
       // End session on server if not already ended
-      widget.apiClient
-          .endCallSession(
-            accessToken: widget.accessToken,
-            sessionId: widget.sessionId,
-            reason: 'disposed',
-          )
-          .ignore();
+      if (widget.isRandom) {
+        widget.apiClient
+            .endRandomCall(
+              widget.accessToken,
+              sessionId: widget.sessionId,
+              partnerId: widget.partnerId,
+            )
+            .ignore();
+      } else {
+        widget.apiClient
+            .endCallSession(
+              accessToken: widget.accessToken,
+              sessionId: widget.sessionId,
+              reason: 'disposed',
+            )
+            .ignore();
+      }
       FirebaseChatService.instance.clearBusyStatus();
     }
     _disposed = true;
     _elapsedTimer?.cancel();
     _tickTimer?.cancel();
+    _randomSignalSub?.cancel();
     final engine = _engine;
     _engine = null;
     if (engine != null) {
@@ -585,7 +636,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
               label: 'Flip',
               onTap: _flipCamera,
             ),
-            if (widget.isRandom)
+            if (widget.isRandom && widget.allowRandomNext)
               _ControlButton(
                 icon: Icons.skip_next_rounded,
                 label: 'Next',

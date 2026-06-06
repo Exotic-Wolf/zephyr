@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -7,10 +8,11 @@ import {
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { JWTPayload, createRemoteJWKSet, jwtVerify } from 'jose';
 import { JwtPayload, sign, verify } from 'jsonwebtoken';
+import type { PoolClient } from 'pg';
 import { DatabaseService } from './database.service';
 
 function derivePublicId(uuid: string, attempt = 0): string {
@@ -225,6 +227,35 @@ interface NormalizedPresenceSync {
   updatedAtIso: string | null;
 }
 
+type LedgerOperationType = 'call_tick' | 'call_gift' | 'live_gift';
+
+interface LedgerIdempotencyEntry<T> {
+  operationType: LedgerOperationType;
+  requestHash: string;
+  response: T;
+}
+
+interface LedgerIdempotencyRow {
+  operation_type: LedgerOperationType;
+  request_hash: string;
+  response_json: unknown;
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+    .join(',')}}`;
+}
+
 function normalizePresenceSync(
   status: string,
   options: PresenceSyncOptions = {},
@@ -291,6 +322,10 @@ export class StoreService implements OnModuleInit {
   private readonly logger = new Logger(StoreService.name);
   private readonly googleClient = new OAuth2Client();
   private cachedCallRateTiers: CallRateTier[] = [];
+  private readonly inMemoryLedgerIdempotency = new Map<
+    string,
+    LedgerIdempotencyEntry<unknown>
+  >();
 
   async onModuleInit(): Promise<void> {
     await this.loadCallRateTiers();
@@ -332,6 +367,157 @@ export class StoreService implements OnModuleInit {
 
   getCallRateTiers(): CallRateTier[] {
     return this.cachedCallRateTiers;
+  }
+
+  private normalizeIdempotencyKey(value?: string | null): string | null {
+    if (value == null) {
+      return null;
+    }
+
+    const key = value.trim();
+    if (key.length === 0) {
+      return null;
+    }
+    if (key.length < 8 || key.length > 160) {
+      throw new BadRequestException(
+        'idempotencyKey must be between 8 and 160 characters',
+      );
+    }
+    if (!/^[A-Za-z0-9._:-]+$/.test(key)) {
+      throw new BadRequestException(
+        'idempotencyKey contains unsupported characters',
+      );
+    }
+
+    return key;
+  }
+
+  private ledgerRequestHash(payload: Record<string, unknown>): string {
+    return createHash('sha256').update(stableJson(payload)).digest('hex');
+  }
+
+  private inMemoryIdempotencyKey(userId: string, idempotencyKey: string): string {
+    return `${userId}:${idempotencyKey}`;
+  }
+
+  private getInMemoryLedgerReplay<T>(
+    userId: string,
+    idempotencyKey: string | null,
+    operationType: LedgerOperationType,
+    requestHash: string,
+  ): T | null {
+    if (!idempotencyKey) {
+      return null;
+    }
+
+    const entry = this.inMemoryLedgerIdempotency.get(
+      this.inMemoryIdempotencyKey(userId, idempotencyKey),
+    );
+    if (!entry) {
+      return null;
+    }
+    if (
+      entry.operationType !== operationType ||
+      entry.requestHash !== requestHash
+    ) {
+      throw new ConflictException(
+        'idempotencyKey was already used for a different ledger request',
+      );
+    }
+
+    return entry.response as T;
+  }
+
+  private saveInMemoryLedgerResponse<T>(
+    userId: string,
+    idempotencyKey: string | null,
+    operationType: LedgerOperationType,
+    requestHash: string,
+    response: T,
+  ): T {
+    if (idempotencyKey) {
+      this.inMemoryLedgerIdempotency.set(
+        this.inMemoryIdempotencyKey(userId, idempotencyKey),
+        { operationType, requestHash, response },
+      );
+    }
+
+    return response;
+  }
+
+  private async getDatabaseLedgerReplay<T>(
+    client: PoolClient,
+    userId: string,
+    idempotencyKey: string | null,
+    operationType: LedgerOperationType,
+    requestHash: string,
+  ): Promise<T | null> {
+    if (!idempotencyKey) {
+      return null;
+    }
+
+    await client.query(
+      `
+        INSERT INTO ledger_idempotency (
+          user_id,
+          idempotency_key,
+          operation_type,
+          request_hash,
+          created_at
+        )
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (user_id, idempotency_key) DO NOTHING
+      `,
+      [userId, idempotencyKey, operationType, requestHash],
+    );
+
+    const result = await client.query<LedgerIdempotencyRow>(
+      `
+        SELECT operation_type, request_hash, response_json
+        FROM ledger_idempotency
+        WHERE user_id = $1 AND idempotency_key = $2
+        FOR UPDATE
+      `,
+      [userId, idempotencyKey],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error('Ledger idempotency row was not created');
+    }
+    if (
+      row.operation_type !== operationType ||
+      row.request_hash !== requestHash
+    ) {
+      throw new ConflictException(
+        'idempotencyKey was already used for a different ledger request',
+      );
+    }
+    if (row.response_json) {
+      return row.response_json as T;
+    }
+
+    return null;
+  }
+
+  private async saveDatabaseLedgerResponse<T>(
+    client: PoolClient,
+    userId: string,
+    idempotencyKey: string | null,
+    response: T,
+  ): Promise<T> {
+    if (idempotencyKey) {
+      await client.query(
+        `
+          UPDATE ledger_idempotency
+          SET response_json = $3::jsonb,
+              completed_at = NOW()
+          WHERE user_id = $1 AND idempotency_key = $2
+        `,
+        [userId, idempotencyKey, JSON.stringify(response)],
+      );
+    }
+
+    return response;
   }
 
   private async uniquePublicId(uuid: string): Promise<string> {
@@ -2200,39 +2386,29 @@ export class StoreService implements OnModuleInit {
     }
 
     if (this.databaseService?.isEnabled()) {
-      await this.ensureWalletAndRevenueRows(userId);
+      await this.databaseService.transaction(async (client) => {
+        await this.ensureWalletAndRevenueRows(userId, client);
 
-      await this.databaseService.query(
-        `
-          UPDATE wallets
-          SET coin_balance = coin_balance + $2,
-              updated_at = NOW()
-          WHERE user_id = $1
-        `,
-        [userId, selectedPack.coins],
-      );
+        await client.query(
+          `
+            UPDATE wallets
+            SET coin_balance = coin_balance + $2,
+                updated_at = NOW()
+            WHERE user_id = $1
+          `,
+          [userId, selectedPack.coins],
+        );
 
-      await this.databaseService.query(
-        `
-          INSERT INTO wallet_transactions (
-            id,
-            user_id,
-            type,
-            coins_delta,
-            amount_usd,
-            metadata,
-            created_at
-          )
-          VALUES ($1, $2, 'purchase', $3, $4, $5::jsonb, NOW())
-        `,
-        [
-          randomUUID(),
+        await this.writeWalletTransaction({
           userId,
-          selectedPack.coins,
-          selectedPack.priceUsd,
-          JSON.stringify({ packId: selectedPack.id, label: selectedPack.label }),
-        ],
-      );
+          type: 'purchase',
+          coinsDelta: selectedPack.coins,
+          amountUsd: selectedPack.priceUsd,
+          metadata: { packId: selectedPack.id, label: selectedPack.label },
+          createdAt: new Date().toISOString(),
+          client,
+        });
+      });
 
       return this.getWalletSummary(userId);
     }
@@ -2592,25 +2768,61 @@ export class StoreService implements OnModuleInit {
     callerUserId: string,
     sessionId: string,
     elapsedSeconds = 60,
+    idempotencyKey?: string | null,
   ): Promise<CallSessionTickResult> {
-    const session = await this.getCallSessionForCaller(sessionId, callerUserId);
-    if (session.status === 'ended') {
-      const callerWallet = await this.getWalletSummary(callerUserId);
-      return {
-        session,
-        chargedCoins: 0,
-        receiverCoins: 0,
-        receiverUsd: 0,
-        receiverSpark: 0,
-        platformCoins: 0,
-        callerCoinBalanceAfter: callerWallet.coinBalance,
-        stoppedForInsufficientBalance: session.endReason === 'insufficient_balance',
-      };
-    }
-
     const normalizedSeconds = Number.isFinite(elapsedSeconds)
       ? Math.min(Math.max(Math.trunc(elapsedSeconds), 1), 300)
       : 60;
+    const normalizedIdempotencyKey =
+      this.normalizeIdempotencyKey(idempotencyKey);
+    const requestHash = this.ledgerRequestHash({
+      operationType: 'call_tick',
+      sessionId,
+      elapsedSeconds: normalizedSeconds,
+    });
+
+    if (this.databaseService?.isEnabled()) {
+      return this.tickCallSessionInDatabase(
+        callerUserId,
+        sessionId,
+        normalizedSeconds,
+        normalizedIdempotencyKey,
+        requestHash,
+      );
+    }
+
+    const replay = this.getInMemoryLedgerReplay<CallSessionTickResult>(
+      callerUserId,
+      normalizedIdempotencyKey,
+      'call_tick',
+      requestHash,
+    );
+    if (replay) {
+      return replay;
+    }
+
+    const session = await this.getCallSessionForCaller(sessionId, callerUserId);
+    if (session.status === 'ended') {
+      const callerWallet = await this.getWalletSummary(callerUserId);
+      return this.saveInMemoryLedgerResponse(
+        callerUserId,
+        normalizedIdempotencyKey,
+        'call_tick',
+        requestHash,
+        {
+          session,
+          chargedCoins: 0,
+          receiverCoins: 0,
+          receiverUsd: 0,
+          receiverSpark: 0,
+          platformCoins: 0,
+          callerCoinBalanceAfter: callerWallet.coinBalance,
+          stoppedForInsufficientBalance:
+            session.endReason === 'insufficient_balance',
+        },
+      );
+    }
+
     const chargedCoins = Math.max(
       Math.ceil((session.rateCoinsPerMinute * normalizedSeconds) / 60),
       1,
@@ -2623,16 +2835,22 @@ export class StoreService implements OnModuleInit {
         sessionId,
         'insufficient_balance',
       );
-      return {
-        session: endedSession,
-        chargedCoins: 0,
-        receiverCoins: 0,
-        receiverUsd: 0,
-        receiverSpark: 0,
-        platformCoins: 0,
-        callerCoinBalanceAfter: callerWalletBefore.coinBalance,
-        stoppedForInsufficientBalance: true,
-      };
+      return this.saveInMemoryLedgerResponse(
+        callerUserId,
+        normalizedIdempotencyKey,
+        'call_tick',
+        requestHash,
+        {
+          session: endedSession,
+          chargedCoins: 0,
+          receiverCoins: 0,
+          receiverUsd: 0,
+          receiverSpark: 0,
+          platformCoins: 0,
+          callerCoinBalanceAfter: callerWalletBefore.coinBalance,
+          stoppedForInsufficientBalance: true,
+        },
+      );
     }
 
     const receiverCoins = Math.floor(
@@ -2643,47 +2861,22 @@ export class StoreService implements OnModuleInit {
     const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
     const now = new Date().toISOString();
 
-    if (this.databaseService?.isEnabled()) {
-      await this.databaseService.query(
-        `
-          UPDATE wallets
-          SET coin_balance = coin_balance - $2,
-              updated_at = NOW()
-          WHERE user_id = $1
-        `,
-        [callerUserId, chargedCoins],
+    const callerCurrentBalance = this.walletBalances.get(callerUserId) ?? 1200;
+    this.walletBalances.set(callerUserId, callerCurrentBalance - chargedCoins);
+
+    if (session.receiverUserId) {
+      const receiverCurrentRevenue =
+        this.userRevenueUsd.get(session.receiverUserId) ?? 0;
+      const receiverCurrentSpark =
+        this.userSparkBalances.get(session.receiverUserId) ?? 0;
+      this.userRevenueUsd.set(
+        session.receiverUserId,
+        receiverCurrentRevenue + receiverUsd,
       );
-
-      if (session.receiverUserId) {
-        await this.databaseService.query(
-          `
-            UPDATE user_revenue
-            SET revenue_usd = revenue_usd + $2,
-                spark_balance = spark_balance + $3,
-                updated_at = NOW()
-            WHERE user_id = $1
-          `,
-          [session.receiverUserId, receiverUsd, receiverSpark],
-        );
-      }
-    } else {
-      const callerCurrentBalance = this.walletBalances.get(callerUserId) ?? 1200;
-      this.walletBalances.set(callerUserId, callerCurrentBalance - chargedCoins);
-
-      if (session.receiverUserId) {
-        const receiverCurrentRevenue =
-          this.userRevenueUsd.get(session.receiverUserId) ?? 0;
-        const receiverCurrentSpark =
-          this.userSparkBalances.get(session.receiverUserId) ?? 0;
-        this.userRevenueUsd.set(
-          session.receiverUserId,
-          receiverCurrentRevenue + receiverUsd,
-        );
-        this.userSparkBalances.set(
-          session.receiverUserId,
-          receiverCurrentSpark + receiverSpark,
-        );
-      }
+      this.userSparkBalances.set(
+        session.receiverUserId,
+        receiverCurrentSpark + receiverSpark,
+      );
     }
 
     await this.writeWalletTransaction({
@@ -2732,16 +2925,240 @@ export class StoreService implements OnModuleInit {
     await this.persistCallSession(updatedSession);
     const callerWalletAfter = await this.getWalletSummary(callerUserId);
 
-    return {
-      session: updatedSession,
-      chargedCoins,
-      receiverCoins,
-      receiverUsd,
-      receiverSpark,
-      platformCoins,
-      callerCoinBalanceAfter: callerWalletAfter.coinBalance,
-      stoppedForInsufficientBalance: false,
-    };
+    return this.saveInMemoryLedgerResponse(
+      callerUserId,
+      normalizedIdempotencyKey,
+      'call_tick',
+      requestHash,
+      {
+        session: updatedSession,
+        chargedCoins,
+        receiverCoins,
+        receiverUsd,
+        receiverSpark,
+        platformCoins,
+        callerCoinBalanceAfter: callerWalletAfter.coinBalance,
+        stoppedForInsufficientBalance: false,
+      },
+    );
+  }
+
+  private async tickCallSessionInDatabase(
+    callerUserId: string,
+    sessionId: string,
+    elapsedSeconds: number,
+    idempotencyKey: string | null,
+    requestHash: string,
+  ): Promise<CallSessionTickResult> {
+    return this.databaseService!.transaction(async (client) => {
+      const replay = await this.getDatabaseLedgerReplay<CallSessionTickResult>(
+        client,
+        callerUserId,
+        idempotencyKey,
+        'call_tick',
+        requestHash,
+      );
+      if (replay) {
+        return replay;
+      }
+
+      await this.ensureWalletAndRevenueRows(callerUserId, client);
+
+      const sessionResult = await client.query<CallSessionRow>(
+        `
+          SELECT *
+          FROM call_sessions
+          WHERE id = $1 AND caller_user_id = $2
+          FOR UPDATE
+        `,
+        [sessionId, callerUserId],
+      );
+
+      if ((sessionResult.rowCount ?? 0) === 0) {
+        throw new NotFoundException('Call session not found');
+      }
+
+      const session = this.mapCallSessionRow(sessionResult.rows[0]);
+      const walletResult = await client.query<{ coin_balance: number }>(
+        `
+          SELECT coin_balance
+          FROM wallets
+          WHERE user_id = $1
+          FOR UPDATE
+        `,
+        [callerUserId],
+      );
+      const callerCoinBalanceBefore =
+        walletResult.rows[0]?.coin_balance ?? 0;
+
+      if (session.status === 'ended') {
+        return this.saveDatabaseLedgerResponse(
+          client,
+          callerUserId,
+          idempotencyKey,
+          {
+            session,
+            chargedCoins: 0,
+            receiverCoins: 0,
+            receiverUsd: 0,
+            receiverSpark: 0,
+            platformCoins: 0,
+            callerCoinBalanceAfter: callerCoinBalanceBefore,
+            stoppedForInsufficientBalance:
+              session.endReason === 'insufficient_balance',
+          },
+        );
+      }
+
+      const chargedCoins = Math.max(
+        Math.ceil((session.rateCoinsPerMinute * elapsedSeconds) / 60),
+        1,
+      );
+
+      if (callerCoinBalanceBefore < chargedCoins) {
+        const now = new Date().toISOString();
+        const endedResult = await client.query<CallSessionRow>(
+          `
+            UPDATE call_sessions
+            SET status = 'ended',
+                end_reason = 'insufficient_balance',
+                updated_at = $2,
+                ended_at = $2
+            WHERE id = $1
+            RETURNING *
+          `,
+          [session.id, now],
+        );
+
+        return this.saveDatabaseLedgerResponse(
+          client,
+          callerUserId,
+          idempotencyKey,
+          {
+            session: this.mapCallSessionRow(endedResult.rows[0]),
+            chargedCoins: 0,
+            receiverCoins: 0,
+            receiverUsd: 0,
+            receiverSpark: 0,
+            platformCoins: 0,
+            callerCoinBalanceAfter: callerCoinBalanceBefore,
+            stoppedForInsufficientBalance: true,
+          },
+        );
+      }
+
+      if (session.receiverUserId) {
+        await this.ensureWalletAndRevenueRows(session.receiverUserId, client);
+      }
+
+      const receiverCoins = Math.floor(
+        (chargedCoins * session.receiverShareBps) / 10000,
+      );
+      const platformCoins = chargedCoins - receiverCoins;
+      const receiverUsd = receiverCoins / session.coinsPerUsdReceiver;
+      const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
+      const now = new Date().toISOString();
+
+      const walletUpdate = await client.query<{ coin_balance: number }>(
+        `
+          UPDATE wallets
+          SET coin_balance = coin_balance - $2,
+              updated_at = NOW()
+          WHERE user_id = $1
+          RETURNING coin_balance
+        `,
+        [callerUserId, chargedCoins],
+      );
+
+      if (session.receiverUserId) {
+        await client.query(
+          `
+            UPDATE user_revenue
+            SET revenue_usd = revenue_usd + $2,
+                spark_balance = spark_balance + $3,
+                updated_at = NOW()
+            WHERE user_id = $1
+          `,
+          [session.receiverUserId, receiverUsd, receiverSpark],
+        );
+      }
+
+      await this.writeWalletTransaction({
+        userId: callerUserId,
+        type: 'call_spend',
+        coinsDelta: -chargedCoins,
+        amountUsd: null,
+        metadata: {
+          sessionId,
+          mode: session.mode,
+          elapsedSeconds,
+          receiverUserId: session.receiverUserId,
+          receiverCoins,
+          platformCoins,
+        },
+        createdAt: now,
+        client,
+      });
+
+      if (session.receiverUserId && receiverCoins > 0) {
+        await this.writeWalletTransaction({
+          userId: session.receiverUserId,
+          type: 'call_earning_spark',
+          coinsDelta: 0,
+          amountUsd: receiverUsd,
+          metadata: {
+            sessionId,
+            mode: session.mode,
+            elapsedSeconds,
+            receiverCoinsEquivalent: receiverCoins,
+            sparkEarned: receiverSpark,
+          },
+          createdAt: now,
+          client,
+        });
+      }
+
+      const updatedSessionResult = await client.query<CallSessionRow>(
+        `
+          UPDATE call_sessions
+          SET total_billed_coins = total_billed_coins + $2,
+              total_receiver_coins = total_receiver_coins + $3,
+              total_receiver_usd = total_receiver_usd + $4,
+              total_receiver_spark = total_receiver_spark + $5,
+              updated_at = $6
+          WHERE id = $1
+          RETURNING *
+        `,
+        [
+          session.id,
+          chargedCoins,
+          receiverCoins,
+          receiverUsd,
+          receiverSpark,
+          now,
+        ],
+      );
+      const updatedSession = this.mapCallSessionRow(
+        updatedSessionResult.rows[0],
+      );
+
+      return this.saveDatabaseLedgerResponse(
+        client,
+        callerUserId,
+        idempotencyKey,
+        {
+          session: updatedSession,
+          chargedCoins,
+          receiverCoins,
+          receiverUsd,
+          receiverSpark,
+          platformCoins,
+          callerCoinBalanceAfter:
+            walletUpdate.rows[0]?.coin_balance ?? callerCoinBalanceBefore,
+          stoppedForInsufficientBalance: false,
+        },
+      );
+    });
   }
 
   async endCallSession(
@@ -2806,8 +3223,41 @@ export class StoreService implements OnModuleInit {
       sessionId: string;
       giftId: string;
       quantity?: number;
+      idempotencyKey?: string | null;
     },
   ): Promise<GiftSendResult> {
+    const quantity = Number.isFinite(input.quantity)
+      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
+      : 1;
+    const normalizedIdempotencyKey = this.normalizeIdempotencyKey(
+      input.idempotencyKey,
+    );
+    const requestHash = this.ledgerRequestHash({
+      operationType: 'call_gift',
+      sessionId: input.sessionId,
+      giftId: input.giftId,
+      quantity,
+    });
+
+    if (this.databaseService?.isEnabled()) {
+      return this.sendGiftInCallInDatabase(
+        senderUserId,
+        { ...input, quantity },
+        normalizedIdempotencyKey,
+        requestHash,
+      );
+    }
+
+    const replay = this.getInMemoryLedgerReplay<GiftSendResult>(
+      senderUserId,
+      normalizedIdempotencyKey,
+      'call_gift',
+      requestHash,
+    );
+    if (replay) {
+      return replay;
+    }
+
     const session = await this.getCallSessionById(input.sessionId);
     if (session.status !== 'live') {
       throw new BadRequestException('Gifts can only be sent during a live call');
@@ -2826,9 +3276,6 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('Unknown gift id');
     }
 
-    const quantity = Number.isFinite(input.quantity)
-      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
-      : 1;
     const totalGiftCoins = gift.coinCost * quantity;
 
     const senderWalletBefore = await this.getWalletSummary(senderUserId);
@@ -2844,46 +3291,20 @@ export class StoreService implements OnModuleInit {
     const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
     const now = new Date().toISOString();
 
-    if (this.databaseService?.isEnabled()) {
-      await this.ensureWalletAndRevenueRows(senderUserId);
-      await this.ensureWalletAndRevenueRows(session.receiverUserId);
+    const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
+    this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
 
-      await this.databaseService.query(
-        `
-          UPDATE wallets
-          SET coin_balance = coin_balance - $2,
-              updated_at = NOW()
-          WHERE user_id = $1
-        `,
-        [senderUserId, totalGiftCoins],
-      );
-
-      await this.databaseService.query(
-        `
-          UPDATE user_revenue
-          SET revenue_usd = revenue_usd + $2,
-              spark_balance = spark_balance + $3,
-              updated_at = NOW()
-          WHERE user_id = $1
-        `,
-        [session.receiverUserId, receiverUsd, receiverSpark],
-      );
-    } else {
-      const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
-      this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
-
-      const receiverRevenue = this.userRevenueUsd.get(session.receiverUserId) ?? 0;
-      const receiverSparkBalance =
-        this.userSparkBalances.get(session.receiverUserId) ?? 0;
-      this.userRevenueUsd.set(
-        session.receiverUserId,
-        receiverRevenue + receiverUsd,
-      );
-      this.userSparkBalances.set(
-        session.receiverUserId,
-        receiverSparkBalance + receiverSpark,
-      );
-    }
+    const receiverRevenue = this.userRevenueUsd.get(session.receiverUserId) ?? 0;
+    const receiverSparkBalance =
+      this.userSparkBalances.get(session.receiverUserId) ?? 0;
+    this.userRevenueUsd.set(
+      session.receiverUserId,
+      receiverRevenue + receiverUsd,
+    );
+    this.userSparkBalances.set(
+      session.receiverUserId,
+      receiverSparkBalance + receiverSpark,
+    );
 
     await this.writeWalletTransaction({
       userId: senderUserId,
@@ -2923,18 +3344,24 @@ export class StoreService implements OnModuleInit {
 
     const senderWalletAfter = await this.getWalletSummary(senderUserId);
 
-    return {
-      sessionId: session.id,
-      giftId: gift.id,
-      giftName: gift.name,
-      quantity,
-      totalGiftCoins,
-      receiverCoins,
-      receiverUsd,
-      receiverSpark,
-      platformCoins,
-      senderCoinBalanceAfter: senderWalletAfter.coinBalance,
-    };
+    return this.saveInMemoryLedgerResponse(
+      senderUserId,
+      normalizedIdempotencyKey,
+      'call_gift',
+      requestHash,
+      {
+        sessionId: session.id,
+        giftId: gift.id,
+        giftName: gift.name,
+        quantity,
+        totalGiftCoins,
+        receiverCoins,
+        receiverUsd,
+        receiverSpark,
+        platformCoins,
+        senderCoinBalanceAfter: senderWalletAfter.coinBalance,
+      },
+    );
   }
 
   async sendGiftInRoom(
@@ -2943,8 +3370,41 @@ export class StoreService implements OnModuleInit {
       roomId: string;
       giftId: string;
       quantity?: number;
+      idempotencyKey?: string | null;
     },
   ): Promise<GiftSendResult> {
+    const quantity = Number.isFinite(input.quantity)
+      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
+      : 1;
+    const normalizedIdempotencyKey = this.normalizeIdempotencyKey(
+      input.idempotencyKey,
+    );
+    const requestHash = this.ledgerRequestHash({
+      operationType: 'live_gift',
+      roomId: input.roomId,
+      giftId: input.giftId,
+      quantity,
+    });
+
+    if (this.databaseService?.isEnabled()) {
+      return this.sendGiftInRoomInDatabase(
+        senderUserId,
+        { ...input, quantity },
+        normalizedIdempotencyKey,
+        requestHash,
+      );
+    }
+
+    const replay = this.getInMemoryLedgerReplay<GiftSendResult>(
+      senderUserId,
+      normalizedIdempotencyKey,
+      'live_gift',
+      requestHash,
+    );
+    if (replay) {
+      return replay;
+    }
+
     const hostUserId = await this.getRoomHostUserId(input.roomId);
     if (!hostUserId) {
       throw new NotFoundException('Room not found');
@@ -2958,9 +3418,6 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('Unknown gift id');
     }
 
-    const quantity = Number.isFinite(input.quantity)
-      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
-      : 1;
     const totalGiftCoins = gift.coinCost * quantity;
 
     const senderWalletBefore = await this.getWalletSummary(senderUserId);
@@ -2968,10 +3425,10 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('Insufficient coin balance for gift');
     }
 
-    // 60/40 split — same as calls
-    const receiverShareBps = 6000;
-    const coinsPerUsdReceiver = 5500;
-    const sparkPerUsd = 1;
+    const config = this.getEconomyConfig();
+    const receiverShareBps = config.receiverShareBps;
+    const coinsPerUsdReceiver = config.coinsPerUsdReceiver;
+    const sparkPerUsd = config.sparkPerUsd;
 
     const receiverCoins = Math.floor((totalGiftCoins * receiverShareBps) / 10000);
     const platformCoins = totalGiftCoins - receiverCoins;
@@ -2979,28 +3436,13 @@ export class StoreService implements OnModuleInit {
     const receiverSpark = Math.floor(receiverUsd * sparkPerUsd);
     const now = new Date().toISOString();
 
-    if (this.databaseService?.isEnabled()) {
-      await this.ensureWalletAndRevenueRows(senderUserId);
-      await this.ensureWalletAndRevenueRows(hostUserId);
+    const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
+    this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
 
-      await this.databaseService.query(
-        `UPDATE wallets SET coin_balance = coin_balance - $2, updated_at = NOW() WHERE user_id = $1`,
-        [senderUserId, totalGiftCoins],
-      );
-
-      await this.databaseService.query(
-        `UPDATE user_revenue SET revenue_usd = revenue_usd + $2, spark_balance = spark_balance + $3, updated_at = NOW() WHERE user_id = $1`,
-        [hostUserId, receiverUsd, receiverSpark],
-      );
-    } else {
-      const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
-      this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
-
-      const receiverRevenue = this.userRevenueUsd.get(hostUserId) ?? 0;
-      const receiverSparkBalance = this.userSparkBalances.get(hostUserId) ?? 0;
-      this.userRevenueUsd.set(hostUserId, receiverRevenue + receiverUsd);
-      this.userSparkBalances.set(hostUserId, receiverSparkBalance + receiverSpark);
-    }
+    const receiverRevenue = this.userRevenueUsd.get(hostUserId) ?? 0;
+    const receiverSparkBalance = this.userSparkBalances.get(hostUserId) ?? 0;
+    this.userRevenueUsd.set(hostUserId, receiverRevenue + receiverUsd);
+    this.userSparkBalances.set(hostUserId, receiverSparkBalance + receiverSpark);
 
     await this.writeWalletTransaction({
       userId: senderUserId,
@@ -3040,18 +3482,342 @@ export class StoreService implements OnModuleInit {
 
     const senderWalletAfter = await this.getWalletSummary(senderUserId);
 
-    return {
-      sessionId: input.roomId,
-      giftId: gift.id,
-      giftName: gift.name,
-      quantity,
-      totalGiftCoins,
-      receiverCoins,
-      receiverUsd,
-      receiverSpark,
-      platformCoins,
-      senderCoinBalanceAfter: senderWalletAfter.coinBalance,
-    };
+    return this.saveInMemoryLedgerResponse(
+      senderUserId,
+      normalizedIdempotencyKey,
+      'live_gift',
+      requestHash,
+      {
+        sessionId: input.roomId,
+        giftId: gift.id,
+        giftName: gift.name,
+        quantity,
+        totalGiftCoins,
+        receiverCoins,
+        receiverUsd,
+        receiverSpark,
+        platformCoins,
+        senderCoinBalanceAfter: senderWalletAfter.coinBalance,
+      },
+    );
+  }
+
+  private async sendGiftInCallInDatabase(
+    senderUserId: string,
+    input: {
+      sessionId: string;
+      giftId: string;
+      quantity?: number;
+    },
+    idempotencyKey: string | null,
+    requestHash: string,
+  ): Promise<GiftSendResult> {
+    const gift = this.listGiftCatalog().find((item) => item.id === input.giftId);
+    if (!gift) {
+      throw new BadRequestException('Unknown gift id');
+    }
+
+    const quantity = Number.isFinite(input.quantity)
+      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
+      : 1;
+    const totalGiftCoins = gift.coinCost * quantity;
+
+    return this.databaseService!.transaction(async (client) => {
+      const replay = await this.getDatabaseLedgerReplay<GiftSendResult>(
+        client,
+        senderUserId,
+        idempotencyKey,
+        'call_gift',
+        requestHash,
+      );
+      if (replay) {
+        return replay;
+      }
+
+      const sessionResult = await client.query<CallSessionRow>(
+        `
+          SELECT *
+          FROM call_sessions
+          WHERE id = $1
+          FOR UPDATE
+        `,
+        [input.sessionId],
+      );
+      if ((sessionResult.rowCount ?? 0) === 0) {
+        throw new NotFoundException('Call session not found');
+      }
+
+      const session = this.mapCallSessionRow(sessionResult.rows[0]);
+      if (session.status !== 'live') {
+        throw new BadRequestException('Gifts can only be sent during a live call');
+      }
+      if (session.callerUserId !== senderUserId) {
+        throw new BadRequestException('Only the caller can send gifts during a call');
+      }
+      if (!session.receiverUserId) {
+        throw new BadRequestException('Receiver is not available for gift delivery');
+      }
+
+      await this.ensureWalletAndRevenueRows(senderUserId, client);
+      await this.ensureWalletAndRevenueRows(session.receiverUserId, client);
+
+      const walletResult = await client.query<{ coin_balance: number }>(
+        `
+          SELECT coin_balance
+          FROM wallets
+          WHERE user_id = $1
+          FOR UPDATE
+        `,
+        [senderUserId],
+      );
+      const senderCoinBalanceBefore = walletResult.rows[0]?.coin_balance ?? 0;
+      if (senderCoinBalanceBefore < totalGiftCoins) {
+        throw new BadRequestException('Insufficient coin balance for gift');
+      }
+
+      const receiverCoins = Math.floor(
+        (totalGiftCoins * session.receiverShareBps) / 10000,
+      );
+      const platformCoins = totalGiftCoins - receiverCoins;
+      const receiverUsd = receiverCoins / session.coinsPerUsdReceiver;
+      const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
+      const now = new Date().toISOString();
+
+      const walletUpdate = await client.query<{ coin_balance: number }>(
+        `
+          UPDATE wallets
+          SET coin_balance = coin_balance - $2,
+              updated_at = NOW()
+          WHERE user_id = $1
+          RETURNING coin_balance
+        `,
+        [senderUserId, totalGiftCoins],
+      );
+
+      await client.query(
+        `
+          UPDATE user_revenue
+          SET revenue_usd = revenue_usd + $2,
+              spark_balance = spark_balance + $3,
+              updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [session.receiverUserId, receiverUsd, receiverSpark],
+      );
+
+      await this.writeWalletTransaction({
+        userId: senderUserId,
+        type: 'gift_spend',
+        coinsDelta: -totalGiftCoins,
+        amountUsd: null,
+        metadata: {
+          sessionId: session.id,
+          mode: session.mode,
+          giftId: gift.id,
+          giftName: gift.name,
+          quantity,
+          receiverUserId: session.receiverUserId,
+          receiverCoins,
+          platformCoins,
+        },
+        createdAt: now,
+        client,
+      });
+
+      await this.writeWalletTransaction({
+        userId: session.receiverUserId,
+        type: 'gift_earning_spark',
+        coinsDelta: 0,
+        amountUsd: receiverUsd,
+        metadata: {
+          sessionId: session.id,
+          mode: session.mode,
+          giftId: gift.id,
+          giftName: gift.name,
+          quantity,
+          senderUserId,
+          receiverCoinsEquivalent: receiverCoins,
+          sparkEarned: receiverSpark,
+        },
+        createdAt: now,
+        client,
+      });
+
+      return this.saveDatabaseLedgerResponse(
+        client,
+        senderUserId,
+        idempotencyKey,
+        {
+          sessionId: session.id,
+          giftId: gift.id,
+          giftName: gift.name,
+          quantity,
+          totalGiftCoins,
+          receiverCoins,
+          receiverUsd,
+          receiverSpark,
+          platformCoins,
+          senderCoinBalanceAfter:
+            walletUpdate.rows[0]?.coin_balance ?? senderCoinBalanceBefore,
+        },
+      );
+    });
+  }
+
+  private async sendGiftInRoomInDatabase(
+    senderUserId: string,
+    input: {
+      roomId: string;
+      giftId: string;
+      quantity?: number;
+    },
+    idempotencyKey: string | null,
+    requestHash: string,
+  ): Promise<GiftSendResult> {
+    const gift = this.listGiftCatalog().find((item) => item.id === input.giftId);
+    if (!gift) {
+      throw new BadRequestException('Unknown gift id');
+    }
+
+    const quantity = Number.isFinite(input.quantity)
+      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
+      : 1;
+    const totalGiftCoins = gift.coinCost * quantity;
+    const config = this.getEconomyConfig();
+
+    return this.databaseService!.transaction(async (client) => {
+      const replay = await this.getDatabaseLedgerReplay<GiftSendResult>(
+        client,
+        senderUserId,
+        idempotencyKey,
+        'live_gift',
+        requestHash,
+      );
+      if (replay) {
+        return replay;
+      }
+
+      const roomResult = await client.query<{ host_user_id: string }>(
+        `
+          SELECT host_user_id
+          FROM rooms
+          WHERE id = $1 AND status = 'live'
+          FOR UPDATE
+        `,
+        [input.roomId],
+      );
+      const hostUserId = roomResult.rows[0]?.host_user_id;
+      if (!hostUserId) {
+        throw new NotFoundException('Room not found');
+      }
+      if (hostUserId === senderUserId) {
+        throw new BadRequestException('Host cannot send gifts to themselves');
+      }
+
+      await this.ensureWalletAndRevenueRows(senderUserId, client);
+      await this.ensureWalletAndRevenueRows(hostUserId, client);
+
+      const walletResult = await client.query<{ coin_balance: number }>(
+        `
+          SELECT coin_balance
+          FROM wallets
+          WHERE user_id = $1
+          FOR UPDATE
+        `,
+        [senderUserId],
+      );
+      const senderCoinBalanceBefore = walletResult.rows[0]?.coin_balance ?? 0;
+      if (senderCoinBalanceBefore < totalGiftCoins) {
+        throw new BadRequestException('Insufficient coin balance for gift');
+      }
+
+      const receiverCoins = Math.floor(
+        (totalGiftCoins * config.receiverShareBps) / 10000,
+      );
+      const platformCoins = totalGiftCoins - receiverCoins;
+      const receiverUsd = receiverCoins / config.coinsPerUsdReceiver;
+      const receiverSpark = Math.floor(receiverUsd * config.sparkPerUsd);
+      const now = new Date().toISOString();
+
+      const walletUpdate = await client.query<{ coin_balance: number }>(
+        `
+          UPDATE wallets
+          SET coin_balance = coin_balance - $2,
+              updated_at = NOW()
+          WHERE user_id = $1
+          RETURNING coin_balance
+        `,
+        [senderUserId, totalGiftCoins],
+      );
+
+      await client.query(
+        `
+          UPDATE user_revenue
+          SET revenue_usd = revenue_usd + $2,
+              spark_balance = spark_balance + $3,
+              updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [hostUserId, receiverUsd, receiverSpark],
+      );
+
+      await this.writeWalletTransaction({
+        userId: senderUserId,
+        type: 'gift_spend',
+        coinsDelta: -totalGiftCoins,
+        amountUsd: null,
+        metadata: {
+          roomId: input.roomId,
+          mode: 'live_room',
+          giftId: gift.id,
+          giftName: gift.name,
+          quantity,
+          receiverUserId: hostUserId,
+          receiverCoins,
+          platformCoins,
+        },
+        createdAt: now,
+        client,
+      });
+
+      await this.writeWalletTransaction({
+        userId: hostUserId,
+        type: 'gift_earning_spark',
+        coinsDelta: 0,
+        amountUsd: receiverUsd,
+        metadata: {
+          roomId: input.roomId,
+          mode: 'live_room',
+          giftId: gift.id,
+          giftName: gift.name,
+          quantity,
+          senderUserId,
+          receiverCoinsEquivalent: receiverCoins,
+          sparkEarned: receiverSpark,
+        },
+        createdAt: now,
+        client,
+      });
+
+      return this.saveDatabaseLedgerResponse(
+        client,
+        senderUserId,
+        idempotencyKey,
+        {
+          sessionId: input.roomId,
+          giftId: gift.id,
+          giftName: gift.name,
+          quantity,
+          totalGiftCoins,
+          receiverCoins,
+          receiverUsd,
+          receiverSpark,
+          platformCoins,
+          senderCoinBalanceAfter:
+            walletUpdate.rows[0]?.coin_balance ?? senderCoinBalanceBefore,
+        },
+      );
+    });
   }
 
   async getLiveCallSessionParticipant(
@@ -3076,12 +3842,19 @@ export class StoreService implements OnModuleInit {
     );
   }
 
-  async ensureWalletAndRevenueRows(userId: string): Promise<void> {
+  async ensureWalletAndRevenueRows(
+    userId: string,
+    client?: PoolClient,
+  ): Promise<void> {
     if (!this.databaseService?.isEnabled()) {
       return;
     }
 
-    await this.databaseService.query(
+    const query = client
+      ? client.query.bind(client)
+      : this.databaseService.query.bind(this.databaseService);
+
+    await query(
       `
         INSERT INTO wallets (user_id, coin_balance, level, updated_at)
         VALUES ($1, 1200, 4, NOW())
@@ -3090,7 +3863,7 @@ export class StoreService implements OnModuleInit {
       [userId],
     );
 
-    await this.databaseService.query(
+    await query(
       `
         INSERT INTO user_revenue (user_id, revenue_usd, updated_at)
         VALUES ($1, 0, NOW())
@@ -3099,7 +3872,7 @@ export class StoreService implements OnModuleInit {
       [userId],
     );
 
-    await this.databaseService.query(
+    await query(
       `
         UPDATE user_revenue
         SET spark_balance = COALESCE(spark_balance, 0),
@@ -3352,12 +4125,17 @@ export class StoreService implements OnModuleInit {
     amountUsd: number | null;
     metadata: Record<string, unknown>;
     createdAt: string;
+    client?: PoolClient;
   }): Promise<void> {
     if (!this.databaseService?.isEnabled()) {
       return;
     }
 
-    await this.databaseService.query(
+    const query = input.client
+      ? input.client.query.bind(input.client)
+      : this.databaseService.query.bind(this.databaseService);
+
+    await query(
       `
         INSERT INTO wallet_transactions (
           id,

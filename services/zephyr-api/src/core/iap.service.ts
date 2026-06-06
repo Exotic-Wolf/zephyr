@@ -1,9 +1,9 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   Logger,
 } from '@nestjs/common';
+import { GoogleAuth } from 'google-auth-library';
 import { DatabaseService } from './database.service';
 import { StoreService } from './store.service';
 import type { WalletSummary, CoinPack } from './store.service';
@@ -13,6 +13,22 @@ export interface VerifyPurchaseInput {
   productId: string;
   transactionId: string;
   receiptData?: string;
+}
+
+interface NormalizedPurchaseInput {
+  store: 'apple' | 'google';
+  productId: string;
+  transactionId: string;
+  receiptData?: string;
+  googlePurchaseToken?: string;
+}
+
+interface VerifiedPurchaseMetadata {
+  packageName?: string;
+  storeOrderId?: string;
+  purchaseToken?: string;
+  consumptionState?: number;
+  acknowledgementState?: number;
 }
 
 export interface PurchaseResult {
@@ -38,7 +54,8 @@ export class IapService {
     userId: string,
     input: VerifyPurchaseInput,
   ): Promise<PurchaseResult> {
-    const { store, productId, transactionId, receiptData } = input;
+    const { store, productId, transactionId, receiptData, googlePurchaseToken } =
+      this.normalizePurchaseInput(input);
 
     // 1. Validate store
     if (store !== 'apple' && store !== 'google') {
@@ -68,53 +85,75 @@ export class IapService {
     }
 
     // 4. Verify receipt with store
+    let metadata: VerifiedPurchaseMetadata = {};
     if (store === 'apple') {
       await this.verifyAppleReceipt(transactionId, productId, receiptData);
     } else {
-      await this.verifyGoogleReceipt(transactionId, productId, receiptData);
+      metadata = await this.verifyGoogleReceipt(
+        googlePurchaseToken ?? transactionId,
+        productId,
+      );
     }
 
     // 5. Credit coins + record purchase in a transaction
     try {
-      await this.databaseService.query('BEGIN');
+      await this.databaseService.transaction(async (client) => {
+        // Ensure wallet exists inside the same DB transaction.
+        await this.storeService.ensureWalletAndRevenueRows(userId, client);
 
-      // Ensure wallet exists
-      await this.storeService.ensureWalletAndRevenueRows(userId);
-
-      // Credit coins
-      await this.databaseService.query(
-        `UPDATE wallets SET coin_balance = coin_balance + $2, updated_at = NOW() WHERE user_id = $1`,
-        [userId, pack.coins],
-      );
-
-      // Record the IAP purchase (prevents double-crediting via UNIQUE on transaction_id)
-      await this.databaseService.query(
-        `INSERT INTO iap_purchases (user_id, store, transaction_id, product_id, coins_credited, amount_usd, receipt_data)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [userId, store, transactionId, productId, pack.coins, pack.priceUsd, receiptData ?? null],
-      );
-
-      // Also write to wallet_transactions for unified history
-      await this.databaseService.query(
-        `INSERT INTO wallet_transactions (id, user_id, type, coins_delta, amount_usd, metadata, created_at)
-         VALUES (gen_random_uuid(), $1, 'iap_purchase', $2, $3, $4::jsonb, NOW())`,
-        [
-          userId,
-          pack.coins,
-          pack.priceUsd,
-          JSON.stringify({
+        // Record first so duplicate transaction IDs fail before wallet credit.
+        await client.query(
+          `INSERT INTO iap_purchases (
+             user_id,
+             store,
+             transaction_id,
+             product_id,
+             coins_credited,
+             amount_usd,
+             receipt_data,
+             store_order_id,
+             package_name
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            userId,
             store,
-            productId,
             transactionId,
-            packLabel: pack.label,
-          }),
-        ],
-      );
+            productId,
+            pack.coins,
+            pack.priceUsd,
+            receiptData ?? null,
+            metadata.storeOrderId ?? null,
+            metadata.packageName ?? null,
+          ],
+        );
 
-      await this.databaseService.query('COMMIT');
+        await client.query(
+          `UPDATE wallets SET coin_balance = coin_balance + $2, updated_at = NOW() WHERE user_id = $1`,
+          [userId, pack.coins],
+        );
+
+        await client.query(
+          `INSERT INTO wallet_transactions (id, user_id, type, coins_delta, amount_usd, metadata, created_at)
+           VALUES (gen_random_uuid(), $1, 'iap_purchase', $2, $3, $4::jsonb, NOW())`,
+          [
+            userId,
+            pack.coins,
+            pack.priceUsd,
+            JSON.stringify({
+              store,
+              productId,
+              transactionId,
+              storeOrderId: metadata.storeOrderId,
+              packageName: metadata.packageName,
+              consumptionState: metadata.consumptionState,
+              acknowledgementState: metadata.acknowledgementState,
+              packLabel: pack.label,
+            }),
+          ],
+        );
+      });
     } catch (err: unknown) {
-      await this.databaseService.query('ROLLBACK').catch(() => {});
-
       // If it's a unique violation on transaction_id, another request beat us
       if (
         err instanceof Error &&
@@ -137,6 +176,47 @@ export class IapService {
     return { wallet, coinsAwarded: pack.coins, transactionId };
   }
 
+  private normalizePurchaseInput(
+    input: VerifyPurchaseInput,
+  ): NormalizedPurchaseInput {
+    const store = input.store;
+    const productId = input.productId?.trim();
+    const rawTransactionId = input.transactionId?.trim();
+    const receiptData = input.receiptData?.trim() || undefined;
+
+    if (!rawTransactionId) {
+      throw new BadRequestException('transactionId is required');
+    }
+    if (!productId) {
+      throw new BadRequestException('productId is required');
+    }
+
+    if (store === 'google') {
+      // Flutter in_app_purchase exposes the Play purchase token as
+      // verificationData.serverVerificationData. Prefer it so older builds that
+      // sent purchaseID/orderId as transactionId still verify correctly.
+      const googlePurchaseToken = receiptData || rawTransactionId;
+      if (!googlePurchaseToken) {
+        throw new BadRequestException('Google purchase token is required');
+      }
+
+      return {
+        store,
+        productId,
+        transactionId: googlePurchaseToken,
+        receiptData: googlePurchaseToken,
+        googlePurchaseToken,
+      };
+    }
+
+    return {
+      store,
+      productId,
+      transactionId: rawTransactionId,
+      receiptData,
+    };
+  }
+
   // ── Apple StoreKit 2 Verification ──────────────────────────────────────────
 
   private async verifyAppleReceipt(
@@ -144,7 +224,7 @@ export class IapService {
     expectedProductId: string,
     receiptData?: string,
   ): Promise<void> {
-    const bundleId = process.env.APPLE_BUNDLE_ID ?? 'com.zephyr.app';
+    const bundleId = process.env.APPLE_BUNDLE_ID ?? 'com.zephyr.zephyrMobile';
     const environment = process.env.APPLE_IAP_ENVIRONMENT ?? 'sandbox';
 
     if (!receiptData) {
@@ -208,28 +288,30 @@ export class IapService {
   private async verifyGoogleReceipt(
     purchaseToken: string,
     expectedProductId: string,
-    _receiptData?: string,
-  ): Promise<void> {
+  ): Promise<VerifiedPurchaseMetadata> {
     // Google Play receipt verification uses the Android Publisher API.
     // The purchaseToken is sent by the client after a successful purchase.
     //
     // If GOOGLE_PLAY_SERVICE_ACCOUNT_KEY is not set, we operate in sandbox/trust mode.
 
-    const packageName = process.env.GOOGLE_PLAY_PACKAGE_NAME ?? 'com.zephyr.app';
-    const serviceAccountKey = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY;
+    const packageName =
+      process.env.GOOGLE_PLAY_PACKAGE_NAME ?? 'com.zephyr.zephyr_mobile';
+    const credentials = this.getGooglePlayServiceAccountCredentials();
 
-    if (!serviceAccountKey) {
-      // Sandbox mode: trust the client (for development/testing)
+    if (!credentials) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new BadRequestException(
+          'Google Play service account is required in production',
+        );
+      }
       this.logger.warn(
         `Google sandbox mode: trusting purchaseToken for product=${expectedProductId}`,
       );
-      return;
+      return { packageName, purchaseToken };
     }
 
     // Use Google Auth Library to call the Android Publisher API
     try {
-      const { GoogleAuth } = await import('google-auth-library');
-      const credentials = JSON.parse(serviceAccountKey);
       const auth = new GoogleAuth({
         credentials,
         scopes: ['https://www.googleapis.com/auth/androidpublisher'],
@@ -243,7 +325,20 @@ export class IapService {
         purchaseState?: number;
         consumptionState?: number;
         acknowledgementState?: number;
+        orderId?: string;
+        productId?: string;
+        purchaseToken?: string;
+        quantity?: number;
       };
+
+      if (data.productId && data.productId !== expectedProductId) {
+        throw new BadRequestException(
+          `Google product mismatch: expected ${expectedProductId}, got ${data.productId}`,
+        );
+      }
+      if (data.purchaseToken && data.purchaseToken !== purchaseToken) {
+        throw new BadRequestException('Google purchase token mismatch');
+      }
 
       // purchaseState: 0 = purchased, 1 = canceled, 2 = pending
       if (data.purchaseState !== 0) {
@@ -251,14 +346,60 @@ export class IapService {
           `Google purchase not in valid state: ${data.purchaseState}`,
         );
       }
+      // consumptionState: 0 = yet to be consumed, 1 = consumed.
+      // We credit before the client consumes. If this is already consumed and
+      // not in our DB, do not trust it as a fresh coin purchase.
+      if (
+        data.consumptionState !== undefined &&
+        data.consumptionState !== 0
+      ) {
+        throw new BadRequestException(
+          `Google purchase already consumed: ${data.consumptionState}`,
+        );
+      }
+      if (data.quantity !== undefined && data.quantity !== 1) {
+        throw new BadRequestException(
+          `Google purchase quantity is not supported: ${data.quantity}`,
+        );
+      }
 
       this.logger.log(
         `Google receipt verified: product=${expectedProductId}, state=${data.purchaseState}`,
       );
+      return {
+        packageName,
+        storeOrderId: data.orderId,
+        purchaseToken: data.purchaseToken ?? purchaseToken,
+        consumptionState: data.consumptionState,
+        acknowledgementState: data.acknowledgementState,
+      };
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
       this.logger.error('Google receipt verification failed', err);
       throw new BadRequestException('Failed to verify Google Play purchase');
+    }
+  }
+
+  private getGooglePlayServiceAccountCredentials(): Record<string, unknown> | null {
+    const rawJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY?.trim();
+    const rawBase64 =
+      process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY_BASE64?.trim();
+    const value = rawJson
+      ? rawJson
+      : rawBase64
+        ? Buffer.from(rawBase64, 'base64').toString('utf8')
+        : null;
+    if (!value) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(value) as Record<string, unknown>;
+    } catch (err) {
+      this.logger.error('Invalid Google Play service account JSON', err);
+      throw new BadRequestException(
+        'Google Play service account configuration is invalid',
+      );
     }
   }
 
@@ -318,9 +459,11 @@ export class IapService {
   }): Promise<void> {
     // Google RTDN voidedPurchaseNotification — user was refunded
     if (data.voidedPurchaseNotification) {
-      const { orderId } = data.voidedPurchaseNotification;
-      this.logger.warn(`Google voided purchase: orderId=${orderId}`);
-      await this.processRefund(orderId, 'google');
+      const { orderId, purchaseToken } = data.voidedPurchaseNotification;
+      this.logger.warn(
+        `Google voided purchase: orderId=${orderId}, purchaseToken=${purchaseToken}`,
+      );
+      await this.processRefund(purchaseToken, 'google');
       return;
     }
 
@@ -332,52 +475,77 @@ export class IapService {
    * deducts the credited coins, and records the clawback.
    */
   private async processRefund(transactionId: string, store: string): Promise<void> {
-    // Find the original purchase
-    const result = await this.databaseService.query<{
-      id: string;
-      user_id: string;
-      coins_credited: number;
-    }>(
-      `SELECT id, user_id, coins_credited FROM iap_purchases WHERE transaction_id = $1`,
-      [transactionId],
-    );
+    try {
+      const purchase = await this.databaseService.transaction(async (client) => {
+        const result = await client.query<{
+          id: string;
+          user_id: string;
+          coins_credited: number;
+        }>(
+          `
+            SELECT id, user_id, coins_credited
+            FROM iap_purchases
+            WHERE transaction_id = $1
+            FOR UPDATE
+          `,
+          [transactionId],
+        );
 
-    if (result.rows.length === 0) {
-      this.logger.warn(`Refund for unknown transaction: ${transactionId} (${store})`);
-      return;
+        if (result.rows.length === 0) {
+          return null;
+        }
+
+        const purchase = result.rows[0];
+
+        const existingRefund = await client.query<{ id: string }>(
+          `SELECT id FROM wallet_transactions WHERE type = 'iap_refund' AND metadata->>'transactionId' = $1`,
+          [transactionId],
+        );
+        if (existingRefund.rows.length > 0) {
+          return { ...purchase, alreadyRefunded: true };
+        }
+
+        await client.query(
+          `UPDATE wallets SET coin_balance = coin_balance - $2, updated_at = NOW() WHERE user_id = $1`,
+          [purchase.user_id, purchase.coins_credited],
+        );
+
+        await client.query(
+          `INSERT INTO wallet_transactions (id, user_id, type, coins_delta, amount_usd, metadata, created_at)
+           VALUES (gen_random_uuid(), $1, 'iap_refund', $2, NULL, $3::jsonb, NOW())`,
+          [
+            purchase.user_id,
+            -purchase.coins_credited,
+            JSON.stringify({ store, transactionId, originalPurchaseId: purchase.id }),
+          ],
+        );
+
+        return { ...purchase, alreadyRefunded: false };
+      });
+
+      if (!purchase) {
+        this.logger.warn(`Refund for unknown transaction: ${transactionId} (${store})`);
+        return;
+      }
+
+      if (purchase.alreadyRefunded) {
+        this.logger.warn(`Refund already processed for: ${transactionId}`);
+        return;
+      }
+
+      this.logger.warn(
+        `REFUND PROCESSED: user=${purchase.user_id}, store=${store}, txn=${transactionId}, coins=-${purchase.coins_credited}`,
+      );
+    } catch (err: unknown) {
+      if (
+        err instanceof Error &&
+        'code' in err &&
+        (err as { code: string }).code === '23505'
+      ) {
+        this.logger.warn(`Concurrent refund duplicate prevented: ${transactionId}`);
+        return;
+      }
+      throw err;
     }
-
-    const purchase = result.rows[0];
-
-    // Check if already refunded (idempotent)
-    const existingRefund = await this.databaseService.query<{ id: string }>(
-      `SELECT id FROM wallet_transactions WHERE type = 'iap_refund' AND metadata->>'transactionId' = $1`,
-      [transactionId],
-    );
-    if (existingRefund.rows.length > 0) {
-      this.logger.warn(`Refund already processed for: ${transactionId}`);
-      return;
-    }
-
-    // Deduct coins (can go negative — that's intentional for fraud prevention)
-    await this.databaseService.query(
-      `UPDATE wallets SET coin_balance = coin_balance - $2, updated_at = NOW() WHERE user_id = $1`,
-      [purchase.user_id, purchase.coins_credited],
-    );
-
-    // Record the refund transaction
-    await this.databaseService.query(
-      `INSERT INTO wallet_transactions (id, user_id, type, coins_delta, amount_usd, metadata, created_at)
-       VALUES (gen_random_uuid(), $1, 'iap_refund', $2, NULL, $3::jsonb, NOW())`,
-      [
-        purchase.user_id,
-        -purchase.coins_credited,
-        JSON.stringify({ store, transactionId, originalPurchaseId: purchase.id }),
-      ],
-    );
-
-    this.logger.warn(
-      `REFUND PROCESSED: user=${purchase.user_id}, store=${store}, txn=${transactionId}, coins=-${purchase.coins_credited}`,
-    );
   }
 }

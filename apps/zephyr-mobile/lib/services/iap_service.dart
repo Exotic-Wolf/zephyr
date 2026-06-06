@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 
 import 'api_client.dart';
 
@@ -115,8 +116,9 @@ class IapService {
 
   /// Load products from the store.
   Future<void> _loadProducts() async {
-    final ProductDetailsResponse response =
-        await _iap.queryProductDetails(kProductIds);
+    final ProductDetailsResponse response = await _iap.queryProductDetails(
+      kProductIds,
+    );
 
     if (response.error != null) {
       debugPrint('[IAP] Error loading products: ${response.error}');
@@ -169,7 +171,8 @@ class IapService {
 
   /// Handle all purchase updates from the stream.
   Future<void> _handlePurchaseUpdates(
-      List<PurchaseDetails> purchaseList) async {
+    List<PurchaseDetails> purchaseList,
+  ) async {
     for (final PurchaseDetails purchase in purchaseList) {
       switch (purchase.status) {
         case PurchaseStatus.pending:
@@ -186,9 +189,7 @@ class IapService {
         case PurchaseStatus.error:
           debugPrint('[IAP] Purchase error: ${purchase.error}');
           purchasing.value = false;
-          onPurchaseError?.call(
-            purchase.error?.message ?? 'Purchase failed',
-          );
+          onPurchaseError?.call(purchase.error?.message ?? 'Purchase failed');
           // Must still complete the transaction to clear it from the queue
           if (purchase.pendingCompletePurchase) {
             await _iap.completePurchase(purchase);
@@ -230,7 +231,14 @@ class IapService {
         receiptData: receiptData,
       );
 
-      // Backend confirmed — now safe to complete/consume the purchase
+      // Backend confirmed — now safe to complete/consume the purchase.
+      // Android coin packs are consumable, so consume after server credit.
+      if (Platform.isAndroid) {
+        final InAppPurchaseAndroidPlatformAddition androidAddition = _iap
+            .getPlatformAddition<InAppPurchaseAndroidPlatformAddition>();
+        await androidAddition.consumePurchase(purchase);
+      }
+
       if (purchase.pendingCompletePurchase) {
         await _iap.completePurchase(purchase);
       }
@@ -238,7 +246,8 @@ class IapService {
       purchasing.value = false;
       onPurchaseSuccess?.call(result.coinsAwarded);
       debugPrint(
-          '[IAP] Purchase verified + completed: ${purchase.productID}, coins=${result.coinsAwarded}');
+        '[IAP] Purchase verified + completed: ${purchase.productID}, coins=${result.coinsAwarded}',
+      );
     } catch (e) {
       debugPrint('[IAP] Backend verification failed: $e');
       purchasing.value = false;
@@ -247,7 +256,9 @@ class IapService {
       // - If backend is down, the purchase stays pending
       // - Next time the app starts, the purchaseStream will re-emit it
       // - We retry verification until it succeeds
-      onPurchaseError?.call('Verification failed. Your purchase is safe and will be retried.');
+      onPurchaseError?.call(
+        'Verification failed. Your purchase is safe and will be retried.',
+      );
     }
   }
 
@@ -257,8 +268,8 @@ class IapService {
       // StoreKit 2: purchaseID is the transaction ID
       return purchase.purchaseID ?? purchase.transactionDate ?? '';
     } else {
-      // Google Play: purchaseID contains the order ID
-      return purchase.purchaseID ?? '';
+      // Google Play: backend verification must use the purchase token.
+      return purchase.verificationData.serverVerificationData;
     }
   }
 

@@ -128,6 +128,19 @@ export const onCallSignalDeleted = onValueDeleted(
       return;
     }
 
+    const signalEvent = deletedData.event as string | undefined;
+    const status = deletedData.status as string | undefined;
+    if (
+      signalEvent === "matched" ||
+      signalEvent === "partner_left" ||
+      status === "matched"
+    ) {
+      logger.info(
+        `direct_calls/${userId} deleted for random-call ${signalEvent ?? status}; backend owns session cleanup`,
+      );
+      return;
+    }
+
     logger.info(`direct_calls/${userId} deleted — ending session ${sessionId}`);
 
     try {

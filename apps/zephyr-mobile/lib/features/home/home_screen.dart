@@ -5,7 +5,6 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 
-
 import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
@@ -22,6 +21,7 @@ import '../../app_constants.dart';
 import '../call/random_call_screen.dart';
 import '../call/direct_call_screen.dart';
 import '../call/incoming_call_overlay.dart';
+import '../call/random_call_invite_ribbon.dart';
 import '../../l10n/app_localizations.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -82,6 +82,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _incomingCallerName;
   String? _incomingCallerAvatarUrl;
   String? _incomingSessionId;
+  Map<String, dynamic>? _randomCallInvite;
+  Timer? _randomCallInviteTimer;
+  bool _acceptingRandomCallInvite = false;
 
   // ── Idle detection (away after 60s no touch) ──────────────────────────────
   Timer? _idleTimer;
@@ -124,7 +127,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _connectFeedSocket() {
     // Real-time: presence changes trigger feed refresh (someone goes live / offline)
-    FirebaseChatService.instance.presenceVersion.addListener(_onPresenceChanged);
+    FirebaseChatService.instance.presenceVersion.addListener(
+      _onPresenceChanged,
+    );
   }
 
   void _onPresenceChanged() {
@@ -139,7 +144,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _incomingCallSub?.cancel();
     final svc = FirebaseChatService.instance;
 
-    _incomingCallSub = svc.listenCallSignal(userId, (Map<String, dynamic>? data) {
+    _incomingCallSub = svc.listenCallSignal(userId, (
+      Map<String, dynamic>? data,
+    ) {
       if (!mounted) return;
       if (data == null) {
         // Node deleted — call cancelled or cleaned up
@@ -153,6 +160,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
         return;
       }
+      final event = data['event'] as String?;
+      if (event == 'matched') {
+        _showRandomCallInvite(data);
+        return;
+      }
+      if (event == 'partner_left') {
+        svc.removeCallSignal(userId).ignore();
+        return;
+      }
+
       final status = data['status'] as String?;
       final callerId = data['callerId'] as String?;
       final sessionId = data['sessionId'] as String?;
@@ -173,6 +190,180 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
       }
     });
+  }
+
+  String? _stringFromInvite(Map<String, dynamic> invite, String key) {
+    final value = invite[key];
+    if (value is String && value.trim().isNotEmpty) return value;
+    return null;
+  }
+
+  int _intFromInvite(
+    Map<String, dynamic> invite,
+    String key, {
+    required int fallback,
+  }) {
+    final value = invite[key];
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
+  bool _hasUsableRandomInvite(Map<String, dynamic> invite) {
+    return _stringFromInvite(invite, 'sessionId') != null &&
+        _stringFromInvite(invite, 'appId') != null &&
+        _stringFromInvite(invite, 'channelName') != null &&
+        _stringFromInvite(invite, 'token') != null &&
+        _stringFromInvite(invite, 'partnerId') != null &&
+        invite['uid'] is num;
+  }
+
+  void _showRandomCallInvite(Map<String, dynamic> invite) {
+    if (!_hasUsableRandomInvite(invite)) {
+      _endRandomInvite(invite);
+      return;
+    }
+
+    if (_incomingCallerId != null || _acceptingRandomCallInvite) {
+      _endRandomInvite(invite);
+      return;
+    }
+
+    final currentSessionId = _randomCallInvite?['sessionId'] as String?;
+    final nextSessionId = invite['sessionId'] as String?;
+    if (currentSessionId == nextSessionId) return;
+
+    _randomCallInviteTimer?.cancel();
+    setState(() {
+      _randomCallInvite = Map<String, dynamic>.from(invite);
+      _acceptingRandomCallInvite = false;
+    });
+
+    final int expiresAt = _intFromInvite(
+      invite,
+      'expiresAt',
+      fallback: DateTime.now().millisecondsSinceEpoch + 30000,
+    );
+    int timeoutMs = expiresAt - DateTime.now().millisecondsSinceEpoch;
+    if (timeoutMs < 1000 || timeoutMs > 30000) {
+      timeoutMs = 30000;
+    }
+
+    _randomCallInviteTimer = Timer(
+      Duration(milliseconds: timeoutMs),
+      () => _declineRandomCallInvite().ignore(),
+    );
+  }
+
+  void _clearRandomCallInvite() {
+    _randomCallInviteTimer?.cancel();
+    _randomCallInviteTimer = null;
+    if (!mounted) return;
+    setState(() {
+      _randomCallInvite = null;
+      _acceptingRandomCallInvite = false;
+    });
+  }
+
+  void _endRandomInvite(Map<String, dynamic> invite) {
+    final String? sessionId = _stringFromInvite(invite, 'sessionId');
+    final String? partnerId = _stringFromInvite(invite, 'partnerId');
+    final String? userId = _me?.id;
+    if (sessionId != null && partnerId != null) {
+      widget.apiClient
+          .endRandomCall(
+            widget.accessToken,
+            sessionId: sessionId,
+            partnerId: partnerId,
+          )
+          .ignore();
+    }
+    if (userId != null) {
+      FirebaseChatService.instance.removeCallSignal(userId).ignore();
+    }
+  }
+
+  Future<void> _acceptRandomCallInvite() async {
+    final Map<String, dynamic>? invite = _randomCallInvite;
+    final String? userId = _me?.id;
+    if (invite == null || userId == null) return;
+
+    final String? sessionId = _stringFromInvite(invite, 'sessionId');
+    final String? appId = _stringFromInvite(invite, 'appId');
+    final String? channelName = _stringFromInvite(invite, 'channelName');
+    final String? token = _stringFromInvite(invite, 'token');
+    final String? partnerId = _stringFromInvite(invite, 'partnerId');
+    final int uid = _intFromInvite(invite, 'uid', fallback: -1);
+    if (sessionId == null ||
+        appId == null ||
+        channelName == null ||
+        token == null ||
+        partnerId == null ||
+        uid < 0) {
+      _endRandomInvite(invite);
+      _clearRandomCallInvite();
+      return;
+    }
+
+    setState(() => _acceptingRandomCallInvite = true);
+    _randomCallInviteTimer?.cancel();
+    _incomingCallSub?.cancel();
+    FirebaseChatService.instance.removeCallSignal(userId).ignore();
+
+    try {
+      final result = await Navigator.of(context).push<Map<String, String>>(
+        MaterialPageRoute<Map<String, String>>(
+          fullscreenDialog: true,
+          builder: (_) => DirectCallScreen(
+            apiClient: widget.apiClient,
+            accessToken: widget.accessToken,
+            sessionId: sessionId,
+            appId: appId,
+            channelName: channelName,
+            uid: uid,
+            token: token,
+            partnerId: partnerId,
+            partnerName:
+                _stringFromInvite(invite, 'partnerName') ??
+                _stringFromInvite(invite, 'callerName') ??
+                'User',
+            partnerAvatarUrl: _stringFromInvite(invite, 'callerAvatarUrl'),
+            mode: 'random',
+            allowRandomNext: false,
+          ),
+        ),
+      );
+
+      if (!mounted) return;
+      if (result?['action'] == 'partner_left') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Random call ended'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      _endRandomInvite(invite);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not join random call'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      _clearRandomCallInvite();
+      if (mounted) _listenForIncomingCalls();
+    }
+  }
+
+  Future<void> _declineRandomCallInvite() async {
+    final Map<String, dynamic>? invite = _randomCallInvite;
+    if (invite == null) return;
+    _endRandomInvite(invite);
+    _clearRandomCallInvite();
   }
 
   void _acceptIncomingCall() async {
@@ -208,27 +399,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // Pause the RTDB listener while in call
       _incomingCallSub?.cancel();
 
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          fullscreenDialog: true,
-          builder: (_) => DirectCallScreen(
-            apiClient: widget.apiClient,
-            accessToken: widget.accessToken,
-            sessionId: sessionId,
-            appId: rtc.appId,
-            channelName: rtc.channelName,
-            uid: rtc.uid,
-            token: rtc.token,
-            partnerId: callerId,
-            partnerName: partnerName,
-            partnerAvatarUrl: partnerAvatarUrl,
-          ),
-        ),
-      ).then((_) {
-        // Clean up the RTDB node and resume listening
-        svc.removeCallSignal(userId);
-        _listenForIncomingCalls();
-      });
+      Navigator.of(context)
+          .push(
+            MaterialPageRoute<void>(
+              fullscreenDialog: true,
+              builder: (_) => DirectCallScreen(
+                apiClient: widget.apiClient,
+                accessToken: widget.accessToken,
+                sessionId: sessionId,
+                appId: rtc.appId,
+                channelName: rtc.channelName,
+                uid: rtc.uid,
+                token: rtc.token,
+                partnerId: callerId,
+                partnerName: partnerName,
+                partnerAvatarUrl: partnerAvatarUrl,
+              ),
+            ),
+          )
+          .then((_) {
+            // Clean up the RTDB node and resume listening
+            svc.removeCallSignal(userId);
+            _listenForIncomingCalls();
+          });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -270,8 +463,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _inboxBadgeSub?.cancel();
     _fcmSub?.cancel();
     widget.tabNotifier?.removeListener(_onTabNotify);
-    FirebaseChatService.instance.presenceVersion.removeListener(_onPresenceChanged);
+    FirebaseChatService.instance.presenceVersion.removeListener(
+      _onPresenceChanged,
+    );
     _incomingCallSub?.cancel();
+    _randomCallInviteTimer?.cancel();
     _roomTitleController.dispose();
     _feedController.dispose();
     _searchCtrl.dispose();
@@ -287,6 +483,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _refreshFeed();
     } else if (state == AppLifecycleState.paused) {
       _idleTimer?.cancel();
+      _declineRandomCallInvite().ignore();
       FirebaseChatService.instance.setBackgroundOffline();
     }
   }
@@ -342,8 +539,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _initFirebaseChat(UserProfile me) async {
     try {
-      final String token =
-          await widget.apiClient.getFirebaseToken(widget.accessToken);
+      final String token = await widget.apiClient.getFirebaseToken(
+        widget.accessToken,
+      );
       await FirebaseChatService.instance.init(me.id, firebaseToken: token);
     } catch (e) {
       debugPrint('Firebase custom token failed: $e — skipping RTDB init');
@@ -368,18 +566,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     // Global delivery receipts — mark messages delivered as soon as app receives them
     _convoDeliverySub?.cancel();
-    _convoDeliverySub = FirebaseChatService.instance.watchConversations().listen((convos) {
-      for (final c in convos) {
-        if (c.unreadCount > 0) {
-          FirebaseChatService.instance.markDelivered(c.otherUserId);
-        }
-      }
-    });
+    _convoDeliverySub = FirebaseChatService.instance
+        .watchConversations()
+        .listen((convos) {
+          for (final c in convos) {
+            if (c.unreadCount > 0) {
+              FirebaseChatService.instance.markDelivered(c.otherUserId);
+            }
+          }
+        });
 
     // Bottom tab badge: keep a real-time aggregate unread count.
     _inboxBadgeSub?.cancel();
-    _inboxBadgeSub = FirebaseChatService.instance.watchConversations().listen((convos) {
-      final int nextTotal = convos.fold<int>(0, (sum, c) => sum + c.unreadCount);
+    _inboxBadgeSub = FirebaseChatService.instance.watchConversations().listen((
+      convos,
+    ) {
+      final int nextTotal = convos.fold<int>(
+        0,
+        (sum, c) => sum + c.unreadCount,
+      );
       debugPrint('[InboxBadge] convos=${convos.length} unread=$nextTotal');
       if (!mounted || nextTotal == _inboxUnreadTotal) return;
       setState(() => _inboxUnreadTotal = nextTotal);
@@ -401,8 +606,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _refreshFeed() async {
     if (!mounted) return;
     try {
-      final List<LiveFeedCard> feedCards =
-          await widget.apiClient.listLiveFeed(widget.accessToken);
+      final List<LiveFeedCard> feedCards = await widget.apiClient.listLiveFeed(
+        widget.accessToken,
+      );
       if (!mounted) return;
       final incoming = <LiveFeedCard>[
         ...feedCards.where((LiveFeedCard c) => c.hostUserId != _me?.id),
@@ -427,7 +633,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     double score(LiveFeedCard c) {
       final status =
           FirebaseChatService.instance.presenceStateCached(c.hostUserId) ??
-              c.hostStatus;
+          c.hostStatus;
 
       // Base tier
       double s = switch (status) {
@@ -474,10 +680,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final frozenIds = frozen.map((c) => c.hostUserId).toSet();
 
       // Hot zone: everything not in frozen set, ranked by score
-      final hot = incoming
-          .where((c) => !frozenIds.contains(c.hostUserId))
-          .toList()
-        ..sort((a, b) => score(b).compareTo(score(a)));
+      final hot =
+          incoming.where((c) => !frozenIds.contains(c.hostUserId)).toList()
+            ..sort((a, b) => score(b).compareTo(score(a)));
 
       _feedCards = [...frozen, ...hot];
     }
@@ -516,11 +721,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       children: <Widget>[
         Icon(Icons.chat_bubble_rounded, color: baseColor),
         if (_inboxUnreadTotal > 0)
-          Positioned(
-            right: -7,
-            top: -6,
-            child: bubble,
-          ),
+          Positioned(right: -7, top: -6, child: bubble),
       ],
     );
   }
@@ -541,7 +742,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     int updatedCount = feedCard.audienceCount;
     bool didJoin = false;
     try {
-      final Room joined = await widget.apiClient.joinRoom(widget.accessToken, roomId);
+      final Room joined = await widget.apiClient.joinRoom(
+        widget.accessToken,
+        roomId,
+      );
       updatedCount = joined.audienceCount;
       didJoin = true;
     } catch (_) {}
@@ -551,22 +755,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
     setState(() => _joiningRoomId = null);
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (_) => ViewerLiveScreen(
-        feedCard: feedCard,
-        apiClient: widget.apiClient,
-        accessToken: widget.accessToken,
-        myUserId: _me?.id ?? '',
-        myDisplayName: _me?.displayName ?? 'User',
-        onLeave: () {},
-        initialViewerCount: updatedCount,
-        didJoin: didJoin,
-        existingEngine: engine,
-        existingHostUid: hostUid,
-        existingChannelName: channelName,
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => ViewerLiveScreen(
+          feedCard: feedCard,
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          myUserId: _me?.id ?? '',
+          myDisplayName: _me?.displayName ?? 'User',
+          onLeave: () {},
+          initialViewerCount: updatedCount,
+          didJoin: didJoin,
+          existingEngine: engine,
+          existingHostUid: hostUid,
+          existingChannelName: channelName,
+        ),
       ),
-    ));
+    );
     await _loadData();
   }
 
@@ -575,7 +781,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _selectedTabIndex = 2;
     });
   }
-
 
   Future<void> _startRandomMatchFromHome() async {
     final String? userId = _me?.id;
@@ -593,10 +798,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildHomeTopTab({
-    required String label,
-    required int index,
-  }) {
+  Widget _buildHomeTopTab({required String label, required int index}) {
     final bool selected = _homeTopTabIndex == index;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
@@ -614,7 +816,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
             color: selected
                 ? Theme.of(context).colorScheme.onSurface
-                : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45),
+                : Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.45),
           ),
         ),
       ),
@@ -643,8 +847,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<LiveFeedCard> get _visibleCards {
     List<LiveFeedCard> cards = _filterCountry == null
         ? _feedCards
-        : _feedCards.where((LiveFeedCard c) =>
-            c.hostCountryCode.toUpperCase() == _filterCountry!.countryCode.toUpperCase()).toList();
+        : _feedCards
+              .where(
+                (LiveFeedCard c) =>
+                    c.hostCountryCode.toUpperCase() ==
+                    _filterCountry!.countryCode.toUpperCase(),
+              )
+              .toList();
     if (_searchQuery.isNotEmpty) {
       final String q = _searchQuery.toLowerCase();
       cards = cards.where((LiveFeedCard c) {
@@ -774,18 +983,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       gradient: const LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: <Color>[Color(0xFFFFF176), Color(0xFFFF8F00), Color(0xFFE53935)],
+                        colors: <Color>[
+                          Color(0xFFFFF176),
+                          Color(0xFFFF8F00),
+                          Color(0xFFE53935),
+                        ],
                         stops: <double>[0.0, 0.5, 1.0],
                       ),
                       boxShadow: <BoxShadow>[
                         BoxShadow(
-                          color: const Color(0xFFFF8F00).withValues(alpha: 0.55),
+                          color: const Color(
+                            0xFFFF8F00,
+                          ).withValues(alpha: 0.55),
                           blurRadius: 32,
                           offset: const Offset(0, 8),
                         ),
                       ],
                     ),
-                    child: const Icon(Icons.live_tv_rounded, color: Colors.white, size: 42),
+                    child: const Icon(
+                      Icons.live_tv_rounded,
+                      color: Colors.white,
+                      size: 42,
+                    ),
                   ),
                 ],
               ),
@@ -811,20 +1030,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 36),
               GestureDetector(
-                onTap: _creating ? null : () async {
-                  await Navigator.of(context).push(MaterialPageRoute<void>(
-                    fullscreenDialog: true,
-                    builder: (_) => GoLiveCountdownPage(
-                      displayName: _me?.displayName ?? 'Me',
-                      avatarUrl: _me?.avatarUrl,
-                      apiClient: widget.apiClient,
-                      accessToken: widget.accessToken,
-                      onEnd: () => _loadData(),
-                      onCancel: () {},
-                    ),
-                  ));
-                  await _loadData();
-                },
+                onTap: _creating
+                    ? null
+                    : () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            fullscreenDialog: true,
+                            builder: (_) => GoLiveCountdownPage(
+                              displayName: _me?.displayName ?? 'Me',
+                              avatarUrl: _me?.avatarUrl,
+                              apiClient: widget.apiClient,
+                              accessToken: widget.accessToken,
+                              onEnd: () => _loadData(),
+                              onCancel: () {},
+                            ),
+                          ),
+                        );
+                        await _loadData();
+                      },
                 child: Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(vertical: 16),
@@ -846,12 +1069,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
-                      const Icon(Icons.live_tv_rounded, color: Colors.white, size: 22),
+                      const Icon(
+                        Icons.live_tv_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
                       const SizedBox(width: 10),
                       Text(
-                        _creating ? AppLocalizations.of(context)!.starting : AppLocalizations.of(context)!.startLiveStream,
+                        _creating
+                            ? AppLocalizations.of(context)!.starting
+                            : AppLocalizations.of(context)!.startLiveStream,
                         style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17),
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17,
+                        ),
                       ),
                     ],
                   ),
@@ -875,222 +1107,322 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             0 => _buildHomeTab(isTablet),
             1 => _buildLiveRoomsTab(isTablet),
             2 => ExplorePage(
-                apiClient: widget.apiClient,
-                accessToken: widget.accessToken,
-                myUserId: _me?.id ?? '',
-                myDisplayName: _me?.displayName ?? 'User',
-                myAvatarUrl: _me?.avatarUrl,
-              ),
+              apiClient: widget.apiClient,
+              accessToken: widget.accessToken,
+              myUserId: _me?.id ?? '',
+              myDisplayName: _me?.displayName ?? 'User',
+              myAvatarUrl: _me?.avatarUrl,
+            ),
             3 => InboxFirebasePage(
-                myUserId: _me?.id ?? '',
-                myDisplayName: _me?.displayName ?? 'User',
-                myAvatarUrl: _me?.avatarUrl,
-              ),
+              myUserId: _me?.id ?? '',
+              myDisplayName: _me?.displayName ?? 'User',
+              myAvatarUrl: _me?.avatarUrl,
+            ),
             4 => MeTab(
-                me: _me,
-                apiClient: widget.apiClient,
-                accessToken: widget.accessToken,
-                onLogout: widget.onLogout,
+              me: _me,
+              apiClient: widget.apiClient,
+              accessToken: widget.accessToken,
+              onLogout: widget.onLogout,
               onDeleteAccount: widget.onDeleteAccount,
-                locale: widget.locale,
-                onLocaleChanged: widget.onLocaleChanged,
-                themeMode: widget.themeMode,
-                onThemeModeChanged: widget.onThemeModeChanged,
-                onProfileUpdated: (profile) {
-                  setState(() => _me = profile);
-                },
-              ),
+              locale: widget.locale,
+              onLocaleChanged: widget.onLocaleChanged,
+              themeMode: widget.themeMode,
+              onThemeModeChanged: widget.onThemeModeChanged,
+              onProfileUpdated: (profile) {
+                setState(() => _me = profile);
+              },
+            ),
             _ => const SizedBox.shrink(),
           };
 
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Map<String, dynamic>? randomInvite = _randomCallInvite;
 
     return Listener(
       onPointerDown: (_) => _resetIdleTimer(),
       child: PopScope(
-      canPop: false,
-      child: Stack(
-        children: <Widget>[
-          Scaffold(
-      backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : null) : null,
-      appBar: AppBar(
-        backgroundColor: _selectedTabIndex == 1 ? (isDark ? const Color(0xFF0D0A08) : null) : null,
-        foregroundColor: _selectedTabIndex == 1 ? (isDark ? Colors.white : Colors.black87) : null,
-        centerTitle: _selectedTabIndex == 0 ? false : null,
-        title: _selectedTabIndex == 0
-            ? (_searchActive
-                ? TextField(
-                    controller: _searchCtrl,
-                    autofocus: true,
-                    onChanged: (v) => setState(() => _searchQuery = v),
-                    decoration: InputDecoration(
-                      hintText: 'Name or ID…',
-                      border: InputBorder.none,
-                      isDense: true,
+        canPop: false,
+        child: Stack(
+          children: <Widget>[
+            Scaffold(
+              backgroundColor: _selectedTabIndex == 1
+                  ? (isDark ? const Color(0xFF0D0A08) : null)
+                  : null,
+              appBar: AppBar(
+                backgroundColor: _selectedTabIndex == 1
+                    ? (isDark ? const Color(0xFF0D0A08) : null)
+                    : null,
+                foregroundColor: _selectedTabIndex == 1
+                    ? (isDark ? Colors.white : Colors.black87)
+                    : null,
+                centerTitle: _selectedTabIndex == 0 ? false : null,
+                title: _selectedTabIndex == 0
+                    ? (_searchActive
+                          ? TextField(
+                              controller: _searchCtrl,
+                              autofocus: true,
+                              onChanged: (v) =>
+                                  setState(() => _searchQuery = v),
+                              decoration: InputDecoration(
+                                hintText: 'Name or ID…',
+                                border: InputBorder.none,
+                                isDense: true,
+                              ),
+                            )
+                          : SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: <Widget>[
+                                  _buildHomeTopTab(
+                                    label: l10n.popular,
+                                    index: 0,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  _buildHomeTopTab(
+                                    label: l10n.discover,
+                                    index: 1,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  _buildHomeTopTab(
+                                    label: l10n.follow,
+                                    index: 2,
+                                  ),
+                                ],
+                              ),
+                            ))
+                    : null,
+                actions: <Widget>[
+                  if (_selectedTabIndex == 0) ...<Widget>[
+                    IconButton(
+                      tooltip: _searchActive ? l10n.closeSearch : l10n.search,
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
+                      ),
+                      iconSize: 20,
+                      onPressed: () => setState(() {
+                        _searchActive = !_searchActive;
+                        if (!_searchActive) {
+                          _searchCtrl.clear();
+                          _searchQuery = '';
+                        }
+                      }),
+                      icon: Icon(
+                        _searchActive
+                            ? Icons.close_rounded
+                            : Icons.search_rounded,
+                      ),
                     ),
-                  )
-                : SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: <Widget>[
-                        _buildHomeTopTab(label: l10n.popular, index: 0),
-                        const SizedBox(width: 12),
-                        _buildHomeTopTab(label: l10n.discover, index: 1),
-                        const SizedBox(width: 12),
-                        _buildHomeTopTab(label: l10n.follow, index: 2),
-                      ],
-                    ),
-                  ))
-            : null,
-        actions: <Widget>[
-          if (_selectedTabIndex == 0) ...<Widget>[
-            IconButton(
-              tooltip: _searchActive ? l10n.closeSearch : l10n.search,
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              iconSize: 20,
-              onPressed: () => setState(() {
-                _searchActive = !_searchActive;
-                if (!_searchActive) {
-                  _searchCtrl.clear();
-                  _searchQuery = '';
-                }
-              }),
-              icon: Icon(_searchActive ? Icons.close_rounded : Icons.search_rounded),
-            ),
-            if (_filterCountry != null) ...<Widget>[
-              Padding(
-                padding: const EdgeInsets.only(left: 8, right: 4),
-                child: SizedBox(
-                  width: 34, height: 34,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: <Widget>[
+                    if (_filterCountry != null) ...<Widget>[
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8, right: 4),
+                        child: SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: <Widget>[
+                              GestureDetector(
+                                onTap: () => showCountryPicker(
+                                  context: context,
+                                  showPhoneCode: false,
+                                  onSelect: (Country c) =>
+                                      setState(() => _filterCountry = c),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    _filterCountry!.flagEmoji,
+                                    style: const TextStyle(fontSize: 22),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () =>
+                                      setState(() => _filterCountry = null),
+                                  child: Container(
+                                    width: 14,
+                                    height: 14,
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Color(0xFF1FA4EA),
+                                    ),
+                                    child: const Icon(
+                                      Icons.close_rounded,
+                                      size: 10,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ] else
                       GestureDetector(
                         onTap: () => showCountryPicker(
                           context: context,
                           showPhoneCode: false,
-                          onSelect: (Country c) => setState(() => _filterCountry = c),
+                          onSelect: (Country c) =>
+                              setState(() => _filterCountry = c),
                         ),
-                        child: Center(
-                          child: Text(_filterCountry!.flagEmoji,
-                              style: const TextStyle(fontSize: 22)),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          child: Icon(Icons.language_rounded, size: 22),
                         ),
                       ),
-                      Positioned(
-                        top: 0, right: 0,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => setState(() => _filterCountry = null),
-                          child: Container(
-                            width: 14, height: 14,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Color(0xFF1FA4EA),
-                            ),
-                            child: const Icon(Icons.close_rounded,
-                                size: 10, color: Colors.white),
-                          ),
+                    IconButton(
+                      tooltip: 'Trophy',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
+                      ),
+                      iconSize: 20,
+                      onPressed: () {},
+                      icon: const Icon(Icons.emoji_events_outlined),
+                    ),
+                  ],
+                ],
+              ),
+              body: bodyContent,
+              bottomNavigationBar: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const Divider(
+                    height: 1,
+                    thickness: 0.5,
+                    color: Color(0xFF2A2A2A),
+                  ),
+                  NavigationBar(
+                    selectedIndex: _selectedTabIndex,
+                    backgroundColor: isDark ? const Color(0xFF111111) : null,
+                    indicatorColor: const Color(
+                      0xFFFF8F00,
+                    ).withValues(alpha: 0.18),
+                    labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                      final bool selected = states.contains(
+                        WidgetState.selected,
+                      );
+                      return TextStyle(
+                        fontSize: 11,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        color: selected ? const Color(0xFFFF8F00) : null,
+                      );
+                    }),
+                    onDestinationSelected: (int index) {
+                      setState(() => _selectedTabIndex = index);
+                    },
+                    destinations: <NavigationDestination>[
+                      NavigationDestination(
+                        icon: Icon(
+                          Icons.home_rounded,
+                          color: isDark ? const Color(0xFF6B6B6B) : null,
                         ),
+                        selectedIcon: const Icon(
+                          Icons.home_rounded,
+                          color: Color(0xFFFF8F00),
+                        ),
+                        label: l10n.home,
+                      ),
+                      NavigationDestination(
+                        icon: Icon(
+                          Icons.live_tv_rounded,
+                          color: isDark ? const Color(0xFF6B6B6B) : null,
+                        ),
+                        selectedIcon: const Icon(
+                          Icons.live_tv_rounded,
+                          color: Color(0xFFFF8F00),
+                        ),
+                        label: l10n.live,
+                      ),
+                      NavigationDestination(
+                        icon: Icon(
+                          Icons.explore_rounded,
+                          color: isDark ? const Color(0xFF6B6B6B) : null,
+                        ),
+                        selectedIcon: const Icon(
+                          Icons.explore_rounded,
+                          color: Color(0xFFFF8F00),
+                        ),
+                        label: l10n.explore,
+                      ),
+                      NavigationDestination(
+                        icon: _buildInboxNavIcon(
+                          selected: false,
+                          isDark: isDark,
+                        ),
+                        selectedIcon: _buildInboxNavIcon(
+                          selected: true,
+                          isDark: isDark,
+                        ),
+                        label: l10n.inbox,
+                      ),
+                      NavigationDestination(
+                        icon: Icon(
+                          Icons.person_rounded,
+                          color: _apiReachable == true
+                              ? Colors.green.shade700
+                              : (isDark ? const Color(0xFF6B6B6B) : null),
+                        ),
+                        selectedIcon: Icon(
+                          Icons.person_rounded,
+                          color: _apiReachable == true
+                              ? Colors.green.shade700
+                              : const Color(0xFFFF8F00),
+                        ),
+                        label: l10n.me,
                       ),
                     ],
                   ),
-                ),
+                ],
               ),
-            ] else
-              GestureDetector(
-                onTap: () => showCountryPicker(
-                  context: context,
-                  showPhoneCode: false,
-                  onSelect: (Country c) => setState(() => _filterCountry = c),
-                ),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Icon(Icons.language_rounded, size: 22),
-                ),
-              ),
-            IconButton(
-              tooltip: 'Trophy',
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              iconSize: 20,
-              onPressed: () {},
-              icon: const Icon(Icons.emoji_events_outlined),
             ),
+            if (randomInvite != null && _incomingCallerId == null)
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 12,
+                left: 12,
+                right: 12,
+                child: RandomCallInviteRibbon(
+                  partnerName:
+                      _stringFromInvite(randomInvite, 'partnerName') ??
+                      _stringFromInvite(randomInvite, 'callerName') ??
+                      'User',
+                  rateCoinsPerMinute: _intFromInvite(
+                    randomInvite,
+                    'rateCoinsPerMinute',
+                    fallback: 600,
+                  ),
+                  hostEarningCoinsPerMinute: _intFromInvite(
+                    randomInvite,
+                    'hostEarningCoinsPerMinute',
+                    fallback: 360,
+                  ),
+                  accepting: _acceptingRandomCallInvite,
+                  onAccept: _acceptRandomCallInvite,
+                  onDecline: () => _declineRandomCallInvite().ignore(),
+                ),
+              ),
+            // Incoming call overlay
+            if (_incomingCallerId != null)
+              Positioned.fill(
+                child: IncomingCallOverlay(
+                  callerId: _incomingCallerId!,
+                  callerName: _incomingCallerName,
+                  onAccept: _acceptIncomingCall,
+                  onReject: _rejectIncomingCall,
+                ),
+              ),
           ],
-        ],
+        ),
       ),
-      body: bodyContent,
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const Divider(height: 1, thickness: 0.5, color: Color(0xFF2A2A2A)),
-          NavigationBar(
-        selectedIndex: _selectedTabIndex,
-        backgroundColor: isDark ? const Color(0xFF111111) : null,
-        indicatorColor: const Color(0xFFFF8F00).withValues(alpha: 0.18),
-        labelTextStyle: WidgetStateProperty.resolveWith((states) {
-          final bool selected = states.contains(WidgetState.selected);
-          return TextStyle(
-            fontSize: 11,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            color: selected ? const Color(0xFFFF8F00) : null,
-          );
-        }),
-        onDestinationSelected: (int index) {
-          setState(() => _selectedTabIndex = index);
-        },
-        destinations: <NavigationDestination>[
-          NavigationDestination(
-            icon: Icon(Icons.home_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
-            selectedIcon: const Icon(Icons.home_rounded, color: Color(0xFFFF8F00)),
-            label: l10n.home,
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.live_tv_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
-            selectedIcon: const Icon(Icons.live_tv_rounded, color: Color(0xFFFF8F00)),
-            label: l10n.live,
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.explore_rounded, color: isDark ? const Color(0xFF6B6B6B) : null),
-            selectedIcon: const Icon(Icons.explore_rounded, color: Color(0xFFFF8F00)),
-            label: l10n.explore,
-          ),
-          NavigationDestination(
-            icon: _buildInboxNavIcon(selected: false, isDark: isDark),
-            selectedIcon: _buildInboxNavIcon(selected: true, isDark: isDark),
-            label: l10n.inbox,
-          ),
-          NavigationDestination(
-            icon: Icon(
-              Icons.person_rounded,
-              color: _apiReachable == true ? Colors.green.shade700 : (isDark ? const Color(0xFF6B6B6B) : null),
-            ),
-            selectedIcon: Icon(
-              Icons.person_rounded,
-              color: _apiReachable == true ? Colors.green.shade700 : const Color(0xFFFF8F00),
-            ),
-            label: l10n.me,
-          ),
-        ],
-      ),
-        ],
-      ),
-    ),
-          // Incoming call overlay
-          if (_incomingCallerId != null)
-            Positioned.fill(
-              child: IncomingCallOverlay(
-                callerId: _incomingCallerId!,
-                callerName: _incomingCallerName,
-                onAccept: _acceptIncomingCall,
-                onReject: _rejectIncomingCall,
-              ),
-            ),
-        ],
-      ),
-    ),
     );
   }
 }
-

@@ -12,6 +12,21 @@ import { StoreService } from '../core/store.service';
 import { RtcService } from '../core/rtc.service';
 import { FcmService } from '../core/fcm.service';
 
+type RandomMatchResponse = {
+  matched: true;
+  sessionId: string;
+  appId: string;
+  channelName: string;
+  uid: number;
+  token: string;
+  partnerId: string;
+  partnerName: string;
+  rateCoinsPerMinute: number;
+  hostEarningCoinsPerMinute: number;
+  receiverShareBps: number;
+  expiresAt: number;
+};
+
 @Controller('v1/calls/random')
 export class MatchmakingController {
   constructor(
@@ -31,7 +46,7 @@ export class MatchmakingController {
   async seek(
     @Headers('authorization') authorization: string | undefined,
   ): Promise<
-    | { matched: true; sessionId: string; appId: string; channelName: string; uid: number; token: string; partnerId: string; partnerName: string }
+    | RandomMatchResponse
     | { matched: false }
   > {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
@@ -81,7 +96,7 @@ export class MatchmakingController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: { sessionId: string; partnerId?: string },
   ): Promise<
-    | { matched: true; sessionId: string; appId: string; channelName: string; uid: number; token: string; partnerId: string; partnerName: string }
+    | RandomMatchResponse
     | { matched: false }
   > {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
@@ -90,7 +105,12 @@ export class MatchmakingController {
     if (body?.sessionId) {
       await this.storeService.endCallSession(user.id, body.sessionId, 'caller_ended').catch(() => null);
       if (body.partnerId) {
-        await this.fcmService.writeCallSignal(body.partnerId, { event: 'partner_left', ts: Date.now() });
+        await this.fcmService.writeCallSignal(body.partnerId, {
+          event: 'partner_left',
+          sessionId: body.sessionId,
+          partnerId: user.id,
+          ts: Date.now(),
+        });
       }
     }
 
@@ -114,7 +134,12 @@ export class MatchmakingController {
     if (body?.sessionId) {
       await this.storeService.endCallSession(user.id, body.sessionId, 'caller_ended').catch(() => null);
       if (body.partnerId) {
-        await this.fcmService.writeCallSignal(body.partnerId, { event: 'partner_left', ts: Date.now() });
+        await this.fcmService.writeCallSignal(body.partnerId, {
+          event: 'partner_left',
+          sessionId: body.sessionId,
+          partnerId: user.id,
+          ts: Date.now(),
+        });
       }
     }
   }
@@ -124,7 +149,7 @@ export class MatchmakingController {
   private async connectPair(
     callerId: string,
     receiverId: string,
-  ): Promise<{ matched: true; sessionId: string; appId: string; channelName: string; uid: number; token: string; partnerId: string; partnerName: string }> {
+  ): Promise<RandomMatchResponse> {
     // Create call session
     const session = await this.storeService.startCallSession(callerId, {
       mode: 'random',
@@ -141,17 +166,34 @@ export class MatchmakingController {
     // Get names
     const callerUser = await this.storeService.getUserById(callerId).catch(() => null) as any;
     const receiverUser = await this.storeService.getUserById(receiverId).catch(() => null) as any;
+    const callerName = callerUser?.displayName ?? callerUser?.display_name ?? 'User';
+    const callerAvatarUrl = callerUser?.avatarUrl ?? callerUser?.avatar_url ?? null;
+    const receiverName = receiverUser?.displayName ?? receiverUser?.display_name ?? 'User';
+    const rateCoinsPerMinute = session.rateCoinsPerMinute;
+    const receiverShareBps = session.receiverShareBps;
+    const hostEarningCoinsPerMinute = Math.floor(
+      (rateCoinsPerMinute * receiverShareBps) / 10000,
+    );
+    const expiresAt = Date.now() + 30_000;
 
     // Write RTDB signal to receiver
     await this.fcmService.writeCallSignal(receiverId, {
       event: 'matched',
+      status: 'matched',
+      callerId,
+      callerName,
+      callerAvatarUrl,
       sessionId: session.id,
       appId: receiverToken.appId,
       channelName: receiverToken.channelName,
       uid: receiverToken.uid,
       token: receiverToken.token,
       partnerId: callerId,
-      partnerName: callerUser?.display_name ?? 'User',
+      partnerName: callerName,
+      rateCoinsPerMinute,
+      hostEarningCoinsPerMinute,
+      receiverShareBps,
+      expiresAt,
       ts: Date.now(),
     });
 
@@ -165,7 +207,11 @@ export class MatchmakingController {
       uid: callerToken.uid,
       token: callerToken.token,
       partnerId: receiverId,
-      partnerName: receiverUser?.display_name ?? 'User',
+      partnerName: receiverName,
+      rateCoinsPerMinute,
+      hostEarningCoinsPerMinute,
+      receiverShareBps,
+      expiresAt,
     };
   }
 }
