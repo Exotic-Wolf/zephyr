@@ -258,14 +258,17 @@ export class DemoForYouSimulatorService
     this.lastRotationAt = null;
 
     const hosts = await this.upsertHosts(this.count);
+    const firstDelays = new Map<string, number>();
     for (const host of hosts) {
+      const nextDelaySeconds = this.firstDelaySeconds();
+      firstDelays.set(host.id, nextDelaySeconds);
       await this.writeProfile(host);
-      await this.rotateHost(host);
+      await this.rotateHost(host, nextDelaySeconds);
     }
 
     this.running = true;
     for (const host of hosts) {
-      this.scheduleHost(host, this.firstDelaySeconds());
+      this.scheduleHost(host, firstDelays.get(host.id) ?? this.pickDelaySeconds());
     }
 
     this.logger.log(
@@ -521,36 +524,38 @@ export class DemoForYouSimulatorService
 
   private scheduleHost(host: DemoHost, delaySeconds: number): void {
     if (!this.running) return;
-    void this.writeDemoNextRotation(host.id, delaySeconds).catch((error) => {
-      this.logger.warn(
-        `Failed to write demo countdown for ${host.display_name}: ${String(error)}`,
-      );
-    });
     const timer = setTimeout(async () => {
       this.timers.delete(host.id);
       if (!this.running) return;
 
       try {
-        await this.rotateHost(host);
+        const nextDelaySeconds = this.pickDelaySeconds();
+        await this.rotateHost(host, nextDelaySeconds);
+        if (this.running) {
+          this.scheduleHost(host, nextDelaySeconds);
+        }
       } catch (error) {
         this.logger.warn(
           `Failed to rotate demo host ${host.display_name}: ${String(error)}`,
         );
-      }
-      if (this.running) {
-        this.scheduleHost(host, this.pickDelaySeconds());
+        if (this.running) {
+          this.scheduleHost(host, this.pickDelaySeconds());
+        }
       }
     }, delaySeconds * 1000);
     this.timers.set(host.id, timer);
   }
 
-  private async rotateHost(host: DemoHost): Promise<void> {
+  private async rotateHost(
+    host: DemoHost,
+    nextDelaySeconds: number,
+  ): Promise<void> {
     const state = this.pickState();
     const { roomId, removedRoomId, audienceCount } = await this.projectState(
       host,
       state,
     );
-    await this.writePresence(host, state, roomId);
+    await this.writePresence(host, state, roomId, nextDelaySeconds);
     if (removedRoomId) {
       await admin.database().ref(`live_rooms/${removedRoomId}`).remove();
     }
@@ -677,12 +682,14 @@ export class DemoForYouSimulatorService
     host: DemoHost,
     state: DemoState,
     roomId: string | null,
+    nextDelaySeconds: number,
   ): Promise<void> {
     const routing = this.stateRouting(state);
     const callSessionId =
       state.activity === 'direct_call' || state.activity === 'random_call'
         ? randomUUID()
         : null;
+    const nextRotationAt = Date.now() + nextDelaySeconds * 1000;
     await admin
       .database()
       .ref(`presence/${host.id}`)
@@ -705,23 +712,10 @@ export class DemoForYouSimulatorService
         demo: {
           simulator: 'for_you',
           routeable: this.routeable,
+          nextDelaySeconds,
+          nextRotationAt,
+          nextRotationAtIso: new Date(nextRotationAt).toISOString(),
         },
-      });
-  }
-
-  private async writeDemoNextRotation(
-    hostUserId: string,
-    delaySeconds: number,
-  ): Promise<void> {
-    const nextRotationAt = Date.now() + delaySeconds * 1000;
-    await admin
-      .database()
-      .ref(`presence/${hostUserId}/demo`)
-      .update({
-        simulator: 'for_you',
-        routeable: this.routeable,
-        nextRotationAt,
-        nextRotationAtIso: new Date(nextRotationAt).toISOString(),
       });
   }
 
