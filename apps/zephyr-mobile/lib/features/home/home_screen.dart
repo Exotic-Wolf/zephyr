@@ -72,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _feedOffset = 0;
   bool _hasMoreFeedCards = true;
   bool _loadingMoreFeedCards = false;
+  bool _firebaseRealtimeReady = false;
 
   // ── Incoming call state ───────────────────────────────────────────────────
   StreamSubscription<DatabaseEvent>? _incomingCallSub;
@@ -536,9 +537,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // Initialize Firebase with custom token for secure auth BEFORE warming presence
       await _initFirebaseChat(me);
       // Warm Firebase RTDB presence and profiles AFTER auth is ready
-      final hostIds = _feedCards.map((c) => c.hostUserId).toList();
-      FirebaseChatService.instance.warmPresence(hostIds);
-      FirebaseChatService.instance.warmProfiles(hostIds);
+      _warmFeedRealtime(_feedCards);
     } catch (error) {
       setState(() {
         _error = error.toString();
@@ -607,8 +606,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         widget.accessToken,
       );
       await FirebaseChatService.instance.init(me.id, firebaseToken: token);
+      _firebaseRealtimeReady = true;
     } catch (e) {
       debugPrint('Firebase custom token failed: $e — skipping RTDB init');
+      _firebaseRealtimeReady = false;
       return; // Don't use anonymous — it can't satisfy RTDB rules
     }
 
@@ -693,6 +694,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _hasMoreFeedCards = feedCards.length == _forYouPageSize;
         _loadingMoreFeedCards = false;
       });
+      _warmFeedRealtime(_feedCards);
     } catch (_) {
       // ignore — next poll will retry
     }
@@ -726,9 +728,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _hasMoreFeedCards = feedCards.length == _forYouPageSize;
         _loadingMoreFeedCards = false;
       });
+      _warmFeedRealtime(_feedCards);
     } catch (_) {
       if (mounted) setState(() => _loadingMoreFeedCards = false);
     }
+  }
+
+  void _warmFeedRealtime(List<LiveFeedCard> cards) {
+    if (!_firebaseRealtimeReady || cards.isEmpty) return;
+    final hostIds = cards.map((LiveFeedCard c) => c.hostUserId).toList();
+    FirebaseChatService.instance.warmPresence(hostIds);
+    FirebaseChatService.instance.warmProfiles(hostIds);
   }
 
   String _feedCardKey(LiveFeedCard card) {
