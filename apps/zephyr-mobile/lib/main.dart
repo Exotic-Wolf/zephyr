@@ -17,6 +17,7 @@ import 'l10n/app_localizations.dart';
 import 'services/api_client.dart';
 import 'services/firebase_chat_service.dart';
 import 'features/onboarding/onboarding_page.dart';
+import 'features/onboarding/profile_setup_screen.dart';
 import 'features/home/home_screen.dart';
 import 'splash_screen.dart';
 
@@ -79,6 +80,8 @@ class _MyAppState extends State<MyApp> {
   static const String _themeModeKey = 'theme_mode';
   static const String _localeKey = 'app_locale';
   String? _accessToken;
+  String? _pendingSetupToken;
+  String? _pendingSetupDisplayName;
   bool _restoringSession = true;
   ThemeMode _themeMode = ThemeMode.dark;
   Locale? _locale; // null = follow device
@@ -98,13 +101,13 @@ class _MyAppState extends State<MyApp> {
     FirebaseMessaging.instance.getInitialMessage().then((
       RemoteMessage? message,
     ) {
-      if (message != null && mounted) _tabNotifier.value = 3;
+      if (message != null && mounted) _tabNotifier.value = 4;
     });
     // App in background, user taps notification
     _fcmOpenSub = FirebaseMessaging.onMessageOpenedApp.listen((
       RemoteMessage message,
     ) {
-      if (mounted) _tabNotifier.value = 3;
+      if (mounted) _tabNotifier.value = 4;
     });
   }
 
@@ -129,14 +132,28 @@ class _MyAppState extends State<MyApp> {
           final isComplete = profile.onboardedAt != null;
           if (mounted && isComplete) {
             ZephyrApiClient.accessToken = saved;
-            setState(() => _accessToken = saved);
+            setState(() {
+              _accessToken = saved;
+              _pendingSetupToken = null;
+              _pendingSetupDisplayName = null;
+            });
             _registerFcmToken(saved);
           } else if (!isComplete) {
-            // Profile incomplete — send through onboarding again
-            await _storage.delete(key: _tokenKey);
+            if (mounted) {
+              setState(() {
+                _pendingSetupToken = saved;
+                _pendingSetupDisplayName = profile.displayName;
+              });
+            }
           }
         } catch (_) {
           await _storage.delete(key: _tokenKey);
+          if (mounted) {
+            setState(() {
+              _pendingSetupToken = null;
+              _pendingSetupDisplayName = null;
+            });
+          }
         }
       }
       final String? savedTheme = await _storage.read(key: _themeModeKey);
@@ -164,7 +181,11 @@ class _MyAppState extends State<MyApp> {
   void _onLoginSuccess(String accessToken) {
     _storage.write(key: _tokenKey, value: accessToken);
     ZephyrApiClient.accessToken = accessToken;
-    setState(() => _accessToken = accessToken);
+    setState(() {
+      _accessToken = accessToken;
+      _pendingSetupToken = null;
+      _pendingSetupDisplayName = null;
+    });
     _registerFcmToken(accessToken);
   }
 
@@ -207,7 +228,11 @@ class _MyAppState extends State<MyApp> {
     await _storage.delete(key: _tokenKey);
     ZephyrApiClient.accessToken = null;
     if (mounted) {
-      setState(() => _accessToken = null);
+      setState(() {
+        _accessToken = null;
+        _pendingSetupToken = null;
+        _pendingSetupDisplayName = null;
+      });
     }
   }
 
@@ -250,7 +275,11 @@ class _MyAppState extends State<MyApp> {
 
     ZephyrApiClient.accessToken = null;
     if (mounted) {
-      setState(() => _accessToken = null);
+      setState(() {
+        _accessToken = null;
+        _pendingSetupToken = null;
+        _pendingSetupDisplayName = null;
+      });
     }
   }
 
@@ -338,6 +367,7 @@ class _MyAppState extends State<MyApp> {
     if (_restoringSession) {
       return const MaterialApp(home: SplashScreen());
     }
+    final String? setupToken = _pendingSetupToken;
     return MaterialApp(
       title: 'Zephyr',
       locale: _locale,
@@ -360,10 +390,20 @@ class _MyAppState extends State<MyApp> {
       darkTheme: ThemeData.dark(useMaterial3: true),
       themeMode: _themeMode,
       home: _accessToken == null
-          ? OnboardingScreen(
-              apiClient: _apiClient,
-              onLoginSuccess: _onLoginSuccess,
-            )
+          ? setupToken != null
+                ? ProfileSetupScreen(
+                    apiClient: _apiClient,
+                    accessToken: setupToken,
+                    initialDisplayName:
+                        _pendingSetupDisplayName?.trim().isNotEmpty == true
+                        ? _pendingSetupDisplayName!.trim()
+                        : 'Zephyr',
+                    onComplete: () => _onLoginSuccess(setupToken),
+                  )
+                : OnboardingScreen(
+                    apiClient: _apiClient,
+                    onLoginSuccess: _onLoginSuccess,
+                  )
           : HomeScreen(
               apiClient: _apiClient,
               accessToken: _accessToken!,

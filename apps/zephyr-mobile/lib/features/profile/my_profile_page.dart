@@ -89,6 +89,41 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
   String get _userId => widget.me?.publicId ?? '—';
 
+  UserProfile? _copyCurrentProfile({
+    String? displayName,
+    String? avatarUrl,
+    String? coverUrl,
+    String? bio,
+    String? gender,
+    String? birthday,
+    String? countryCode,
+    String? language,
+    int? callRateCoinsPerMinute,
+  }) {
+    final UserProfile? current = _pendingReturn ?? widget.me;
+    if (current == null) return null;
+    return UserProfile(
+      id: current.id,
+      publicId: current.publicId,
+      isAdmin: current.isAdmin,
+      isHost: current.isHost,
+      displayName: displayName ?? current.displayName,
+      avatarUrl: avatarUrl ?? current.avatarUrl,
+      coverUrl: coverUrl ?? current.coverUrl,
+      bio: bio ?? current.bio,
+      gender: gender ?? current.gender,
+      birthday: birthday ?? current.birthday,
+      countryCode: countryCode ?? current.countryCode,
+      language: language ?? current.language,
+      callRateCoinsPerMinute:
+          callRateCoinsPerMinute ?? current.callRateCoinsPerMinute,
+      followerCount: current.followerCount,
+      followingCount: current.followingCount,
+      onboardedAt: current.onboardedAt,
+      createdAt: current.createdAt,
+    );
+  }
+
   Future<void> _pickAndUploadAvatar() async {
     final ImageSource? source = await showModalBottomSheet<ImageSource>(
       context: context,
@@ -128,22 +163,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
       final UserProfile? me = widget.me;
       setState(() {
         _avatarUrl = url;
-        if (me != null) {
-          _pendingReturn = UserProfile(
-            id: me.id,
-            publicId: me.publicId,
-            isAdmin: me.isAdmin,
-            displayName: me.displayName,
-            avatarUrl: url,
-            bio: me.bio,
-            gender: me.gender,
-            birthday: me.birthday,
-            countryCode: me.countryCode,
-            language: me.language,
-            callRateCoinsPerMinute: me.callRateCoinsPerMinute,
-            createdAt: me.createdAt,
-          );
-        }
+        _pendingReturn = _copyCurrentProfile(avatarUrl: url);
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -217,7 +237,10 @@ class _MyProfilePageState extends State<MyProfilePage> {
         mimeType: picked.mimeType,
       );
       if (!mounted) return;
-      setState(() => _coverUrl = url);
+      setState(() {
+        _coverUrl = url;
+        _pendingReturn = _copyCurrentProfile(coverUrl: url);
+      });
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(

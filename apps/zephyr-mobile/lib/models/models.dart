@@ -13,17 +13,20 @@ class WalletSummary {
     required this.coinBalance,
     required this.level,
     required this.revenueUsd,
+    required this.sparkBalance,
   });
 
   final int coinBalance;
   final int level;
   final double revenueUsd;
+  final int sparkBalance;
 
   factory WalletSummary.fromJson(Map<String, dynamic> json) {
     return WalletSummary(
       coinBalance: (json['coinBalance'] as num?)?.toInt() ?? 0,
       level: (json['level'] as num?)?.toInt() ?? 1,
       revenueUsd: (json['revenueUsd'] as num?)?.toDouble() ?? 0,
+      sparkBalance: (json['sparkBalance'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -243,7 +246,9 @@ class RtcJoinInfo {
 }
 
 /// Derives a stable 8-digit numeric public ID from a UUID using a djb2 hash.
-String derivePublicId(String uuid) {
+String derivePublicId(String uuid) => _derivePublicId(uuid);
+
+String _derivePublicId(String uuid) {
   int h = 5381;
   for (final int c in uuid.codeUnits) {
     h = ((h << 5) + h + c) & 0x7FFFFFFF;
@@ -339,8 +344,10 @@ class UserProfile {
     this.countryCode,
     this.language,
     this.callRateCoinsPerMinute,
+    this.followerCount = 0,
+    this.followingCount = 0,
     this.onboardedAt,
-  }) : publicId = publicId ?? derivePublicId(id);
+  }) : publicId = publicId ?? _derivePublicId(id);
 
   final String id;
 
@@ -357,13 +364,15 @@ class UserProfile {
   final String? countryCode;
   final String? language;
   final int? callRateCoinsPerMinute;
+  final int followerCount;
+  final int followingCount;
   final DateTime? onboardedAt;
   final DateTime createdAt;
 
   /// Derives a stable 8-digit numeric code from the DB UUID using a djb2 hash.
   /// The output looks nothing like the source UUID.
   /// Delegates to the top-level _derivePublicId function.
-  static String derivePublicId(String uuid) => derivePublicId(uuid);
+  static String derivePublicId(String uuid) => _derivePublicId(uuid);
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
@@ -380,6 +389,8 @@ class UserProfile {
       countryCode: json['countryCode'] as String?,
       language: json['language'] as String?,
       callRateCoinsPerMinute: (json['callRateCoinsPerMinute'] as num?)?.toInt(),
+      followerCount: (json['followerCount'] as num?)?.toInt() ?? 0,
+      followingCount: (json['followingCount'] as num?)?.toInt() ?? 0,
       onboardedAt: json['onboardedAt'] != null
           ? DateTime.parse(json['onboardedAt'] as String)
           : null,
@@ -425,6 +436,7 @@ class LiveFeedCard {
     required this.hostUserId,
     required this.hostDisplayName,
     required this.hostAvatarUrl,
+    this.hostGender,
     required this.hostCountryCode,
     required this.hostLanguage,
     required this.hostStatus,
@@ -438,6 +450,7 @@ class LiveFeedCard {
   final String hostUserId;
   final String hostDisplayName;
   final String? hostAvatarUrl;
+  final String? hostGender;
   final String hostCountryCode;
   final String hostLanguage;
 
@@ -454,6 +467,7 @@ class LiveFeedCard {
       hostUserId: json['hostUserId'] as String,
       hostDisplayName: json['hostDisplayName'] as String,
       hostAvatarUrl: json['hostAvatarUrl'] as String?,
+      hostGender: json['hostGender'] as String?,
       hostCountryCode: (json['hostCountryCode'] as String? ?? 'PH')
           .trim()
           .toUpperCase(),
@@ -471,14 +485,18 @@ class LiveFeedCard {
     String? hostStatus,
     String? roomId,
     int? audienceCount,
+    String? hostDisplayName,
+    String? hostAvatarUrl,
+    String? hostGender,
   }) {
     return LiveFeedCard(
       roomId: roomId ?? this.roomId,
       title: title,
       audienceCount: audienceCount ?? this.audienceCount,
       hostUserId: hostUserId,
-      hostDisplayName: hostDisplayName,
-      hostAvatarUrl: hostAvatarUrl,
+      hostDisplayName: hostDisplayName ?? this.hostDisplayName,
+      hostAvatarUrl: hostAvatarUrl ?? this.hostAvatarUrl,
+      hostGender: hostGender ?? this.hostGender,
       hostCountryCode: hostCountryCode,
       hostLanguage: hostLanguage,
       hostStatus: hostStatus ?? this.hostStatus,

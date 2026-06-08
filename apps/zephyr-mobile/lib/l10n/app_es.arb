@@ -19,11 +19,17 @@
   "connecting": "Conectando...",
   "@connecting": {},
 
-  "continueAsGuest": "Continuar como Invitado",
-  "@continueAsGuest": {},
-
   "signingIn": "Iniciando sesión...",
   "@signingIn": {},
+
+  "signInCancelled": "Inicio de sesión cancelado.",
+  "@signInCancelled": {},
+
+  "signInFailedTryAgain": "No pudimos iniciar sesión. Inténtalo de nuevo.",
+  "@signInFailedTryAgain": {},
+
+  "signInNetworkError": "No pudimos conectar con Zephyr. Revisa tu conexión e inténtalo de nuevo.",
+  "@signInNetworkError": {},
 
   "continueWithGoogle": "Continuar con Google",
   "@continueWithGoogle": {},
@@ -31,8 +37,23 @@
   "continueWithApple": "Continuar con Apple",
   "@continueWithApple": {},
 
+  "byContinuingPrefix": "Al continuar, aceptas nuestros ",
+  "@byContinuingPrefix": {},
+
+  "byContinuingAnd": " y ",
+  "@byContinuingAnd": {},
+
+  "termsOfService": "Términos de servicio",
+  "@termsOfService": {},
+
+  "ageGateNotice": "Debes tener 17 años o más para usar Zephyr.",
+  "@ageGateNotice": {},
+
   "home": "Inicio",
   "@home": {},
+
+  "forYou": "Para ti",
+  "@forYou": {},
 
   "live": "En Vivo",
   "@live": {},
@@ -288,11 +309,23 @@
   "gender": "Género",
   "@gender": {},
 
+  "selectYourGender": "Selecciona tu género para empezar",
+  "@selectYourGender": {},
+
   "male": "Masculino",
   "@male": {},
 
   "female": "Femenino",
   "@female": {},
+
+  "yourLanguage": "Tu idioma",
+  "@yourLanguage": {},
+
+  "translateMessagesForYou": "Traduciremos los mensajes para ti",
+  "@translateMessagesForYou": {},
+
+  "savingProfile": "Guardando perfil...",
+  "@savingProfile": {},
 
   "nonBinary": "No binario",
   "@nonBinary": {},

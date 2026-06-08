@@ -82,6 +82,56 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _handleLogout() async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(AppLocalizations.of(ctx)!.logout),
+        content: Text(AppLocalizations.of(ctx)!.logoutConfirm),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(AppLocalizations.of(ctx)!.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              AppLocalizations.of(ctx)!.logout,
+              style: const TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    await widget.onLogout();
+  }
+
+  void _openAccount() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _AccountPage(
+          deletingAccount: _deletingAccount,
+          onLogout: _handleLogout,
+          onDeleteAccount: _handleDeleteAccount,
+        ),
+      ),
+    );
+  }
+
+  void _openPrivacy() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const _PrivacyPage()));
+  }
+
+  void _openNotifications() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const _NotificationsPage()));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -93,14 +143,20 @@ class _SettingsPageState extends State<SettingsPage> {
           ListTile(
             leading: const Icon(Icons.person_outline_rounded),
             title: Text(l10n.account),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _openAccount,
           ),
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
             title: Text(l10n.privacy),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _openPrivacy,
           ),
           ListTile(
             leading: const Icon(Icons.notifications_none_rounded),
             title: Text(l10n.notifications),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _openNotifications,
           ),
           ListTile(
             leading: const Icon(Icons.language_rounded),
@@ -171,32 +227,139 @@ class _SettingsPageState extends State<SettingsPage> {
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: Text(l10n.logout, style: const TextStyle(color: Colors.red)),
-            onTap: () async {
-              final bool? confirm = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: Text(AppLocalizations.of(ctx)!.logout),
-                  content: Text(AppLocalizations.of(ctx)!.logoutConfirm),
-                  actions: <Widget>[
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: Text(AppLocalizations.of(ctx)!.cancel),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: Text(
-                        AppLocalizations.of(ctx)!.logout,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-              if (confirm != true) return;
-              if (!context.mounted) return;
-              Navigator.of(context).popUntil((route) => route.isFirst);
-              await widget.onLogout();
-            },
+            onTap: _handleLogout,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountPage extends StatelessWidget {
+  const _AccountPage({
+    required this.deletingAccount,
+    required this.onLogout,
+    required this.onDeleteAccount,
+  });
+
+  final bool deletingAccount;
+  final Future<void> Function() onLogout;
+  final Future<void> Function() onDeleteAccount;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context)!;
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.account)),
+      body: ListView(
+        children: <Widget>[
+          ListTile(
+            leading: const Icon(Icons.verified_user_outlined),
+            title: const Text('Signed in account'),
+            subtitle: const Text(
+              'Your login, profile, wallet, chats, and live history are tied to this account.',
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: Text(l10n.logout, style: const TextStyle(color: Colors.red)),
+            onTap: onLogout,
+          ),
+          ListTile(
+            enabled: !deletingAccount,
+            leading: deletingAccount
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.delete_forever_rounded, color: Colors.red),
+            title: Text(
+              deletingAccount ? 'Deleting account...' : 'Delete Account',
+              style: const TextStyle(color: Colors.red),
+            ),
+            subtitle: const Text('Permanently remove account data.'),
+            onTap: deletingAccount ? null : onDeleteAccount,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrivacyPage extends StatelessWidget {
+  const _PrivacyPage();
+
+  Future<void> _open(String path) {
+    return launchUrl(
+      Uri.parse('$apiBaseUrl$path'),
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context)!;
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.privacy)),
+      body: ListView(
+        children: <Widget>[
+          const ListTile(
+            leading: Icon(Icons.lock_outline_rounded),
+            title: Text('Privacy controls'),
+            subtitle: Text(
+              'Legal documents open in your browser. Account deletion is available from Account settings.',
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('Privacy Policy'),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => _open('/legal/privacy'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.gavel_outlined),
+            title: const Text('Terms of Service'),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => _open('/legal/terms'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotificationsPage extends StatelessWidget {
+  const _NotificationsPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context)!;
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.notifications)),
+      body: ListView(
+        children: const <Widget>[
+          ListTile(
+            leading: Icon(Icons.notifications_active_outlined),
+            title: Text('Message alerts'),
+            subtitle: Text('New chat messages can trigger push notifications.'),
+            trailing: Icon(Icons.check_circle_rounded),
+          ),
+          ListTile(
+            leading: Icon(Icons.call_outlined),
+            title: Text('Incoming call alerts'),
+            subtitle: Text('Incoming calls appear while you are signed in.'),
+            trailing: Icon(Icons.check_circle_rounded),
+          ),
+          Divider(height: 1),
+          ListTile(
+            leading: Icon(Icons.settings_suggest_outlined),
+            title: Text('Device permission'),
+            subtitle: Text(
+              'System notification permission is managed in iOS or Android settings.',
+            ),
           ),
         ],
       ),

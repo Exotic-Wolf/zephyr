@@ -17,8 +17,8 @@ class DiscoverFeed extends StatelessWidget {
     required this.pageController,
     required this.onPageChanged,
     required this.onLivePreviewTap,
-    required this.onCallTap,
     required this.onRandomMatch,
+    required this.showRandomMatch,
     this.joiningRoomId,
     this.activeIndex = 0,
   });
@@ -30,23 +30,32 @@ class DiscoverFeed extends StatelessWidget {
   final bool isTablet;
   final PageController pageController;
   final ValueChanged<int> onPageChanged;
-  final void Function(LiveFeedCard, RtcEngine, int hostUid, String channelName) onLivePreviewTap;
-  final void Function(LiveFeedCard) onCallTap;
+  final void Function(LiveFeedCard, RtcEngine, int hostUid, String channelName)
+  onLivePreviewTap;
   final VoidCallback onRandomMatch;
+  final bool showRandomMatch;
   final String? joiningRoomId;
   final int activeIndex;
 
   @override
   Widget build(BuildContext context) {
     if (cards.isEmpty) {
-      return Center(
-        child: Text(
-          allCardsEmpty
-              ? AppLocalizations.of(context)!.noOneIsLiveRightNow
-              : searchQuery.isNotEmpty
+      return Stack(
+        children: <Widget>[
+          Center(
+            child: Text(
+              allCardsEmpty
+                  ? AppLocalizations.of(context)!.noOneIsLiveRightNow
+                  : searchQuery.isNotEmpty
                   ? AppLocalizations.of(context)!.noResultsFor(searchQuery)
-                  : AppLocalizations.of(context)!.noOneIsLiveFrom(filterCountryName ?? 'there'),
-        ),
+                  : AppLocalizations.of(
+                      context,
+                    )!.noOneIsLiveFrom(filterCountryName ?? 'there'),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          if (showRandomMatch) _RandomMatchButton(onPressed: onRandomMatch),
+        ],
       );
     }
 
@@ -67,7 +76,6 @@ class DiscoverFeed extends StatelessWidget {
                 isTablet: isTablet,
                 showPreview: true,
                 isJoining: card.roomId != null && joiningRoomId == card.roomId,
-                onCallTap: () => onCallTap(card),
                 livePreviewWidget: isActive && card.roomId != null
                     ? LivePreviewWidget(
                         key: ValueKey(card.roomId),
@@ -76,30 +84,46 @@ class DiscoverFeed extends StatelessWidget {
                         height: isTablet ? 180 : 130,
                         borderRadius: 20,
                         onTap: (engine, hostUid, channelName) =>
-                            onLivePreviewTap(card, engine, hostUid, channelName),
+                            onLivePreviewTap(
+                              card,
+                              engine,
+                              hostUid,
+                              channelName,
+                            ),
                       )
                     : null,
               ),
             );
           },
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Center(
-            child: FilledButton(
-              onPressed: onRandomMatch,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF7BEA3B),
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              ),
-              child: const Text('Random match'),
-            ),
-          ),
-        ),
+        if (showRandomMatch) _RandomMatchButton(onPressed: onRandomMatch),
       ],
+    );
+  }
+}
+
+class _RandomMatchButton extends StatelessWidget {
+  const _RandomMatchButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Center(
+        child: FilledButton(
+          onPressed: onPressed,
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF7BEA3B),
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          ),
+          child: const Text('Random match'),
+        ),
+      ),
     );
   }
 }

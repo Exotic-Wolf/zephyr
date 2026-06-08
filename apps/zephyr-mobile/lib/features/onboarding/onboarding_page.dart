@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -13,22 +12,85 @@ import '../../app_constants.dart';
 import '../../l10n/app_localizations.dart';
 import 'profile_setup_screen.dart';
 
+abstract class OnboardingAuthGateway {
+  Future<AuthSession?> continueWithGoogle();
+  Future<AuthSession> continueWithApple();
+}
+
+class PlatformOnboardingAuthGateway implements OnboardingAuthGateway {
+  PlatformOnboardingAuthGateway({
+    required ZephyrApiClient apiClient,
+    String serverClientId = googleServerClientId,
+  }) : _apiClient = apiClient,
+       _googleSignIn = GoogleSignIn(
+         scopes: <String>['email'],
+         serverClientId: serverClientId.isEmpty ? null : serverClientId,
+       );
+
+  final ZephyrApiClient _apiClient;
+  final GoogleSignIn _googleSignIn;
+
+  @override
+  Future<AuthSession?> continueWithGoogle() async {
+    final GoogleSignInAccount? account = await _googleSignIn.signIn();
+    if (account == null) return null;
+
+    final GoogleSignInAuthentication auth = await account.authentication;
+    final String? idToken = auth.idToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw StateError('missing_google_id_token');
+    }
+    return _apiClient.googleLogin(idToken);
+  }
+
+  @override
+  Future<AuthSession> continueWithApple() async {
+    final AuthorizationCredentialAppleID credential =
+        await SignInWithApple.getAppleIDCredential(
+          scopes: <AppleIDAuthorizationScopes>[
+            AppleIDAuthorizationScopes.email,
+            AppleIDAuthorizationScopes.fullName,
+          ],
+        );
+    final String? idToken = credential.identityToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw StateError('missing_apple_id_token');
+    }
+    return _apiClient.appleLogin(
+      idToken: idToken,
+      email: credential.email,
+      givenName: credential.givenName,
+      familyName: credential.familyName,
+    );
+  }
+}
+
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     required this.apiClient,
     required this.onLoginSuccess,
+    this.authGateway,
+    this.showAppleSignIn,
+    this.brandHero,
+    this.profileWriter,
+    this.countryCodeResolver,
     super.key,
   });
 
   final ZephyrApiClient apiClient;
   final ValueChanged<String> onLoginSuccess;
+  final OnboardingAuthGateway? authGateway;
+  final bool? showAppleSignIn;
+  final Widget? brandHero;
+  final ProfileRealtimeWriter? profileWriter;
+  final CountryCodeResolver? countryCodeResolver;
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  late final GoogleSignIn _googleSignIn;
+  late final OnboardingAuthGateway _authGateway;
   bool _googleLoading = false;
   bool _appleLoading = false;
   bool _apiOffline = false;
@@ -37,10 +99,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    _googleSignIn = GoogleSignIn(
-      scopes: <String>['email'],
-      serverClientId: googleServerClientId.isEmpty ? null : googleServerClientId,
-    );
+    _authGateway =
+        widget.authGateway ??
+        PlatformOnboardingAuthGateway(apiClient: widget.apiClient);
     _checkApi();
   }
 
@@ -50,55 +111,58 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _continueWithGoogle() async {
-    setState(() { _googleLoading = true; _error = null; });
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _googleLoading = true;
+      _error = null;
+    });
     try {
-      final GoogleSignInAccount? account = await _googleSignIn.signIn();
-      if (account == null) {
-        if (mounted) setState(() => _error = 'Sign-in cancelled.');
+      final AuthSession? session = await _authGateway.continueWithGoogle();
+      if (session == null) {
+        if (mounted) setState(() => _error = l10n.signInCancelled);
         return;
       }
-      final GoogleSignInAuthentication auth = await account.authentication;
-      final String? idToken = auth.idToken;
-      if (idToken == null || idToken.isEmpty) {
-        throw Exception('Google ID token unavailable. Ensure GOOGLE_SERVER_CLIENT_ID is set.');
-      }
-      final AuthSession session = await widget.apiClient.googleLogin(idToken);
       if (!mounted) return;
       _handleLoginResult(session);
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+    } catch (error) {
+      if (mounted) setState(() => _error = _friendlySignInError(error, l10n));
     } finally {
       if (mounted) setState(() => _googleLoading = false);
     }
   }
 
   Future<void> _continueWithApple() async {
-    setState(() { _appleLoading = true; _error = null; });
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _appleLoading = true;
+      _error = null;
+    });
     try {
-      final AuthorizationCredentialAppleID credential =
-          await SignInWithApple.getAppleIDCredential(
-            scopes: <AppleIDAuthorizationScopes>[
-              AppleIDAuthorizationScopes.email,
-              AppleIDAuthorizationScopes.fullName,
-            ],
-          );
-      final String? idToken = credential.identityToken;
-      if (idToken == null || idToken.isEmpty) {
-        throw Exception('Apple ID token unavailable.');
-      }
-      final AuthSession session = await widget.apiClient.appleLogin(
-        idToken: idToken,
-        email: credential.email,
-        givenName: credential.givenName,
-        familyName: credential.familyName,
-      );
+      final AuthSession session = await _authGateway.continueWithApple();
       if (!mounted) return;
       _handleLoginResult(session);
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+    } catch (error) {
+      if (mounted) setState(() => _error = _friendlySignInError(error, l10n));
     } finally {
       if (mounted) setState(() => _appleLoading = false);
     }
+  }
+
+  String _friendlySignInError(Object error, AppLocalizations l10n) {
+    final String raw = error is ZephyrApiException
+        ? error.message
+        : error.toString();
+    final String lower = raw.toLowerCase();
+
+    if (lower.contains('cancel')) return l10n.signInCancelled;
+    if (error is SocketException ||
+        lower.contains('socket') ||
+        lower.contains('network') ||
+        lower.contains('connection') ||
+        lower.contains('timed out')) {
+      return l10n.signInNetworkError;
+    }
+    return l10n.signInFailedTryAgain;
   }
 
   void _handleLoginResult(AuthSession session) {
@@ -117,6 +181,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           apiClient: widget.apiClient,
           accessToken: session.accessToken,
           initialDisplayName: user.displayName,
+          profileWriter: widget.profileWriter,
+          countryCodeResolver: widget.countryCodeResolver,
           onComplete: () {
             Navigator.of(context).pop(); // pop setup screen
             widget.onLoginSuccess(session.accessToken);
@@ -131,6 +197,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final l10n = AppLocalizations.of(context)!;
     final double screenH = MediaQuery.of(context).size.height;
     final double bottomPad = MediaQuery.of(context).padding.bottom;
+    final bool showApple = widget.showAppleSignIn ?? Platform.isIOS;
 
     return Scaffold(
       backgroundColor: const Color(0xFF150805),
@@ -162,11 +229,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 SizedBox(
                   height: screenH * 0.58,
                   child: Center(
-                    child: Image.asset(
-                      'assets/images/zephyr_mascot.png',
-                      width: MediaQuery.of(context).size.width * 0.85,
-                      fit: BoxFit.contain,
-                    ),
+                    child:
+                        widget.brandHero ??
+                        Image.asset(
+                          'assets/images/zephyr_mascot.png',
+                          width: MediaQuery.of(context).size.width * 0.85,
+                          fit: BoxFit.contain,
+                        ),
                   ),
                 ),
 
@@ -184,34 +253,42 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: <Widget>[
-                                const Icon(Icons.wifi_off_rounded,
-                                    color: Colors.orange, size: 16),
+                                const Icon(
+                                  Icons.wifi_off_rounded,
+                                  color: Colors.orange,
+                                  size: 16,
+                                ),
                                 const SizedBox(width: 6),
                                 Text(
                                   l10n.apiOffline,
                                   style: const TextStyle(
-                                      color: Colors.orange,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500),
+                                    color: Colors.orange,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
 
                         // Apple button (iOS only, shown first)
-                        if (Platform.isIOS) ...<Widget>[
+                        if (showApple) ...<Widget>[
                           _SignInButton(
                             onTap: _googleLoading || _appleLoading
                                 ? null
                                 : _continueWithApple,
                             loading: _appleLoading,
+                            semanticLabel: l10n.continueWithApple,
                             backgroundColor: Colors.black,
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: <Widget>[
                                 if (!_appleLoading)
-                                  const Icon(Icons.apple,
-                                      color: Colors.white, size: 22),
+                                  const Icon(
+                                    Icons.apple,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
                                 if (!_appleLoading) const SizedBox(width: 8),
                                 Text(
                                   _appleLoading
@@ -235,13 +312,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               ? null
                               : _continueWithGoogle,
                           loading: _googleLoading,
+                          semanticLabel: l10n.continueWithGoogle,
                           backgroundColor: const Color(0xFF2A2A2A),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: <Widget>[
                               // Google "G" logo colours
-                              if (!_googleLoading)
-                                const _GoogleLogo(),
+                              if (!_googleLoading) const _GoogleLogo(),
                               if (!_googleLoading) const SizedBox(width: 10),
                               Text(
                                 _googleLoading
@@ -263,50 +340,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           Text(
                             _error!,
                             style: const TextStyle(
-                                color: Colors.redAccent, fontSize: 13),
+                              color: Colors.redAccent,
+                              fontSize: 13,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                         ],
 
                         // Legal links
                         const SizedBox(height: 16),
-                        RichText(
-                          textAlign: TextAlign.center,
-                          text: TextSpan(
-                            style: const TextStyle(
-                              color: Color(0x73FFFFFF),
-                              fontSize: 11.5,
-                            ),
-                            children: <TextSpan>[
-                              const TextSpan(text: 'By continuing, you agree to our '),
-                              TextSpan(
-                                text: 'Terms of Service',
-                                style: const TextStyle(
-                                  color: Color(0xFFFF8F00),
-                                  decoration: TextDecoration.underline,
-                                ),
-                                recognizer: TapGestureRecognizer()
-                                  ..onTap = () => launchUrl(
-                                        Uri.parse('$apiBaseUrl/legal/terms'),
-                                        mode: LaunchMode.externalApplication,
-                                      ),
-                              ),
-                              const TextSpan(text: ' and '),
-                              TextSpan(
-                                text: 'Privacy Policy',
-                                style: const TextStyle(
-                                  color: Color(0xFFFF8F00),
-                                  decoration: TextDecoration.underline,
-                                ),
-                                recognizer: TapGestureRecognizer()
-                                  ..onTap = () => launchUrl(
-                                        Uri.parse('$apiBaseUrl/legal/privacy'),
-                                        mode: LaunchMode.externalApplication,
-                                      ),
-                              ),
-                            ],
+                        Text(
+                          l10n.ageGateNotice,
+                          style: const TextStyle(
+                            color: Color(0xB3FFFFFF),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
+                          textAlign: TextAlign.center,
                         ),
+                        const SizedBox(height: 4),
+                        _LegalLinks(l10n: l10n),
                       ],
                     ),
                   ),
@@ -328,38 +381,92 @@ class _SignInButton extends StatelessWidget {
     required this.backgroundColor,
     required this.onTap,
     required this.loading,
+    required this.semanticLabel,
   });
 
   final Widget child;
   final Color backgroundColor;
   final VoidCallback? onTap;
   final bool loading;
+  final String semanticLabel;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: Material(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: semanticLabel,
+      child: SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: Material(
+          color: backgroundColor,
           borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Center(
-            child: loading
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.white,
-                    ),
-                  )
-                : child,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: Center(
+              child: loading
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.white,
+                      ),
+                    )
+                  : child,
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LegalLinks extends StatelessWidget {
+  const _LegalLinks({required this.l10n});
+
+  final AppLocalizations l10n;
+
+  Future<void> _open(String path) {
+    return launchUrl(
+      Uri.parse('$apiBaseUrl$path'),
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const TextStyle baseStyle = TextStyle(
+      color: Color(0x73FFFFFF),
+      fontSize: 11.5,
+    );
+    final ButtonStyle linkStyle = TextButton.styleFrom(
+      foregroundColor: const Color(0xFFFF8F00),
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      minimumSize: Size.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      textStyle: baseStyle.copyWith(decoration: TextDecoration.underline),
+    );
+
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: <Widget>[
+        Text(l10n.byContinuingPrefix, style: baseStyle),
+        TextButton(
+          style: linkStyle,
+          onPressed: () => _open('/legal/terms'),
+          child: Text(l10n.termsOfService),
+        ),
+        Text(l10n.byContinuingAnd, style: baseStyle),
+        TextButton(
+          style: linkStyle,
+          onPressed: () => _open('/legal/privacy'),
+          child: Text(l10n.privacy),
+        ),
+      ],
     );
   }
 }
@@ -384,4 +491,3 @@ class _GoogleLogo extends StatelessWidget {
     return SvgPicture.string(_svg, width: 20, height: 20);
   }
 }
-

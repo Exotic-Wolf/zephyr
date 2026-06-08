@@ -7,6 +7,23 @@ import 'package:http_parser/http_parser.dart';
 
 import '../models/models.dart';
 
+Set<String> parseFollowingIdsResponse(dynamic data) {
+  if (data is! List<dynamic>) return <String>{};
+
+  final Set<String> ids = <String>{};
+  for (final dynamic item in data) {
+    if (item is String && item.isNotEmpty) {
+      ids.add(item);
+      continue;
+    }
+    if (item is Map<String, dynamic>) {
+      final dynamic userId = item['userId'];
+      if (userId is String && userId.isNotEmpty) ids.add(userId);
+    }
+  }
+  return ids;
+}
+
 class ZephyrApiException implements Exception {
   const ZephyrApiException({
     required this.statusCode,
@@ -393,20 +410,27 @@ class ZephyrApiClient {
         accessToken: accessToken,
       );
 
-      if (data is! List<dynamic>) {
-        return <String>{};
-      }
-
-      return data
-          .map(
-            (dynamic item) =>
-                (item as Map<String, dynamic>)['userId'] as String,
-          )
-          .toSet();
+      return parseFollowingIdsResponse(data);
     } catch (_) {
       // Endpoint not yet deployed — return empty set gracefully.
       return <String>{};
     }
+  }
+
+  Future<void> followUser(String accessToken, String userId) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/users/$userId/follow',
+      accessToken: accessToken,
+    );
+  }
+
+  Future<void> unfollowUser(String accessToken, String userId) async {
+    await _request(
+      method: 'DELETE',
+      path: '/v1/users/$userId/follow',
+      accessToken: accessToken,
+    );
   }
 
   Future<Room> createRoom(String accessToken, String title) async {

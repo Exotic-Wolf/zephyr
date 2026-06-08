@@ -122,6 +122,20 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     await this.pool.query(`
+      UPDATE users
+      SET is_host = TRUE
+      WHERE gender = 'Female'
+        AND is_host = FALSE;
+    `);
+
+    await this.pool.query(`
+      UPDATE users
+      SET is_host = FALSE
+      WHERE is_host = TRUE
+        AND COALESCE(gender, '') <> 'Female';
+    `);
+
+    await this.pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS users_public_id_idx
       ON users(public_id)
       WHERE public_id IS NOT NULL;

@@ -28,6 +28,7 @@ class ProfilePage extends StatefulWidget {
     this.myUserId,
     this.myDisplayName,
     this.myAvatarUrl,
+    this.warmRealtime = true,
   });
 
   final LiveFeedCard feedCard;
@@ -38,6 +39,7 @@ class ProfilePage extends StatefulWidget {
   final String? myUserId;
   final String? myDisplayName;
   final String? myAvatarUrl;
+  final bool warmRealtime;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -45,8 +47,10 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   bool _following = false;
+  bool _followLoading = false;
   bool _isBlocked = false;
   bool _blockLoading = false;
+  int _followerCount = 0;
 
   // Direct call state
   bool _calling = false;
@@ -84,9 +88,12 @@ class _ProfilePageState extends State<ProfilePage> {
     super.initState();
     _loadBlockStatus();
     _loadFreshCallRate();
+    _loadFollowState();
     // Warm Firebase RTDB presence and profile for this user
-    FirebaseChatService.instance.warmPresence([_card.hostUserId]);
-    FirebaseChatService.instance.warmProfiles([_card.hostUserId]);
+    if (widget.warmRealtime) {
+      FirebaseChatService.instance.warmPresence([_card.hostUserId]);
+      FirebaseChatService.instance.warmProfiles([_card.hostUserId]);
+    }
   }
 
   Future<void> _loadFreshCallRate() async {
@@ -99,9 +106,69 @@ class _ProfilePageState extends State<ProfilePage> {
           _freshCallRate = user.callRateCoinsPerMinute;
           _freshDisplayName = user.displayName;
           _freshAvatarUrl = user.avatarUrl;
+          _followerCount = user.followerCount;
         });
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadFollowState() async {
+    final api = widget.apiClient;
+    final token = widget.accessToken;
+    final me = widget.myUserId;
+    if (api == null || token == null || me == null) return;
+    if (me == _card.hostUserId) return;
+    try {
+      final followingIds = await api.getFollowingIds(token);
+      if (!mounted) return;
+      setState(() => _following = followingIds.contains(_card.hostUserId));
+    } catch (_) {}
+  }
+
+  Future<void> _toggleFollow() async {
+    final api = widget.apiClient;
+    final token = widget.accessToken;
+    if (api == null || token == null || _followLoading) return;
+
+    final bool nextFollowing = !_following;
+    final int previousCount = _followerCount;
+    setState(() {
+      _followLoading = true;
+      _following = nextFollowing;
+      _followerCount = (_followerCount + (nextFollowing ? 1 : -1)).clamp(
+        0,
+        1 << 31,
+      );
+    });
+
+    try {
+      if (nextFollowing) {
+        await api.followUser(token, _card.hostUserId);
+      } else {
+        await api.unfollowUser(token, _card.hostUserId);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _following = !nextFollowing;
+        _followerCount = previousCount;
+      });
+      _showErrorSnack('Could not update follow. Please try again.');
+    } finally {
+      if (mounted) setState(() => _followLoading = false);
+    }
+  }
+
+  String _formatCompactCount(int value) {
+    if (value >= 1000000) {
+      final compact = value / 1000000;
+      return '${compact.toStringAsFixed(compact >= 10 ? 0 : 1)}M';
+    }
+    if (value >= 1000) {
+      final compact = value / 1000;
+      return '${compact.toStringAsFixed(compact >= 10 ? 0 : 1)}K';
+    }
+    return value.toString();
   }
 
   Future<void> _loadBlockStatus() async {
@@ -272,6 +339,9 @@ class _ProfilePageState extends State<ProfilePage> {
             partnerId: _card.hostUserId,
             partnerName: _displayName,
             partnerAvatarUrl: _avatarUrl,
+            myUserId: widget.myUserId,
+            myDisplayName: widget.myDisplayName,
+            myAvatarUrl: widget.myAvatarUrl,
           ),
         ),
       );
@@ -720,7 +790,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     children: <Widget>[
                       StatCell(
                         label: AppLocalizations.of(context)!.followers,
-                        value: '2.4K',
+                        value: _formatCompactCount(_followerCount),
                       ),
                     ],
                   ),
@@ -728,13 +798,11 @@ class _ProfilePageState extends State<ProfilePage> {
                   const SizedBox(height: 24),
 
                   // ── follow button ─────────────────────────────────
-                  if (!widget.isPreview)
+                  if (!widget.isPreview && widget.myUserId != _card.hostUserId)
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: () {
-                          setState(() => _following = !_following);
-                        },
+                        onPressed: _followLoading ? null : _toggleFollow,
                         style: FilledButton.styleFrom(
                           backgroundColor: _following
                               ? (isDark
@@ -750,7 +818,9 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         child: Text(
-                          _following
+                          _followLoading
+                              ? 'Saving...'
+                              : _following
                               ? AppLocalizations.of(context)!.followingButton
                               : AppLocalizations.of(context)!.followButton,
                           style: const TextStyle(

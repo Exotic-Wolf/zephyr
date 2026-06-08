@@ -38,6 +38,8 @@ export interface UserProfile {
   isAdmin: boolean;
   isHost: boolean;
   callRateCoinsPerMinute: number | null;
+  followerCount?: number;
+  followingCount?: number;
   onboardedAt: string | null;
   createdAt: string;
 }
@@ -58,6 +60,7 @@ export interface LiveFeedCard {
   hostUserId: string;
   hostDisplayName: string;
   hostAvatarUrl: string | null;
+  hostGender: string | null;
   hostCountryCode: string;
   hostLanguage: string;
   hostStatus: string;
@@ -1090,6 +1093,7 @@ export class StoreService implements OnModuleInit {
       coverUrl: updates.coverUrl !== undefined ? updates.coverUrl : user.coverUrl,
       bio: updates.bio !== undefined ? updates.bio : user.bio,
       gender: updates.gender !== undefined ? updates.gender : user.gender,
+      isHost: updates.gender !== undefined ? updates.gender === 'Female' : user.isHost,
       birthday: updates.birthday !== undefined ? updates.birthday : user.birthday,
       countryCode: updates.countryCode !== undefined ? updates.countryCode : user.countryCode,
       language: updates.language !== undefined ? updates.language : user.language,
@@ -1210,6 +1214,7 @@ export class StoreService implements OnModuleInit {
         host_user_id: string;
         host_display_name: string;
         host_avatar_url: string | null;
+        host_gender: string | null;
         host_country_code: string | null;
         host_language: string | null;
         user_status: string;
@@ -1224,6 +1229,7 @@ export class StoreService implements OnModuleInit {
             users.id            AS host_user_id,
             users.display_name  AS host_display_name,
             users.avatar_url    AS host_avatar_url,
+            users.gender        AS host_gender,
             users.country_code  AS host_country_code,
             users.language      AS host_language,
             COALESCE(users.status, 'offline') AS user_status,
@@ -1235,6 +1241,8 @@ export class StoreService implements OnModuleInit {
           LEFT JOIN rooms
             ON rooms.host_user_id = users.id AND rooms.status = 'live'
           WHERE users.provider IS NOT NULL
+            AND users.is_host = TRUE
+            AND users.gender = 'Female'
           ORDER BY
             (rooms.id IS NOT NULL) DESC,
             rooms.audience_count DESC NULLS LAST,
@@ -1251,6 +1259,7 @@ export class StoreService implements OnModuleInit {
         hostUserId: row.host_user_id,
         hostDisplayName: row.host_display_name,
         hostAvatarUrl: row.host_avatar_url,
+        hostGender: row.host_gender,
         hostCountryCode: row.host_country_code ?? 'PH',
         hostLanguage: row.host_language ?? 'English',
         hostStatus: row.user_status,
@@ -1261,8 +1270,9 @@ export class StoreService implements OnModuleInit {
       }));
     }
 
-    // In-memory fallback: return all users with live status derived from rooms
+    // In-memory fallback: return only host users with live status derived from rooms
     return [...this.users.values()]
+      .filter((u) => u.isHost && u.gender === 'Female')
       .map((u) => {
         const room = [...this.rooms.values()].find(
           (r) => r.hostUserId === u.id && r.status === 'live',
@@ -1274,6 +1284,7 @@ export class StoreService implements OnModuleInit {
           hostUserId: u.id,
           hostDisplayName: u.displayName,
           hostAvatarUrl: u.avatarUrl ?? null,
+          hostGender: u.gender ?? null,
           hostCountryCode: u.countryCode ?? 'PH',
           hostLanguage: u.language ?? 'English',
           hostStatus: room ? 'live' : (u as any).status ?? 'offline',
@@ -1509,9 +1520,11 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                 country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
-          FROM users WHERE id = $1 LIMIT 1
+          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.cover_url, u.bio, u.gender, u.birthday,
+                 u.country_code, u.language, u.is_admin, u.is_host, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at,
+                 (SELECT COUNT(*)::int FROM user_following f WHERE f.following_id = u.id) AS follower_count,
+                 (SELECT COUNT(*)::int FROM user_following f WHERE f.follower_id = u.id) AS following_count
+          FROM users u WHERE u.id = $1 LIMIT 1
         `,
         [userId],
       );
@@ -1577,9 +1590,11 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                 country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
-          FROM users WHERE public_id = $1 LIMIT 1
+          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.cover_url, u.bio, u.gender, u.birthday,
+                 u.country_code, u.language, u.is_admin, u.is_host, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at,
+                 (SELECT COUNT(*)::int FROM user_following f WHERE f.following_id = u.id) AS follower_count,
+                 (SELECT COUNT(*)::int FROM user_following f WHERE f.follower_id = u.id) AS following_count
+          FROM users u WHERE u.public_id = $1 LIMIT 1
         `,
         [publicId],
       );
@@ -1616,11 +1631,13 @@ export class StoreService implements OnModuleInit {
         created_at: string;
       }>(
         `
-          SELECT id, public_id, display_name, avatar_url, cover_url, bio, gender, birthday,
-                 country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
-          FROM users
-          WHERE display_name ILIKE $1
-             OR public_id = $2
+          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.cover_url, u.bio, u.gender, u.birthday,
+                 u.country_code, u.language, u.is_admin, u.is_host, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at,
+                 (SELECT COUNT(*)::int FROM user_following f WHERE f.following_id = u.id) AS follower_count,
+                 (SELECT COUNT(*)::int FROM user_following f WHERE f.follower_id = u.id) AS following_count
+          FROM users u
+          WHERE u.display_name ILIKE $1
+             OR u.public_id = $2
           ORDER BY display_name
           LIMIT 30
         `,
@@ -4209,6 +4226,8 @@ export class StoreService implements OnModuleInit {
     is_admin?: boolean | null;
     is_host?: boolean | null;
     call_rate_coins_per_minute?: number | null;
+    follower_count?: number | string | null;
+    following_count?: number | string | null;
     onboarded_at?: string | Date | null;
     created_at: string;
   }): UserProfile {
@@ -4226,6 +4245,8 @@ export class StoreService implements OnModuleInit {
       isAdmin: row.is_admin ?? false,
       isHost: row.is_host ?? false,
       callRateCoinsPerMinute: row.call_rate_coins_per_minute ?? null,
+      followerCount: Number(row.follower_count ?? 0),
+      followingCount: Number(row.following_count ?? 0),
       onboardedAt: row.onboarded_at ? new Date(row.onboarded_at).toISOString() : null,
       createdAt: new Date(row.created_at).toISOString(),
     };

@@ -27,10 +27,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get connecting => 'Connecting...';
 
   @override
-  String get continueAsGuest => 'Continue as Guest';
+  String get signingIn => 'Signing in...';
 
   @override
-  String get signingIn => 'Signing in...';
+  String get signInCancelled => 'Sign-in cancelled.';
+
+  @override
+  String get signInFailedTryAgain =>
+      'We couldn\'t sign you in. Please try again.';
+
+  @override
+  String get signInNetworkError =>
+      'We couldn\'t reach Zephyr. Check your connection and try again.';
 
   @override
   String get continueWithGoogle => 'Continue with Google';
@@ -39,7 +47,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get continueWithApple => 'Continue with Apple';
 
   @override
+  String get byContinuingPrefix => 'By continuing, you agree to our ';
+
+  @override
+  String get byContinuingAnd => ' and ';
+
+  @override
+  String get termsOfService => 'Terms of Service';
+
+  @override
+  String get ageGateNotice => 'You must be 17+ to use Zephyr.';
+
+  @override
   String get home => 'Home';
+
+  @override
+  String get forYou => 'For you';
 
   @override
   String get live => 'Live';
@@ -289,10 +312,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get gender => 'Gender';
 
   @override
+  String get selectYourGender => 'Select your gender to get started';
+
+  @override
   String get male => 'Male';
 
   @override
   String get female => 'Female';
+
+  @override
+  String get yourLanguage => 'Your language';
+
+  @override
+  String get translateMessagesForYou => 'We\'ll translate messages for you';
+
+  @override
+  String get savingProfile => 'Saving profile...';
 
   @override
   String get nonBinary => 'Non-binary';

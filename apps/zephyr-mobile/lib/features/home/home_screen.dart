@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import 'package:country_picker/country_picker.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -8,15 +6,15 @@ import 'package:flutter/material.dart';
 import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
-import 'widgets/popular_feed.dart';
-import 'widgets/discover_feed.dart';
+import '../../widgets/zephyr_app_header.dart';
+import 'widgets/for_you_feed.dart';
 import 'widgets/follow_feed.dart';
 import '../me/me_tab.dart';
+import '../me/balance_page.dart';
 import '../explore/explore_page.dart';
 import '../live/go_live_countdown_page.dart';
 import '../chat/inbox_firebase_page.dart';
 import '../profile/profile_page.dart';
-import '../live/viewer_live_screen.dart';
 import '../../app_constants.dart';
 import '../call/random_call_screen.dart';
 import '../call/direct_call_screen.dart';
@@ -53,18 +51,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  final TextEditingController _roomTitleController = TextEditingController();
-  final PageController _feedController = PageController();
   UserProfile? _me;
+  WalletSummary? _wallet;
   List<LiveFeedCard> _feedCards = <LiveFeedCard>[];
   Set<String> _followingIds = <String>{};
   int _selectedTabIndex = 0;
-  int _homeTopTabIndex = 1;
-  int _activeFeedIndex = 0;
-  Country? _filterCountry;
-  String _searchQuery = '';
-  bool _searchActive = false;
-  final TextEditingController _searchCtrl = TextEditingController();
   bool? _apiReachable;
   bool _loading = true;
   final bool _creating = false;
@@ -72,7 +63,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription<RemoteMessage>? _fcmSub;
   StreamSubscription<List<dynamic>>? _convoDeliverySub;
   StreamSubscription<List<FirebaseConversation>>? _inboxBadgeSub;
-  String? _joiningRoomId;
   String? _error;
   int _inboxUnreadTotal = 0;
 
@@ -95,7 +85,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    _selectedTabIndex = widget.tabNotifier?.value ?? 0;
+    _selectedTabIndex = _normalizeRootTab(widget.tabNotifier?.value ?? 0);
     widget.tabNotifier?.addListener(_onTabNotify);
     _loadData();
     _refreshApiStatus();
@@ -105,10 +95,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _onTabNotify() {
-    final int tab = widget.tabNotifier?.value ?? 0;
+    final int tab = _normalizeRootTab(widget.tabNotifier?.value ?? 0);
     if (mounted) {
       setState(() => _selectedTabIndex = tab);
     }
+  }
+
+  int _normalizeRootTab(int index) {
+    if (index < 0 || index > 4) return 0;
+    return index;
   }
 
   void _resetIdleTimer() {
@@ -330,6 +325,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             partnerAvatarUrl: _stringFromInvite(invite, 'callerAvatarUrl'),
             mode: 'random',
             allowRandomNext: false,
+            myUserId: _me?.id,
+            myDisplayName: _me?.displayName,
+            myAvatarUrl: _me?.avatarUrl,
           ),
         ),
       );
@@ -414,6 +412,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 partnerId: callerId,
                 partnerName: partnerName,
                 partnerAvatarUrl: partnerAvatarUrl,
+                myUserId: _me?.id,
+                myDisplayName: _me?.displayName,
+                myAvatarUrl: _me?.avatarUrl,
               ),
             ),
           )
@@ -468,9 +469,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     _incomingCallSub?.cancel();
     _randomCallInviteTimer?.cancel();
-    _roomTitleController.dispose();
-    _feedController.dispose();
-    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -512,10 +510,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _me = me;
         _followingIds = followingIds;
         final incoming = <LiveFeedCard>[
-          ...feedCards.where((LiveFeedCard c) => c.hostUserId != me.id),
+          ...feedCards.where((LiveFeedCard c) => _isVisibleHostCard(c, me.id)),
         ];
         _rankFeed(incoming);
       });
+      _refreshWallet().ignore();
       // Start listening for incoming calls now that we have userId
       _listenForIncomingCalls();
       // Initialize Firebase with custom token for secure auth BEFORE warming presence
@@ -535,6 +534,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
       }
     }
+  }
+
+  Future<void> _refreshWallet() async {
+    try {
+      final WalletSummary wallet = await widget.apiClient.getWalletSummary(
+        widget.accessToken,
+      );
+      if (!mounted) return;
+      setState(() => _wallet = wallet);
+    } catch (_) {
+      // Wallet is an accessory in the root header; do not block app navigation.
+    }
+  }
+
+  Future<void> _openBalanceFromHeader() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BalancePage(
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+        ),
+      ),
+    );
+    if (mounted) await _refreshWallet();
+  }
+
+  Future<void> _openMeFromHeader() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text(AppLocalizations.of(context)!.me)),
+          body: MeTab(
+            me: _me,
+            apiClient: widget.apiClient,
+            accessToken: widget.accessToken,
+            onLogout: widget.onLogout,
+            onDeleteAccount: widget.onDeleteAccount,
+            locale: widget.locale,
+            onLocaleChanged: widget.onLocaleChanged,
+            themeMode: widget.themeMode,
+            onThemeModeChanged: widget.onThemeModeChanged,
+            onProfileUpdated: (profile) {
+              if (mounted) setState(() => _me = profile);
+            },
+          ),
+        ),
+      ),
+    );
+    if (mounted) await _refreshWallet();
   }
 
   Future<void> _initFirebaseChat(UserProfile me) async {
@@ -617,24 +665,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       if (!mounted) return;
       final incoming = <LiveFeedCard>[
-        ...feedCards.where((LiveFeedCard c) => c.hostUserId != _me?.id),
+        ...feedCards.where((LiveFeedCard c) => _isVisibleHostCard(c, _me?.id)),
       ];
-      _rankFeed(incoming, isRefresh: true);
+      _rankFeed(incoming);
       if (_selectedTabIndex == 0) setState(() {});
     } catch (_) {
       // ignore — next poll will retry
     }
   }
 
-  /// Ranks feed cards using "Frozen Past, Hot Future" strategy.
-  ///
-  /// On initial load: full sort by score (live + fresh first).
-  /// On refresh while Discover is active: cards 0..activeIndex stay in place,
-  /// hot zone (below viewport) is re-ranked with live/fresh priority.
-  /// Freshness decay: recently-live hosts rank higher to maximize random-call turnover.
-  void _rankFeed(List<LiveFeedCard> incoming, {bool isRefresh = false}) {
+  /// Ranks host cards so Following can show the most available hosts first.
+  void _rankFeed(List<LiveFeedCard> incoming) {
     final now = DateTime.now();
-    final incomingMap = {for (final c in incoming) c.hostUserId: c};
 
     double score(LiveFeedCard c) {
       final status =
@@ -667,35 +709,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return s;
     }
 
-    final bool useFreeze =
-        isRefresh && _homeTopTabIndex == 1 && _activeFeedIndex > 0;
+    _feedCards = incoming..sort((a, b) => score(b).compareTo(score(a)));
+  }
 
-    if (!useFreeze) {
-      // Full sort (initial load, or user at top, or not on Discover tab)
-      _feedCards = incoming..sort((a, b) => score(b).compareTo(score(a)));
-    } else {
-      // Frozen past: keep positions 0..activeIndex, update their data
-      final frozen = <LiveFeedCard>[];
-      for (int i = 0; i <= _activeFeedIndex && i < _feedCards.length; i++) {
-        final updated = incomingMap[_feedCards[i].hostUserId];
-        if (updated != null) {
-          frozen.add(updated);
-        }
-      }
-
-      final frozenIds = frozen.map((c) => c.hostUserId).toSet();
-
-      // Hot zone: everything not in frozen set, ranked by score
-      final hot =
-          incoming.where((c) => !frozenIds.contains(c.hostUserId)).toList()
-            ..sort((a, b) => score(b).compareTo(score(a)));
-
-      _feedCards = [...frozen, ...hot];
-    }
-
-    _activeFeedIndex = _feedCards.isEmpty
-        ? 0
-        : _activeFeedIndex.clamp(0, _feedCards.length - 1);
+  bool _isVisibleHostCard(LiveFeedCard card, String? myUserId) {
+    if (card.hostUserId == myUserId) return false;
+    final String? gender = card.hostGender?.trim().toLowerCase();
+    return gender == null || gender.isEmpty || gender == 'female';
   }
 
   Widget _buildInboxNavIcon({required bool selected, required bool isDark}) {
@@ -732,62 +752,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _enterRoomWithEngine(
-    LiveFeedCard feedCard,
-    RtcEngine engine,
-    int hostUid,
-    String channelName,
-  ) async {
-    final String? roomId = feedCard.roomId;
-    if (roomId == null) {
-      engine.leaveChannel();
-      engine.release();
-      return;
-    }
-    setState(() => _joiningRoomId = roomId);
-    int updatedCount = feedCard.audienceCount;
-    bool didJoin = false;
-    try {
-      final Room joined = await widget.apiClient.joinRoom(
-        widget.accessToken,
-        roomId,
-      );
-      updatedCount = joined.audienceCount;
-      didJoin = true;
-    } catch (_) {}
-    if (!mounted) {
-      engine.leaveChannel();
-      engine.release();
-      return;
-    }
-    setState(() => _joiningRoomId = null);
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ViewerLiveScreen(
-          feedCard: feedCard,
-          apiClient: widget.apiClient,
-          accessToken: widget.accessToken,
-          myUserId: _me?.id ?? '',
-          myDisplayName: _me?.displayName ?? 'User',
-          onLeave: () {},
-          initialViewerCount: updatedCount,
-          didJoin: didJoin,
-          existingEngine: engine,
-          existingHostUid: hostUid,
-          existingChannelName: channelName,
-        ),
-      ),
-    );
-    await _loadData();
-  }
-
-  void _openCallTabForHost(String hostUserId) {
-    setState(() {
-      _selectedTabIndex = 2;
-    });
-  }
-
   Future<void> _startRandomMatchFromHome() async {
     final String? userId = _me?.id;
     if (userId == null) return;
@@ -804,35 +768,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildHomeTopTab({required String label, required int index}) {
-    final bool selected = _homeTopTabIndex == index;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () {
-        setState(() {
-          _homeTopTabIndex = index;
-        });
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected
-                ? Theme.of(context).colorScheme.onSurface
-                : Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.45),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _openProfilePage(LiveFeedCard feedCard) {
-    Navigator.of(context).push(
+  Future<void> _openProfilePage(LiveFeedCard feedCard) async {
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ProfilePage(
           feedCard: feedCard,
@@ -843,114 +780,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           myAvatarUrl: _me?.avatarUrl,
           onMessage: () {
             Navigator.of(context).pop();
-            setState(() => _selectedTabIndex = 3);
+            setState(() => _selectedTabIndex = 4);
           },
         ),
       ),
     );
+    if (mounted) await _loadData();
   }
 
-  List<LiveFeedCard> get _visibleCards {
-    List<LiveFeedCard> cards = _filterCountry == null
-        ? _feedCards
-        : _feedCards
-              .where(
-                (LiveFeedCard c) =>
-                    c.hostCountryCode.toUpperCase() ==
-                    _filterCountry!.countryCode.toUpperCase(),
-              )
-              .toList();
-    if (_searchQuery.isNotEmpty) {
-      final String q = _searchQuery.toLowerCase();
-      cards = cards.where((LiveFeedCard c) {
-        if (c.hostDisplayName.toLowerCase().contains(q)) return true;
-        final String pid = UserProfile.derivePublicId(c.hostUserId);
-        return pid.contains(q);
-      }).toList();
+  Widget _buildForYouTab() {
+    if (_error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Text(_error!, style: const TextStyle(color: Colors.red)),
+      );
     }
-    return cards;
-  }
-
-  Widget _buildPopularTab(bool isTablet) {
-    final List<LiveFeedCard> cards = _visibleCards;
-    return PopularFeed(
-      cards: cards,
-      allCardsEmpty: _feedCards.isEmpty,
-      searchQuery: _searchQuery,
-      filterCountryName: _filterCountry?.name,
-      isTablet: isTablet,
+    return ForYouFeed(
+      cards: _feedCards,
+      isTablet: MediaQuery.sizeOf(context).width >= tabletBreakpoint,
       onCardTap: _openProfilePage,
-      onCallTap: (card) => _openCallTabForHost(card.hostUserId),
-      onRandomMatch: _startRandomMatchFromHome,
     );
   }
 
   Widget _buildFollowTab(bool isTablet) {
-    final List<LiveFeedCard> cards = _visibleCards;
     return FollowFeed(
-      cards: cards,
+      cards: _feedCards,
       followingIds: _followingIds,
-      filterCountryName: _filterCountry?.name,
+      filterCountryName: null,
       isTablet: isTablet,
       onCardTap: _openProfilePage,
-      onCallTap: (card) => _openCallTabForHost(card.hostUserId),
       onRandomMatch: _startRandomMatchFromHome,
-    );
-  }
-
-  Widget _buildDiscoverTab(bool isTablet) {
-    final List<LiveFeedCard> cards = _visibleCards;
-    return DiscoverFeed(
-      cards: cards,
-      allCardsEmpty: _feedCards.isEmpty,
-      searchQuery: _searchQuery,
-      filterCountryName: _filterCountry?.name,
-      isTablet: isTablet,
-      pageController: _feedController,
-      activeIndex: _activeFeedIndex,
-      onPageChanged: (int index) {
-        setState(() {
-          _activeFeedIndex = index;
-        });
-      },
-      onLivePreviewTap: _enterRoomWithEngine,
-      onCallTap: (card) => _openCallTabForHost(card.hostUserId),
-      onRandomMatch: _startRandomMatchFromHome,
-      joiningRoomId: _joiningRoomId,
-    );
-  }
-
-  Widget _buildHomeTab(bool isTablet) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: maxContentWidth),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            isTablet ? 24 : 16,
-            isTablet ? 16 : 8,
-            isTablet ? 24 : 16,
-            isTablet ? 24 : 16,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              if (_error != null) ...<Widget>[
-                const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: Colors.red)),
-              ],
-              const SizedBox(height: 4),
-              Expanded(
-                child: switch (_homeTopTabIndex) {
-                  0 => _buildPopularTab(isTablet),
-                  1 => _buildDiscoverTab(isTablet),
-                  2 => _buildFollowTab(isTablet),
-                  _ => const SizedBox.shrink(),
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+      showRandomMatch: _me?.isHost == false,
     );
   }
 
@@ -1102,6 +962,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  PreferredSizeWidget _buildRootAppBar(BuildContext context, bool isDark) {
+    final Color surfaceColor = _selectedTabIndex == 2
+        ? (isDark
+              ? const Color(0xFF0D0A08)
+              : Theme.of(context).colorScheme.surface)
+        : (isDark
+              ? const Color(0xFF151018)
+              : Theme.of(context).colorScheme.surface);
+
+    return AppBar(
+      automaticallyImplyLeading: false,
+      toolbarHeight: 58,
+      titleSpacing: 16,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      backgroundColor: surfaceColor,
+      foregroundColor: isDark ? Colors.white : Colors.black87,
+      title: ZephyrAppHeader(
+        me: _me,
+        wallet: _wallet,
+        apiReachable: _apiReachable,
+        onAvatarTap: _openMeFromHeader,
+        onRechargeTap: _me?.isHost == true ? null : _openBalanceFromHeader,
+      ),
+      actions: const <Widget>[SizedBox(width: 12)],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isTablet = MediaQuery.sizeOf(context).width >= tabletBreakpoint;
@@ -1110,33 +998,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final Widget bodyContent = _loading
         ? const Center(child: CircularProgressIndicator())
         : switch (_selectedTabIndex) {
-            0 => _buildHomeTab(isTablet),
-            1 => _buildLiveRoomsTab(isTablet),
-            2 => ExplorePage(
+            0 => _buildForYouTab(),
+            1 => _buildFollowTab(isTablet),
+            2 => _buildLiveRoomsTab(isTablet),
+            3 => ExplorePage(
               apiClient: widget.apiClient,
               accessToken: widget.accessToken,
               myUserId: _me?.id ?? '',
               myDisplayName: _me?.displayName ?? 'User',
               myAvatarUrl: _me?.avatarUrl,
             ),
-            3 => InboxFirebasePage(
+            4 => InboxFirebasePage(
               myUserId: _me?.id ?? '',
               myDisplayName: _me?.displayName ?? 'User',
               myAvatarUrl: _me?.avatarUrl,
-            ),
-            4 => MeTab(
-              me: _me,
-              apiClient: widget.apiClient,
-              accessToken: widget.accessToken,
-              onLogout: widget.onLogout,
-              onDeleteAccount: widget.onDeleteAccount,
-              locale: widget.locale,
-              onLocaleChanged: widget.onLocaleChanged,
-              themeMode: widget.themeMode,
-              onThemeModeChanged: widget.onThemeModeChanged,
-              onProfileUpdated: (profile) {
-                setState(() => _me = profile);
-              },
             ),
             _ => const SizedBox.shrink(),
           };
@@ -1151,151 +1026,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: Stack(
           children: <Widget>[
             Scaffold(
-              backgroundColor: _selectedTabIndex == 1
+              backgroundColor: _selectedTabIndex == 2
                   ? (isDark ? const Color(0xFF0D0A08) : null)
                   : null,
-              appBar: AppBar(
-                backgroundColor: _selectedTabIndex == 1
-                    ? (isDark ? const Color(0xFF0D0A08) : null)
-                    : null,
-                foregroundColor: _selectedTabIndex == 1
-                    ? (isDark ? Colors.white : Colors.black87)
-                    : null,
-                centerTitle: _selectedTabIndex == 0 ? false : null,
-                title: _selectedTabIndex == 0
-                    ? (_searchActive
-                          ? TextField(
-                              controller: _searchCtrl,
-                              autofocus: true,
-                              onChanged: (v) =>
-                                  setState(() => _searchQuery = v),
-                              decoration: InputDecoration(
-                                hintText: 'Name or ID…',
-                                border: InputBorder.none,
-                                isDense: true,
-                              ),
-                            )
-                          : SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: <Widget>[
-                                  _buildHomeTopTab(
-                                    label: l10n.popular,
-                                    index: 0,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  _buildHomeTopTab(
-                                    label: l10n.discover,
-                                    index: 1,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  _buildHomeTopTab(
-                                    label: l10n.follow,
-                                    index: 2,
-                                  ),
-                                ],
-                              ),
-                            ))
-                    : null,
-                actions: <Widget>[
-                  if (_selectedTabIndex == 0) ...<Widget>[
-                    IconButton(
-                      tooltip: _searchActive ? l10n.closeSearch : l10n.search,
-                      visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints(
-                        minWidth: 36,
-                        minHeight: 36,
-                      ),
-                      iconSize: 20,
-                      onPressed: () => setState(() {
-                        _searchActive = !_searchActive;
-                        if (!_searchActive) {
-                          _searchCtrl.clear();
-                          _searchQuery = '';
-                        }
-                      }),
-                      icon: Icon(
-                        _searchActive
-                            ? Icons.close_rounded
-                            : Icons.search_rounded,
-                      ),
-                    ),
-                    if (_filterCountry != null) ...<Widget>[
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8, right: 4),
-                        child: SizedBox(
-                          width: 34,
-                          height: 34,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: <Widget>[
-                              GestureDetector(
-                                onTap: () => showCountryPicker(
-                                  context: context,
-                                  showPhoneCode: false,
-                                  onSelect: (Country c) =>
-                                      setState(() => _filterCountry = c),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    _filterCountry!.flagEmoji,
-                                    style: const TextStyle(fontSize: 22),
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                top: 0,
-                                right: 0,
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () =>
-                                      setState(() => _filterCountry = null),
-                                  child: Container(
-                                    width: 14,
-                                    height: 14,
-                                    decoration: const BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Color(0xFF1FA4EA),
-                                    ),
-                                    child: const Icon(
-                                      Icons.close_rounded,
-                                      size: 10,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ] else
-                      GestureDetector(
-                        onTap: () => showCountryPicker(
-                          context: context,
-                          showPhoneCode: false,
-                          onSelect: (Country c) =>
-                              setState(() => _filterCountry = c),
-                        ),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Icon(Icons.language_rounded, size: 22),
-                        ),
-                      ),
-                    IconButton(
-                      tooltip: 'Trophy',
-                      visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints(
-                        minWidth: 36,
-                        minHeight: 36,
-                      ),
-                      iconSize: 20,
-                      onPressed: () {},
-                      icon: const Icon(Icons.emoji_events_outlined),
-                    ),
-                  ],
-                ],
-              ),
+              appBar: _buildRootAppBar(context, isDark),
               body: bodyContent,
               bottomNavigationBar: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1306,7 +1040,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     color: Color(0xFF2A2A2A),
                   ),
                   NavigationBar(
-                    selectedIndex: _selectedTabIndex,
+                    selectedIndex: _normalizeRootTab(_selectedTabIndex),
                     backgroundColor: isDark ? const Color(0xFF111111) : null,
                     indicatorColor: const Color(
                       0xFFFF8F00,
@@ -1324,19 +1058,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       );
                     }),
                     onDestinationSelected: (int index) {
-                      setState(() => _selectedTabIndex = index);
+                      setState(
+                        () => _selectedTabIndex = _normalizeRootTab(index),
+                      );
                     },
                     destinations: <NavigationDestination>[
                       NavigationDestination(
                         icon: Icon(
-                          Icons.home_rounded,
+                          Icons.auto_awesome_rounded,
                           color: isDark ? const Color(0xFF6B6B6B) : null,
                         ),
                         selectedIcon: const Icon(
-                          Icons.home_rounded,
+                          Icons.auto_awesome_rounded,
                           color: Color(0xFFFF8F00),
                         ),
-                        label: l10n.home,
+                        label: l10n.forYou,
+                      ),
+                      NavigationDestination(
+                        icon: Icon(
+                          Icons.favorite_border_rounded,
+                          color: isDark ? const Color(0xFF6B6B6B) : null,
+                        ),
+                        selectedIcon: const Icon(
+                          Icons.favorite_rounded,
+                          color: Color(0xFFFF8F00),
+                        ),
+                        label: l10n.followingButton,
                       ),
                       NavigationDestination(
                         icon: Icon(
@@ -1370,21 +1117,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           isDark: isDark,
                         ),
                         label: l10n.inbox,
-                      ),
-                      NavigationDestination(
-                        icon: Icon(
-                          Icons.person_rounded,
-                          color: _apiReachable == true
-                              ? Colors.green.shade700
-                              : (isDark ? const Color(0xFF6B6B6B) : null),
-                        ),
-                        selectedIcon: Icon(
-                          Icons.person_rounded,
-                          color: _apiReachable == true
-                              ? Colors.green.shade700
-                              : const Color(0xFFFF8F00),
-                        ),
-                        label: l10n.me,
                       ),
                     ],
                   ),

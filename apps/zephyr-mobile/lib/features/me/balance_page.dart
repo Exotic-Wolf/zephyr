@@ -8,6 +8,7 @@ import '../../models/models.dart';
 import '../../services/api_client.dart';
 import '../../services/iap_service.dart';
 import '../../widgets/coin_icon.dart';
+import '../../widgets/spark_icon.dart';
 
 class BalancePage extends StatefulWidget {
   const BalancePage({
@@ -25,6 +26,7 @@ class BalancePage extends StatefulWidget {
 
 class _BalancePageState extends State<BalancePage> {
   int _coinBalance = 0;
+  int _sparkBalance = 0;
   List<CoinPack> _coinPacks = <CoinPack>[];
   List<WalletTransaction> _transactions = <WalletTransaction>[];
   bool _loading = true;
@@ -77,6 +79,7 @@ class _BalancePageState extends State<BalancePage> {
           results[2] as List<WalletTransaction>;
       setState(() {
         _coinBalance = wallet.coinBalance;
+        _sparkBalance = wallet.sparkBalance;
         _coinPacks = packs;
         _transactions = txns;
         _loading = false;
@@ -115,6 +118,7 @@ class _BalancePageState extends State<BalancePage> {
           if (!mounted) return;
           setState(() {
             _coinBalance = wallet.coinBalance;
+            _sparkBalance = wallet.sparkBalance;
           });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -232,6 +236,22 @@ class _BalancePageState extends State<BalancePage> {
                                 color: Colors.white,
                                 fontSize: 32,
                                 fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            const SparkIcon(size: 17),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Sparks ${_formatNumber(_sparkBalance)}',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],

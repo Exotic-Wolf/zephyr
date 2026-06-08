@@ -1,6 +1,6 @@
 # Zephyr — Product & Technical Reference
 
-> This file is the single source of truth for product decisions, pricing, architecture, and development context. Read this first before touching any code or starting a new session.
+> This file is the living source of truth for product decisions, pricing, architecture, and development context. Read this first before touching any code or starting a new session. The app evolves; the latest dated snapshot and TODOs supersede older direction.
 
 ---
 
@@ -11,20 +11,36 @@
 - **Stack choice:** Flutter is intentional because one product-quality codebase can serve iOS and Android while keeping interaction, animation, and realtime behavior consistent.
 - **Target market:** Arab Gulf users calling Philippines/Asia hosts.
 - **Core revenue:** coin-based gifts + direct/random video calls + live streaming.
-- **Original bonus idea:** premium live / premium room flow where hosts can start premium directly or upgrade free live into a paid-per-minute room.
+- **Expansion path:** premium live / premium room flow where hosts can start premium directly or upgrade free live into a paid-per-minute room.
 - **Execution style:** build robust reusable cells first, then compose flawless modules and product organs.
 
 ---
 
 ## Operating Rule
 
-Every meaningful work slice must update this file before commit/push:
+Every meaningful work slice must update this file before commit/push when it changes product truth, architecture truth, launch state, or next-work priority:
 
 - Update **Current TODO Tracker** with what changed, what is next, and what is blocked.
+- Update **Current Solution Snapshot** when the overall state, grade, blockers, or launch direction changes.
 - Update **Audit Log** when a feature/module quality grade changes.
 - Remove or rewrite stale product claims as soon as implementation makes them outdated.
 - Preserve one source of truth per domain; do not add parallel truth systems for convenience.
 - Keep iPhone user experience as the primary polish bar, while preserving Flutter Android parity.
+- Keep `.github/copilot-instructions.md` aligned with this file when engineering rules, architecture ownership, or hard constraints change.
+
+### Direction Supersession Rule
+
+Zephyr is moving fast. Treat this document as a dated decision log, not a permanent spec.
+
+Priority order when sections disagree:
+
+1. **Current Solution Snapshot** and **Immediate next work** describe where the product is today.
+2. **Current TODO Tracker** describes committed next action and blockers.
+3. **Architecture Direction** and **Canonical Realtime Availability Model** describe the current engineering baseline.
+4. **Audit Log** records history. Later-dated audit entries supersede older entries.
+5. Older launch checklists and historical audit rows are useful context only when they still match current code.
+
+When the app direction changes, do not patch around stale wording. Replace it, date it, and say what it supersedes.
 
 ---
 
@@ -64,11 +80,18 @@ Every meaningful work slice must update this file before commit/push:
 | P0 | Done | Codex | Move live audience ownership to per-viewer RTDB cells | Viewers now own only `live_rooms/{roomId}/audience/{userId}`; shared `audience_count` is no longer client-writable |
 | P0 | Done | Codex | Move live-room gift display fan-out behind backend/Admin SDK | Client gift UI now waits for backend economy success; backend writes trusted RTDB gift events and clients cannot forge them |
 | P0 | Done | Codex | Wire realtime and backend ledger gates into CI/default checks | Root `pnpm check` runs RTDB + Firestore + Storage rules, backend test/build, and GitHub Actions runs RTDB/Firestore/Storage rules, backend tests, DB race tests, and backend build |
-| P0 | Audit finding | Codex | Replace stale Flutter widget test harness | `flutter test` currently pumps Firebase-backed `MyApp` without Firebase init and still expects removed guest onboarding copy |
-| P1 | Audit finding | Codex | Wire follow/profile/feed host model end-to-end | Profile follow is local-only, following list parsing is wrong, and live feed should filter canonical host accounts |
+| P0 | Done | Codex | Replace stale Flutter widget test harness | Widget tests now cover current OAuth/legal surface, no guest copy, cancellation copy, profile setup ordering, following-response parsing, Follow empty state, and call safety/post-call reporting; `flutter test` passed 6/6 on 7 Jun 2026 |
+| P1 | Done | Codex | Wire follow/profile/feed host model end-to-end | Mobile now accepts the deployed following-ID response shape, ProfilePage follow/unfollow calls backend endpoints, follower counts come from Postgres profile responses, Following has an empty state, and feed cards open host/profile discovery instead of starting immediate direct calls |
+| P1 | Done | Codex | Add lightweight host card cover fallback | Added six optimized local 540x960 cover assets (jazz, beach, club, rooftop, cafe, music), deterministic user-id preference with visible-grid de-duplication, and card scrims so feed cards feel alive without network, storage, or fake-person defaults |
+| P1 | Done | Codex | Filter customer/boy accounts out of host feed | Backend `/v1/feed/live` now returns only `is_host = true` + `gender = Female` users; database startup backfills Female accounts into host status and removes legacy host status from non-female rows; in-memory fallback matches production behavior; unit coverage proves a customer live room does not enter the host feed |
+| P1 | Done | Codex | Move Me entry into app header | Root shell now has a reusable Zephyr header with avatar/profile access plus customer coin/recharge or host spark balance; Me is no longer a footer destination |
+| P1 | Done | Codex | Move Follow out of Home into footer Following tab | Followed hosts live in the second footer destination, Following, matching the cleaner Tango-style information architecture |
+| P1 | Done | Codex | Replace old Home shell with For you card grid | Extreme-left footer tab is now For you with the shared Zephyr header and a dense Tango-style 2x2 host card grid using thin gutters and barely-rounded cards |
+| P1 | Done | Codex | Upgrade Me/profile/wallet/settings entrance | Me now shows live wallet overview metrics, sparks, revenue, and call price; profile avatar/cover updates preserve full returned profile state; Account/Privacy/Notifications settings rows open real subpages; Level/Revenue/Wallet show spark context; widget coverage guards the new entrance |
 | P1 | Done | Codex | Unify block/report ownership | Thread chat and profile moderation now use backend `user_blocks`/`user_reports`; Firestore keeps only backend-written block projections for rules enforcement |
-| P1 | Audit finding | Codex | Refresh stale contracts and instructions | OpenAPI and Copilot instructions still describe old guest/status behavior and do not match the current canonical availability architecture |
-| P1 | Planned | Codex | Build reusable Gift module | One gift catalog/economy surface should plug into inbox, direct call, random call, premium live, and normal live without duplicating payment logic |
+| P1 | Audit finding | Codex | Refresh stale non-Markdown contracts/test helpers/source comments | Markdown docs now carry the living-direction protocol; OpenAPI, smoke/e2e helpers, and a few source comments still describe old guest/socket behavior |
+| P1 | Done | Codex | Add in-call report entry point | DirectCallScreen now exposes an accessible report action, direct calls exit to a post-call screen with Message/Report/Done actions, and widget coverage proves the safety/report path |
+| P1 | Planned | Codex | Expand reusable Gift module beyond live | Live-room gifts now use backend-confirmed fan-out; inbox, direct call, random call, and premium live still need the shared gift surface |
 | P1 | Planned | Codex | Implement premium live lifecycle | Free live -> premium, start premium directly, paid entry, per-minute billing, lock screen, cleanup |
 | P1 | Planned | Codex | Add `PremiumLiveRealtime` module once lifecycle exists | Keeps premium live non-interruptible and owned by a dedicated realtime module |
 | P1 | Done | Codex | Replace live audience counter with per-viewer presence/count derivation | Prevents inaccurate counts from duplicate joins/disconnect edge cases |
@@ -79,12 +102,33 @@ Immediate next work:
 1. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
 2. Upload and smoke the inbox-hardened Android AAB `1.0.7+8`: login, inbox, send text, send image, receipts, block, report, logout/offline.
 3. Wait for Google Play merchant/bank verification, create/publish `pack_299`, then smoke one internal-test purchase/refund.
-4. Replace stale Flutter widget tests with Firebase-mocked or dependency-injected tests that match current onboarding.
-5. Retest direct call with two online accounts after the deployed presence-sync trigger.
-6. Implement the reusable Gift module, then wire inbox gifts first and reuse it for call/random call/live/premium live.
-7. Implement premium live lifecycle, paid entry, lock screen, metered billing, and `PremiumLiveRealtime`.
-8. Wire follow/profile/feed host model end-to-end.
-9. Refresh OpenAPI, Copilot instructions, and stale docs so they match canonical availability.
+4. Refresh stale non-Markdown contracts/test helpers/source comments: OpenAPI guest-login, smoke/e2e guest helpers, socket/LiveKit comments.
+5. Retest direct call with two online accounts after the deployed presence-sync trigger, including in-call report and post-call Message/Report/Done behavior.
+6. Manual smoke the Following + Me entrances: follow/unfollow/count adjustment, empty Following state, feed card opens the selected host/profile, Me dashboard metrics load, Settings subpages open, and profile avatar/cover edits return cleanly.
+7. Expand the reusable Gift module beyond live, then wire inbox gifts first and reuse it for call/random call/premium live.
+8. Implement premium live lifecycle, paid entry, lock screen, metered billing, and `PremiumLiveRealtime`.
+
+---
+
+## Current Solution Snapshot (7 Jun 2026)
+
+This is the current working truth after re-auditing `PRODUCT.md`, `.github/copilot-instructions.md`, and the repository implementation.
+
+| Area | Current state |
+|---|---|
+| Overall solution grade | B+ today. The architecture and core safety rails are strong; the remaining gap is product completion, manual smoke sign-off, and stale non-Markdown artifacts. |
+| Verified checks | `pnpm check` passed earlier on 7 Jun; `pnpm --filter zephyr-api test:db:race` passed 3/3 against local Postgres; current mobile-entrance pass: `flutter test` passed 10/10, `flutter analyze` passed, `pnpm --filter zephyr-api test` passed, and `pnpm --filter zephyr-api build` passed. |
+| Known failing check | None recorded in the current local checks. Remaining gates are manual smoke/store checks and stale non-Markdown contract/helper cleanup. |
+| Realtime architecture | A+. Canonical RTDB presence, RTDB rules, module ownership, backend projection, per-viewer live audience, and backend-trusted live gift fan-out are in place and covered by emulator tests. |
+| Messaging/inbox | A+ core and media. Firestore/Storage rules, transactional sends, backend-verified push, block/report ownership, image upload rules, and Android AAB `1.0.7+8` are ready for manual smoke. |
+| Backend economy | A+. Call ticks, direct/random call gifts, live gifts, IAP credit/refund, and race/idempotency paths are transaction-safe and tested. |
+| IAP | A pending store sign-off. Code/backend/env are hardened, but Google Play merchant/bank verification and real internal-test purchase/refund smoke remain blocked. |
+| Calls | Direct and random call flows are implemented, with in-call report entry and post-call Message/Report/Done safety flow now wired and widget-tested. Home keeps the floating Random match CTA for customer accounts only; host/girl accounts receive random-call invite ribbons instead. Both call flows still need two-account manual smoke. |
+| Follow/feed | Mostly wired. Backend follow endpoints, footer Following tab, empty state, deployed following-ID parsing, female host-only feed filtering, feed-card profile/preview entry, ProfilePage follow/count persistence, customer-only Random match CTA, and local deterministic card-cover fallbacks with no duplicate cover in the visible 2x2 group are in place; curated suggestions, future timed preview/phantom call CTA, and manual entrance smoke remain. |
+| Me/profile/wallet/settings | A-level entrance. Me dashboard now surfaces coins, sparks, revenue, and call price; profile avatar/cover uploads return full profile state; wallet/level/revenue pages show spark context; Account/Privacy/Notifications settings rows are no longer dead. A+ still needs manual smoke, deeper revenue/payout detail, persisted notification controls, and localization of the new English settings copy. |
+| Gifts | Live gift sending now goes backend -> Postgres ledger -> Admin RTDB fan-out. Shared gift module still needs expansion to inbox, direct/random calls, and premium live. |
+| Premium live | Documented, not implemented. Paid entry, lock screen, per-minute premium billing, and `PremiumLiveRealtime` remain future work. |
+| Documentation status | `PRODUCT.md` and Copilot instructions now reflect the current architecture. Non-Markdown OpenAPI/smoke/e2e helpers and a few source comments still need cleanup. |
 
 ---
 
@@ -248,8 +292,8 @@ BASE_URL=https://your-api-domain.com node scripts/smoke.mjs
 | `core/store.service.ts` | All DB logic — messages, rooms, economy, wallets |
 | `core/database.service.ts` | Schema init, migrations, periodic cleanup |
 | `core/rtc.service.ts` | Agora token generation |
-| `core/fcm.service.ts` | Firebase Admin — push notifications + RTDB writes (call signaling, match signals) |
-| `auth/auth.controller.ts` | `GET /v1/auth/firebase-token` — custom Firebase token for client auth |
+| `core/fcm.service.ts` | Firebase Admin — push notifications + RTDB writes for backend-owned call, match, and live gift fan-out |
+| `auth/auth.controller.ts` | `POST /v1/auth/google-login`, `/apple-login`, `/firebase-token` — OAuth sessions and custom Firebase token for client auth |
 | `messages/messages.controller.ts` | `POST /v1/messages/push` — FCM push relay, device tokens, delivery/read receipts |
 | `rooms/rooms.controller.ts` | Live room management — create/join/leave/end/gift/rtc-token |
 | `economy/economy.controller.ts` | All economy endpoints |
@@ -272,35 +316,71 @@ Key columns:
 ## API Endpoints
 
 ```
-GET  /v1/health/live, /v1/health/ready
-POST /v1/auth/google-login, /apple-login
+GET  /v1/health/live
+GET  /v1/health/ready
+POST /v1/auth/google-login
+POST /v1/auth/apple-login
+POST /v1/auth/firebase-token
 GET  /v1/users/me
 PATCH /v1/users/me
+DELETE /v1/users/me
+POST /v1/users/me/avatar
+POST /v1/users/me/cover
+GET  /v1/users/me/following
+GET  /v1/users/search
 GET  /v1/users/by-public-id/:publicId
+POST /v1/users/batch
 GET  /v1/users/:userId
 POST /v1/users/:userId/follow
 DELETE /v1/users/:userId/follow
 POST /v1/users/:userId/block
 DELETE /v1/users/:userId/block
 GET  /v1/users/:userId/block
+POST /v1/users/:userId/report
 GET  /v1/rooms
 POST /v1/rooms
 POST /v1/rooms/:roomId/join
+POST /v1/rooms/:roomId/leave
+GET  /v1/rooms/:roomId/viewers
 POST /v1/rooms/:roomId/heartbeat
 DELETE /v1/rooms/:roomId
+POST /v1/rooms/:roomId/rtc-token
+POST /v1/rooms/:roomId/gift
 GET  /v1/feed/live
-GET  /v1/economy/config, /coin-packs, /wallet
+GET  /v1/economy/config
+GET  /v1/economy/call-rate-tiers
+GET  /v1/economy/coin-packs
+GET  /v1/economy/wallet
 POST /v1/economy/purchase-coins
+POST /v1/economy/verify-purchase
+GET  /v1/economy/private-call/quote
 GET  /v1/economy/gifts/catalog
-POST /v1/economy/calls/start, /tick, /end, /rtc-token
+POST /v1/economy/gifts/send
+GET  /v1/economy/calls
+GET  /v1/economy/transactions
+POST /v1/economy/calls/start
+POST /v1/economy/calls/:sessionId/tick
+POST /v1/economy/calls/:sessionId/end
+POST /v1/economy/calls/:sessionId/rtc-token
+POST /v1/economy/calls/:sessionId/report
+POST /v1/calls/random/seek
+POST /v1/calls/random/next
+POST /v1/calls/random/end
+DELETE /v1/calls/random/seek
+POST /v1/webhooks/apple
+POST /v1/webhooks/google
+POST /v1/messages/device-token
+POST /v1/messages/push
+DELETE /v1/messages/device-token
 POST /v1/messages
 GET  /v1/messages/conversations
 GET  /v1/messages/conversations/:userId
+PATCH /v1/messages/:messageId/delivered
 PATCH /v1/messages/:messageId/read
 ```
 
 Firebase Chat:
-- Backend: `GET /v1/auth/firebase-token` → custom token for Firebase Auth
+- Backend: `POST /v1/auth/firebase-token` -> custom token for Firebase Auth
 - Firestore: messages + conversations (real-time listeners)
 - RTDB: canonical presence (connection/activity/routing/display status with onDisconnect)
 - Storage: image uploads (5MB limit, format validation)
@@ -326,7 +406,9 @@ Firebase Chat:
 
 ---
 
-## Architecture Decisions (Locked)
+## Architecture Direction (Current Baseline)
+
+These are current architectural defaults, not eternal constraints. They stay in force until a later dated audit or implementation pass deliberately replaces them and updates this section plus `.github/copilot-instructions.md`.
 
 - **Firebase Chat** — Firestore for messages/conversations, RTDB for real-time presence (onDisconnect), Storage for image uploads. Backend generates custom Firebase tokens.
 - **Firebase RTDB is the single source of truth for real-time availability** — `presence/{userId}` is not a single overloaded status string. It is the canonical availability cell for connection, activity, routing eligibility, display status, and call/live context. RTDB's `onDisconnect` guarantees cleanup even on app kill/crash. All clients listen to RTDB for user availability before initiating calls, routing random calls, or showing status badges.
@@ -336,7 +418,7 @@ Firebase Chat:
   - `reapStalePresence`: Scheduled every 5 min → scans all presence nodes, resets stale entries (>5min) to the canonical offline payload, ends orphaned live rooms
   - Internal endpoints: `POST /v1/internal/end-call-session`, `POST /v1/internal/end-room` (validated via `X-Service-Key` header)
 - **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
-- **Zero Socket.IO** — All real-time is Firebase RTDB. Live room comments/reactions/audience state use RTDB; trusted room status and gift events must be backend-confirmed before fan-out. Random call matchmaking uses REST + RTDB signals. No WebSocket libraries exist in the codebase.
+- **Zero app-owned Socket.IO runtime** — All real-time product flows use Firebase RTDB, Firestore listeners, FCM, or REST. Live room comments/reactions/audience state use RTDB; trusted room status and gift events must be backend-confirmed before fan-out. Random call matchmaking uses REST + RTDB signals. There are no direct Socket.IO/WebSocket dependencies or app-owned socket paths; lockfile cleanup may still show transitive Nest websocket artifacts.
 - **FCM/APNs** — push notifications for chat messages (backend relays via `POST /v1/messages/push`)
 - **Firebase is truth** — Firestore is source of truth for messages/conversations. RTDB is source of truth for realtime availability, call/live signaling, visible live events, and user identity (`profiles/{userId}` — displayName, avatarUrl, countryCode, language, birthday). Backend validates economy and issues tokens.
 
@@ -344,7 +426,7 @@ Firebase Chat:
 
 ## Canonical Realtime Availability Model
 
-This section is product law for the realtime cell. The goal is not just "show a badge"; the goal is to make inbox, direct call, random call, live, Agora, and backend matchmaking read the same authoritative availability truth.
+This section is the current contract for the realtime cell. The goal is not just "show a badge"; the goal is to make inbox, direct call, random call, live, Agora, and backend matchmaking read the same authoritative availability truth.
 
 ### Source-of-truth boundaries
 
@@ -499,18 +581,18 @@ Product law:
 | Viewer screen (Agora) | ✅ Done | 80% |
 | Direct messages (Firebase Chat) | ✅ Done | 95% |
 | Explore / Search | ✅ Done | 85% |
-| My Profile | ✅ Done | 75% |
+| My Profile | ✅ Done | 92% |
 | Persistent login | ✅ Done | 100% |
 | Economy backend (coins, sparks, calls, gifts) | ✅ Built | 80% |
 | Random video calls (Agora) | ✅ Done | 90% |
 | Block system | ✅ Done | 100% |
 | Push notifications (FCM) | ✅ Done (Android + iOS) | 90% |
 | Report system (chat) | ✅ Done | 100% |
-| Follow/unfollow UI | ❌ Partial | 20% |
-| Wallet / coins UI | ⚠️ Partial | 55% |
-| Gifts during live | ❌ Not started | 0% |
-| Report system (calls) | ❌ Not started | 0% |
-| Direct call (signaling + video) | ✅ Done | 95% |
+| Follow/unfollow UI | ✅ Backend-backed, needs smoke | 85% |
+| Wallet / coins UI | ✅ Built, needs store smoke | 85% |
+| Gifts during live | ✅ Live path built | 70% |
+| Report system (calls) | ✅ UI + backend path wired, needs smoke | 90% |
+| Direct call (signaling + video) | ✅ Done | 96% |
 | Cloud Functions (call + live + reaper) | ✅ Done | 100% |
 | App icon + splash | ✅ Done | 100% |
 | Onboarding flow | ✅ Done | 100% |
@@ -522,9 +604,11 @@ Product law:
 | Blocker | Solution |
 |---|---|
 | ~~Agora env vars not on Render~~ | ✅ Done — `AGORA_APP_ID` + `AGORA_APP_CERTIFICATE` confirmed in Render dashboard |
-| Mock cards in feed | Remove `[Mock]` cards before production |
+| ~~Mock cards in feed~~ | ✅ Done — feed uses backend/live/profile data; follow/feed polish remains separate |
 | Render API sleeps | Upgrade to Standard plan ($25/mo) |
-| No report system | `POST /v1/calls/:sessionId/report` endpoint + in-call button |
+| ~~In-call report button missing~~ | ✅ Done — DirectCallScreen has report UI and direct calls exit to Message/Report/Done post-call safety flow |
+| ~~Stale Flutter widget test~~ | ✅ Done — current widget tests pass and no longer require Firebase-backed `MyApp` |
+| Stale non-Markdown contracts/helpers | Refresh OpenAPI, smoke/e2e guest-login helpers, and stale socket/LiveKit comments |
 | ~~No direct call ringing~~ | ✅ Done — RTDB signaling + Agora video + accept/decline overlay |
 | ~~Stale call/live sessions~~ | ✅ Done — Cloud Functions (onCallSignalDeleted + onPresenceChanged + reapStalePresence) |
 
@@ -909,46 +993,41 @@ Two screens, one flow:
 
 | Index | Icon | Label | Badge |
 |---|---|---|---|
-| 0 | home_rounded | Home | — |
-| 1 | live_tv_rounded | Live | — |
-| 2 | explore_rounded | Explore | — |
-| 3 | chat_bubble_rounded | Inbox | Unread count (99+ cap) |
-| 4 | person_rounded | Me | — |
+| 0 | auto_awesome_rounded | For you | — |
+| 1 | favorite_rounded | Following | — |
+| 2 | live_tv_rounded | Live | — |
+| 3 | explore_rounded | Explore | — |
+| 4 | chat_bubble_rounded | Inbox | Unread count (99+ cap) |
 
 ---
 
-### Tab 0 — Home
+### Tab 0 — For you
 
-App bar has 3 sub-tabs: **Popular · Discover · Follow** (default: Discover). Country filter + name search in top bar.
+Shared Zephyr header plus dense `HostCardGrid`:
+- 2 columns x 2 visible rows on phone
+- Thin 4px gutters
+- Barely-rounded card corners, mostly rectangular
+- Uses optimized local host cover assets with no duplicate cover inside the visible 2x2 group, plus current card status/profile behavior; direct call is intentionally deferred to profile/live/inbox or a future timed preview CTA
 
-**Popular sub-tab:**
-- 2-column grid of `LiveFeedCard` cards
-- Tap card → opens `ProfilePage`
-- Green **"Random match"** button pinned at bottom
+### Tab 1 — Following
 
-**Discover sub-tab:**
-- Vertical `PageView` — swipe up/down through cards (full-height cards)
-- Live cards show a preview box (top-right) for future video feed
-- Green **"Random match"** button pinned at bottom
-
-**Follow sub-tab:**
-- Same 2-column grid, filtered to followed users only
+- Reuses the exact same `HostCardGrid` instance/pattern as For you, filtered to followed users only
 - Empty state: "Follow someone to see them here"
 - Green **"Random match"** button pinned at bottom
 
 **Feed card anatomy:**
 - Background gradient: `#1C1C2E` → `#2D2D44` (dark purple-blue)
 - Top-left: status badge — `Live` (red `#FF3B30`) / `Busy` (orange `#FF9500`) / `Online` (green `#34C759`) / `Offline` (grey `#8E8E93`)
-- Bottom-left: host display name + country flag + language
-- Bottom-right: shake-animated call button
+- Bottom-left: compact circular host avatar + host display name + country flag/language context
+- No immediate card call button; future preview cards may reveal a timed "phantom" call CTA after intent is detected
 
 **Random match button:**
 - Color: `#7BEA3B` (bright green), black text
-- Tapping: checks coin balance, switches to Explore tab, starts a call session at 600 coins/min
+- Tapping: opens the random-call flow and starts matchmaking at 600 coins/min
 
 ---
 
-### Tab 1 — Live
+### Tab 2 — Live
 
 Centered screen with:
 - Radial amber glow behind a flame-gradient circle icon (`live_tv_rounded`)
@@ -958,21 +1037,15 @@ Centered screen with:
 
 ---
 
-### Tab 2 — Explore
+### Tab 3 — Explore
 
 → `ExplorePage` — search users by name or 8-digit public ID
 
 ---
 
-### Tab 3 — Inbox
+### Tab 4 — Inbox
 
 → `InboxPage` — conversation list, unread badges, timestamps
-
----
-
-### Tab 4 — Me
-
-→ `MyProfilePage` — view/edit profile, settings, logout
 
 ---
 
@@ -986,15 +1059,15 @@ Centered screen with:
 - [x] Agora token generation — `rtc.service.ts` generates per-user tokens via `agora-token` npm package
 - [x] Coin billing — `tickCallSession` every 15s; 600 coins/min
 - [x] Block system — `user_blocks` table; blocked users cannot be matched
-- [ ] Report endpoint — `POST /v1/calls/:sessionId/report`; stores report, ends Agora channel, increments report count on reported user
-- [ ] Auto-ban threshold — 5+ reports in 7 days → `is_banned = true`; banned users rejected from queue
+- [x] Report endpoint — `POST /v1/economy/calls/:sessionId/report`; stores one report per reporter/session and counts reports against the reported user
+- [x] Auto-ban threshold — 5+ reports in 7 days -> `is_banned = true`; banned users rejected from queue
 
 **Flutter** ✅
 - [x] "Random match" button on Home tab → navigates to `RandomCallScreen`
-- [x] Waiting/searching screen — animated pulsing ring, Cancel button emits `call:leave_queue`
+- [x] Waiting/searching screen — animated pulsing ring, Cancel button calls `DELETE /v1/calls/random/seek`
 - [x] In-call screen — full-screen remote video (Agora), local PiP top-right, End / Next / Mute / Flip controls
 - [x] Skip / Next — 600ms blur transition, re-joins queue, no coins during transition
-- [x] `call:partner_left` → auto re-searches
+- [x] `event=partner_left` RTDB signal -> auto re-searches
 - [ ] Post-call screen — "Call ended", option to send a DM
 - [ ] Report button in-call
 
@@ -1022,24 +1095,24 @@ Centered screen with:
 ### 🟠 2. First Impression
 
 - [x] Onboarding flow — login (Google + Apple) → profile setup (gender → language), auto-detect country, writes to RTDB profiles
-- [ ] Follow / unfollow UI — Follow button on ProfilePage, follower/following counts (backend done, no UI)
-- [ ] Empty feed state — "Find people" prompt or curated suggestions when following 0 people
+- [x] Follow / unfollow UI — backend endpoints, deployed following-ID parsing, footer Following feed, ProfilePage follow toggle, and follower counts are wired
+- [x] Empty Following feed state — tells users to follow someone when the Following tab has no followed hosts
 - [ ] Optimistic message send — bubble appears instantly before server ACK (~8% messaging gap)
 
 ---
 
 ### 🟡 3. Product Completeness
 
-- [ ] Wallet / coins UI — balance display, transaction history (backend done, no UI)
-- [ ] Gift tray during live / calls — animated gifts (Lottie/SVGA), hosted on CDN, downloaded on demand
-- [ ] Gift sending from DM — send coins as gift from thread (backend done)
+- [x] Wallet / coins UI — balance display, store catalog state, top-up packs, revenue/rate/level pages; still needs Play internal-test purchase smoke
+- [ ] Gift tray during live / calls — live gift tray is wired to backend-confirmed room gifts; call/inbox/premium surfaces still need shared module wiring
+- [ ] Gift sending from DM — wait for reusable Gift module; backend call-gift ledger exists, but DM gift API/UI is not wired
 - [ ] Typing indicator — "..." bubble when other user is typing
 - [ ] Message ordering under rapid fire — no sequence numbers; 3 fast messages can appear out of order (~3% gap)
 - [ ] MessageCache eviction — thread messages unbounded in memory; causes pressure on long sessions (~2% gap)
-- [ ] Report user in-call — report button + `POST /v1/calls/:sessionId/report` endpoint
+- [x] Report user in-call — DirectCallScreen exposes report action on top of existing `POST /v1/economy/calls/:sessionId/report` endpoint
 - [x] Direct call ringing — caller sees "calling…", receiver gets accept/decline overlay (RTDB signaling)
-- [ ] Post-call screen — "Call ended", option to send DM
-- [ ] Custom Sentry breadcrumbs — log socket events, message send, login
+- [x] Post-call screen — "Call ended", Message, Report, and Done actions
+- [ ] Custom Sentry breadcrumbs — log RTDB/FCM/message send/login lifecycle events
 
 ---
 
@@ -1086,20 +1159,20 @@ Centered screen with:
 - [x] Idempotency key — `X-Idempotency-Key` header on every `sendMessage`
 - [x] Message read receipts — single tick (dark) = sent, double tick (blue) = read
 - [x] Thread date separators — Today / Yesterday / date headers
-- [x] Socket room stability — `chat:join` on every `connect`
-- [x] Real-time delivery — MessageBus singleton routes socket messages to open ThreadPage
+- [x] Firestore listener stability — inbox/thread listeners resubscribe cleanly with app lifecycle/session changes
+- [x] Real-time delivery — Firestore listeners route committed messages to open ThreadPage
 - [x] Cursor-based reconnect sync — fetches only messages after last known timestamp on reconnect
-- [x] Cross-device send confirmation — gateway emits to both sender and receiver rooms
+- [x] Cross-device send confirmation — Firestore commit + backend-verified push keep sender/receiver state in sync
 - [x] Android FCM — push on message send, coalesced per sender
 - [x] Tap notification → Inbox tab
 - [x] FCM token cleanup on logout
 - [x] iOS Firebase init — `firebase_options.dart`, Podfile iOS 15.0
-- [x] Unread badge — socket increment + 60s resync + clears on open + app-resume refresh
+- [x] Unread badge — Firestore unread state + app-resume refresh clears on open
 - [x] Avatar image caching — `CachedNetworkImageProvider` across all screens
 - [x] Persistent HttpClient — single client reused across all API calls
 - [x] Sentry Flutter + NestJS — uncaught exceptions captured
 - [x] Auth — Google, Apple (iOS + Android)
-- [x] Home feed — live cards, user cards, real-time socket
+- [x] Home feed — live cards, user cards, RTDB presence/profile listeners
 - [x] Inbox — conversation list, unread badges, timestamps
 - [x] Thread (DM) — chat bubbles, send, mark-read, auto-scroll
 - [x] Explore — search by name or 8-digit public ID
@@ -1107,7 +1180,7 @@ Centered screen with:
 - [x] Avatar upload — Cloudinary, camera/gallery picker
 - [x] Profile editing — nickname, gender, birthday, country, language
 - [x] Settings — logout at Me → ⚙ Settings → Sign Out
-- [x] Socket.IO fully removed — all real-time via Firebase RTDB, zero WebSocket libraries in codebase
+- [x] Socket.IO app runtime removed — product real-time uses Firebase RTDB, Firestore listeners, FCM, and REST; no direct socket dependency or app-owned socket path remains
 - [x] Mock data removed — mock feed cards, mock followingIds, debug logs gone
 - [x] Direct call — RTDB signaling (`/direct_calls/{receiverUserId}`), incoming call overlay (accept/decline), Agora video screen with remote mute detection, camera-off PIP placeholder, dispose cleanup
 - [x] Direct call camera-off handling — remote mute detected via `onRemoteVideoStateChanged` (reason-based, not state-based), camera flip no longer triggers false "camera off" on remote side
@@ -1117,6 +1190,8 @@ Centered screen with:
 ## Audit Log
 
 Quality grades (A+ to F) recorded after each feature audit. This is our history of quality.
+
+Later-dated audits supersede older entries when implementation has moved on. Historical entries are preserved for context, but the current working truth is the 7 Jun 2026 snapshot and later audit blocks.
 
 ### Live Streaming — 29 May 2026 — Overall: A+
 | Aspect | Grade | Notes |
@@ -1139,12 +1214,12 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Push | A+ | Client no longer sends arbitrary notification title/body; backend verifies the committed Firestore chat/message before sending FCM and includes a `source=firestore` marker. |
 | Presence/logout | A+ | Foreground/background availability uses the canonical RTDB cell; logout now awaits offline write, FCM unregister, and chat session cleanup before clearing the API token. |
 | UX | A | Inbox/thread include search, live preview, inline translation, text/image send, read receipts, direct-call entry, block, and report. Missing: typing indicator, message reactions, and the reusable gift picker. |
-| Gift readiness | Pending | Inbox gifts should wait for tomorrow's reusable Gift module so inbox, direct call, random call, premium live, and normal live share one catalog/economy component. |
+| Gift readiness | Pending | Inbox gifts should wait for the reusable Gift module pass so inbox, direct call, random call, premium live, and normal live share one catalog/economy component. |
 
 ### Call (Direct + Random) — 29 May 2026 — Overall: A
 | Aspect | Grade | Notes |
 |--------|-------|-------|
-| Architecture | A+ | REST matchmaking + RTDB signaling + Agora RTC. Socket.IO fully purged from codebase (packages removed). Random inherits from Direct (shared DirectCallScreen). |
+| Architecture | A+ | REST matchmaking + RTDB signaling + Agora RTC. No app-owned Socket.IO runtime remains. Random inherits from Direct (shared DirectCallScreen). |
 | Signaling | A | writeRinging → listen accept/decline → 30s timeout → Agora. Block check both directions. Cloud Function safety net on signal deletion. |
 | Economy/Billing | A- | Tick every 15s, billing starts only when partner joins, insufficient balance auto-ends call |
 | Reconnection | A | `onConnectionStateChanged` with overlay, `onTokenPrivilegeWillExpire` with renewal |
@@ -1166,18 +1241,29 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Store catalog UX | A+ | Mobile now keeps explicit `IapCatalogState`, disables unavailable packs, shows loading/retry/status copy, displays Play/App Store localized prices for active products, and logs missing product IDs so Play Console setup issues are obvious during smoke testing. |
 | Code quality | A+ | Singleton `IapService.instance`. Clean separation: Flutter handles store interaction, backend handles all validation + crediting. Zero trust on client. |
 
-### Onboarding — 2 Jun 2026 — Overall: A
+### Onboarding — 7 Jun 2026 — Overall: A+
 | Aspect | Grade | Notes |
 |--------|-------|-------|
-| Architecture | A | Google + Apple login → `onboardedAt` null-check → profile setup or straight to home. Backend `COALESCE(onboarded_at, NOW())` on PATCH /me. No guest login. |
-| Login flow | A | Google Sign-In + Apple Sign-In. Buttons disabled during loading. Proper error display. API offline warning on startup. |
-| Profile setup | A | Nickname (2-20 chars, control chars blocked, emoji allowed), country picker, language dropdown. Keyboard dismiss on tap. Semantics labels. |
-| Backend | A | `issueGoogleSession` / `issueAppleSession` → find-or-create user → JWT. `updateMe` sets `onboarded_at` via COALESCE on first profile save. Backfill migration for existing users. |
-| Session restore | A | `main.dart` checks `profile.onboardedAt != null` — already-onboarded users skip setup on re-login. |
-| Security | A | Google token verified server-side with audience check. Apple token verified via JWKS. No client-side trust. |
-| Code quality | A | Clean separation: `onboarding_page.dart` (login), `profile_setup_screen.dart` (setup). No dead code. Proper dispose. |
+| Architecture | A+ | Google + Apple login flows are injected behind `OnboardingAuthGateway`, profile setup dependencies are injectable, and incomplete saved sessions resume directly into setup instead of forcing re-auth. |
+| Login flow | A+ | Buttons disable during loading, API offline warning remains, OAuth cancellation gets product-safe copy, raw exception strings are not shown, and legal/17+ copy is explicit and accessible. |
+| Profile setup | A+ | Gender/language setup uses localized display text while preserving stable backend values, auto-detects country through an injectable resolver, awaits backend profile save and RTDB profile sync before entering Home, and exposes semantic selection/progress states. |
+| Backend | A | `issueGoogleSession` / `issueAppleSession` -> find-or-create user -> JWT. `updateMe` sets `onboarded_at` via COALESCE on first profile save. Backfill migration for existing users. |
+| Session restore | A+ | `main.dart` now keeps a valid saved token for incomplete profiles and resumes `ProfileSetupScreen`; completed users still skip setup on re-login. |
+| Security/compliance | A+ | No guest login path or generated guest localization remains; Google/Apple tokens are verified server-side; onboarding shows 17+ requirement plus Terms/Privacy links before sign-in. |
+| Testability | A+ | `flutter test` now covers current OAuth/legal surface, no guest copy, cancellation copy, and new-user setup ordering; `flutter analyze` passes. |
+| Code quality | A+ | Clean module split remains, tap recognizer leak was removed from legal links, profile RTDB write is awaited, and `UserProfile.derivePublicId` recursion was fixed after tests surfaced it. |
 
-### RTDB Architecture & Data Modeling — 3 Jun 2026 — Overall: A-
+### Me / Profile / Wallet Entrance — 7 Jun 2026 — Overall: A
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Me dashboard | A | Me tab now loads the wallet summary and shows coins, sparks, revenue, and call price at a glance, with taps into Wallet, Level, Revenue, and Call Price. It refreshes wallet metrics when returning from those screens. |
+| Profile return correctness | A+ | Avatar and cover uploads now preserve the full `UserProfile` state when returning to Me, including cover URL, host/admin flags, follower/following counts, onboarding state, and call rate. |
+| Settings navigation | A | Account, Privacy, and Notifications rows are now real routes. Account exposes sign-out/delete, Privacy opens Terms/Privacy, and Notifications explains the currently supported alert surfaces. |
+| Economy subpages | A- | Wallet, Level, and Revenue now show spark context instead of isolated numbers, and Level/Revenue support pull-to-refresh/retry. A+ still needs revenue statement/payout depth and real notification preference persistence. |
+| Test coverage | A | Widget coverage now proves Me dashboard metrics render and Settings subpages open. `flutter analyze` passed and `flutter test` passed 7/7 on 7 Jun 2026. |
+| A+ gates | Pending | Manual iPhone smoke, localized copy for the new settings/economy labels, persisted notification controls or a system-settings deep link, and deeper host revenue/payout history. |
+
+### RTDB Architecture & Data Modeling — 3 Jun 2026 — Historical: A- (superseded by 7 Jun RTDB audits)
 | Aspect | Grade | Notes |
 |--------|-------|-------|
 | Data model | A+ | 4 clean root nodes only: `presence`, `profiles`, `direct_calls`, `live_rooms`. Flat, predictable paths. |
@@ -1188,7 +1274,7 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Indexing | C | Missing `.indexOn` for `comments.ts`, `reactions.ts`, `gifts.ts`; add indexes to avoid scans/warnings. |
 | Scale posture | A- | Current approach is strong for MVP and early growth; scheduled global presence scan should evolve later at very high scale. |
 
-### Full Solution Audit — 5 Jun 2026 — Overall: B-
+### Full Solution Audit — 5 Jun 2026 — Historical: B- (superseded by 7 Jun full audit)
 | Aspect | Grade | Notes |
 |--------|-------|-------|
 | Product architecture | A- | Strong Flutter + NestJS + Postgres + Firebase RTDB/Firestore + Agora split. Clear source-of-truth intent and good MVP focus. |
@@ -1201,7 +1287,7 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Test posture | C | Backend build passes and Functions build passes; backend unit tests, backend e2e, and Flutter widget tests currently fail due stale expectations/harnesses. No Postgres race/idempotency tests cover the highest-risk paths. |
 | Documentation accuracy | C+ | `PRODUCT.md`, READMEs, tests, and instructions disagree on guest login, WebSocket/socket language, and some completion claims. Product direction is strong, but operating docs need cleanup. |
 
-### RTDB Module Audit — 5 Jun 2026 — Overall: C+
+### RTDB Module Audit — 5 Jun 2026 — Historical: C+ (superseded by 7 Jun RTDB audits)
 | Aspect | Grade | Notes |
 |--------|-------|-------|
 | Module ownership | A- | RTDB client usage is mostly centralized in `FirebaseChatService.instance`, with backend Admin SDK writes limited to call signaling and cleanup. This matches the no-Socket.IO architecture. |
@@ -1279,12 +1365,23 @@ Quality grades (A+ to F) recorded after each feature audit. This is our history 
 | Aspect | Grade | Notes |
 |--------|-------|-------|
 | Product architecture | B+ | The source-of-truth design is strong: Flutter + NestJS + Postgres + Firebase RTDB/Firestore + Agora is the right split for this app. The gap is execution completeness, not the big architecture choice. |
-| Mobile entrances | B+ | Login, onboarding, feed, explore, inbox, direct call, random call, live, profile, wallet, and settings are present. Several entrances are still shallow or disconnected: feed call routing, profile follow, Explore caller identity, and premium live. |
+| Mobile entrances | A | Login, onboarding, For you, Following, explore, inbox, direct call, random call, live, profile, wallet, and settings are present. Root navigation now uses a Zephyr header for avatar/profile access plus wallet context, with Me removed from the footer and Following promoted to the second footer tab. The old Home Popular/Discover shell is no longer active; For you now starts the new Tango-style 2x2 card feed. Feed cards use lightweight local card-cover fallbacks with visible 2x2 de-duplication, backend feed returns female host/girl accounts only, cards open host/profile discovery rather than immediate direct calls, the floating Random match CTA is customer-only, ProfilePage follow/counts are backend-backed, Following empty state exists, Me dashboard shows wallet/spark/revenue/rate context, Settings subpages are wired, and call report/post-call safety is covered. Remaining gap: manual entrance smoke, Explore identity polish, deeper revenue/notification settings, future preview/phantom CTA, and premium live. |
 | Realtime availability | A+ | Canonical RTDB presence is now a real source-of-truth cell: coherent rules, premium/free-live transition states, backend projection, and routeability gates are proven by emulator tests and `pnpm check`. |
 | Backend economy | A+ | Paid call ticks and gifts have transaction-safe row locks, idempotency replay, real Postgres race tests, transactional IAP credit/refund, Android token verification, and backend-confirmed live gift fan-out. |
 | IAP production readiness | A | Android code/backend contract now matches Google Play token verification and real app IDs, Render production env is set, and wallet catalog UX now exposes unavailable Play products cleanly. Remaining sign-off: Google Play merchant/bank verification, one-time product catalog visibility, and one internal-test purchase/refund smoke. |
 | Firebase ownership | A+ | RTDB module ownership is A+: presence, profiles, direct-call signals, live-room per-viewer audience, host-owned status, and backend-owned live gift fan-out are enforced. Firestore/Storage messaging ownership is now A+ core too: participants, receipts, deletes, blocks, committed-message push, and chat image ownership are rules/backend controlled. |
 | Premium live | C | Product model is documented, but implementation is not present yet: no paid-entry transition, host caps, per-minute premium-room billing, lock screen, or premium realtime module. |
-| Test posture | A | Backend unit tests/build, Flutter analyze, RTDB + Firestore + Storage emulator rules, root `pnpm check`, DB race tests, and GitHub quality gates are in place. Flutter widget tests are still stale and need a Firebase-aware harness. |
-| Documentation accuracy | B- | `PRODUCT.md` is current after this audit, but OpenAPI and Copilot instructions still contain old guest/status assumptions and need cleanup. |
-| A+ gates | Pending | Finish manual random/direct call smoke, Google Play internal-test IAP smoke, follow/host feed model, premium live lifecycle, reusable Gift module, stale widget/contracts/docs, and Firebase-aware Flutter widget tests. |
+| Test posture | A | Backend unit tests/build, Flutter analyze, RTDB + Firestore + Storage emulator rules, root `pnpm check`, DB race tests, expanded Flutter widget tests, and GitHub quality gates are in place. Wider mobile widget coverage can continue expanding feature by feature. |
+| Documentation accuracy | B+ | `PRODUCT.md` and `.github/copilot-instructions.md` now match the current architecture. Remaining drift is non-Markdown: OpenAPI, smoke/e2e guest helpers, and stale source comments. |
+| A+ gates | Pending | Finish manual random/direct call smoke, Google Play internal-test IAP smoke, premium live lifecycle, reusable Gift module expansion, Explore identity polish, and stale non-Markdown contracts/helpers. |
+
+### Documentation & Current-State Audit — 7 Jun 2026 — Overall: B+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Markdown source of truth | A- | `PRODUCT.md` now has a current solution snapshot, corrected TODOs, current endpoint map, updated completion/blocker tables, and historical labels on superseded audits. |
+| Copilot instructions | A- | `.github/copilot-instructions.md` now describes canonical presence fields, Postgres projection fields, current matchmaking gates, RTDB ownership, and backend-confirmed live gifts. |
+| Direction governance | A | `PRODUCT.md` and Copilot instructions now explicitly say latest dated snapshots/audits supersede older direction, while hard constraints remain hard. |
+| Historical audit clarity | A | Older 3 Jun/5 Jun audit blocks are preserved as history and explicitly marked superseded instead of silently upgraded. |
+| Non-Markdown drift | C+ | `packages/zephyr-contracts/openapi.yaml`, smoke/e2e helpers, and a few socket/LiveKit comments still need cleanup. |
+| Test truth | A | Docs now record the current check results: `pnpm check`, DB race tests, `flutter analyze`, and current `flutter test` pass. |
+| Next-work clarity | B+ | Immediate work now points to manual random/direct smoke, inbox AAB smoke, Google Play purchase smoke, non-Markdown cleanup, follow/feed persistence, gift expansion, and premium live. |

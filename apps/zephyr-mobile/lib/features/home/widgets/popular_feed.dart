@@ -13,8 +13,8 @@ class PopularFeed extends StatelessWidget {
     required this.filterCountryName,
     required this.isTablet,
     required this.onCardTap,
-    required this.onCallTap,
     required this.onRandomMatch,
+    required this.showRandomMatch,
   });
 
   final List<LiveFeedCard> cards;
@@ -23,20 +23,28 @@ class PopularFeed extends StatelessWidget {
   final String? filterCountryName;
   final bool isTablet;
   final void Function(LiveFeedCard) onCardTap;
-  final void Function(LiveFeedCard) onCallTap;
   final VoidCallback onRandomMatch;
+  final bool showRandomMatch;
 
   @override
   Widget build(BuildContext context) {
     if (cards.isEmpty) {
-      return Center(
-        child: Text(
-          allCardsEmpty
-              ? AppLocalizations.of(context)!.noPopularStreamersRightNow
-              : searchQuery.isNotEmpty
+      return Stack(
+        children: <Widget>[
+          Center(
+            child: Text(
+              allCardsEmpty
+                  ? AppLocalizations.of(context)!.noPopularStreamersRightNow
+                  : searchQuery.isNotEmpty
                   ? AppLocalizations.of(context)!.noResultsFor(searchQuery)
-                  : AppLocalizations.of(context)!.noStreamersFrom(filterCountryName ?? 'there'),
-        ),
+                  : AppLocalizations.of(
+                      context,
+                    )!.noStreamersFrom(filterCountryName ?? 'there'),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          if (showRandomMatch) _RandomMatchButton(onPressed: onRandomMatch),
+        ],
       );
     }
 
@@ -57,27 +65,37 @@ class PopularFeed extends StatelessWidget {
               isTablet: isTablet,
               showPreview: false,
               onTap: () => onCardTap(cards[index]),
-              onCallTap: () => onCallTap(cards[index]),
             );
           },
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Center(
-            child: FilledButton(
-              onPressed: onRandomMatch,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF7BEA3B),
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              ),
-              child: const Text('Random match'),
-            ),
-          ),
-        ),
+        if (showRandomMatch) _RandomMatchButton(onPressed: onRandomMatch),
       ],
+    );
+  }
+}
+
+class _RandomMatchButton extends StatelessWidget {
+  const _RandomMatchButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Center(
+        child: FilledButton(
+          onPressed: onPressed,
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF7BEA3B),
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          ),
+          child: const Text('Random match'),
+        ),
+      ),
     );
   }
 }

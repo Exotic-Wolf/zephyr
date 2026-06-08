@@ -458,6 +458,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                     .profileCached(widget.otherUserId)
                     ?.avatarUrl ??
                 widget.otherAvatarUrl,
+            myUserId: widget.myUserId,
+            myDisplayName: widget.myDisplayName,
+            myAvatarUrl: widget.myAvatarUrl,
           ),
         ),
       );

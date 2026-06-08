@@ -51,9 +51,12 @@ describe('StoreService', () => {
     expect(rooms[0].id).toBe(secondRoom.id);
   });
 
-  it('ends live room and removes it from feed/list', async () => {
+  it('keeps host feed limited to host accounts after a room ends', async () => {
     const session = await storeService.issueGuestSession('host_end_live');
+    await storeService.updateUser(session.user.id, { gender: 'Female' });
+    const customer = await storeService.issueGuestSession('customer_not_feed');
     const room = await storeService.createRoom(session.user.id, 'Temporary Live');
+    await storeService.createRoom(customer.user.id, 'Customer Live');
 
     await storeService.endRoom(session.user.id, room.id);
 
@@ -61,9 +64,11 @@ describe('StoreService', () => {
     const rooms = await storeService.listRooms();
 
     expect(feed).toHaveLength(1);
+    expect(feed[0].hostUserId).toBe(session.user.id);
     expect(feed[0].roomId).toBeNull();
     expect(feed[0].hostStatus).toBe('offline');
-    expect(rooms).toHaveLength(0);
+    expect(rooms).toHaveLength(1);
+    expect(rooms[0].hostUserId).toBe(customer.user.id);
     await expect(storeService.joinRoom(room.id, session.user.id)).rejects.toThrow(NotFoundException);
   });
 

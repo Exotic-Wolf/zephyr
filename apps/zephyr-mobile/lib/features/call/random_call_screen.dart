@@ -119,6 +119,7 @@ class _RandomCallScreenState extends State<RandomCallScreen>
           token: match['token'] as String,
           partnerId: match['partnerId'] as String,
           partnerName: (match['partnerName'] as String?) ?? 'User',
+          myUserId: widget.userId,
           mode: 'random',
         ),
       ),

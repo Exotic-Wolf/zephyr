@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
+import 'call_ended_screen.dart';
 
 /// Billing tick interval in seconds.
 const int _kTickSeconds = 15;
@@ -23,8 +24,13 @@ class DirectCallScreen extends StatefulWidget {
     required this.partnerName,
     required this.partnerId,
     this.partnerAvatarUrl,
+    this.myUserId,
+    this.myDisplayName,
+    this.myAvatarUrl,
     this.mode = 'direct',
     this.allowRandomNext = true,
+    this.startMedia = true,
+    this.managePresence = true,
   });
 
   final ZephyrApiClient apiClient;
@@ -37,10 +43,15 @@ class DirectCallScreen extends StatefulWidget {
   final String partnerName;
   final String partnerId;
   final String? partnerAvatarUrl;
+  final String? myUserId;
+  final String? myDisplayName;
+  final String? myAvatarUrl;
 
   /// 'direct' or 'random'. Random mode adds Next button and pops with result.
   final String mode;
   final bool allowRandomNext;
+  final bool startMedia;
+  final bool managePresence;
 
   bool get isRandom => mode == 'random';
 
@@ -62,20 +73,26 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
   StreamSubscription<dynamic>? _randomSignalSub;
   bool _disposed = false;
   int _billingTickSequence = 0;
+  bool _reporting = false;
+  bool _reportedCall = false;
 
   @override
   void initState() {
     super.initState();
-    _init();
+    if (widget.startMedia) {
+      _init();
+    }
   }
 
   Future<void> _init() async {
     await [Permission.camera, Permission.microphone].request();
-    FirebaseChatService.instance.setBusyStatus(
-      sessionId: widget.sessionId,
-      activity: widget.isRandom ? 'random_call' : 'direct_call',
-    );
-    if (widget.isRandom) {
+    if (widget.managePresence) {
+      FirebaseChatService.instance.setBusyStatus(
+        sessionId: widget.sessionId,
+        activity: widget.isRandom ? 'random_call' : 'direct_call',
+      );
+    }
+    if (widget.isRandom && widget.managePresence) {
       _listenForRandomPartnerEvents();
     }
     await _initAgora();
@@ -304,7 +321,30 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
             reason: 'user_ended',
           )
           .ignore();
-      _leave();
+      _leave(showPostCall: true);
+    }
+  }
+
+  Future<void> _reportCall() async {
+    if (_reporting || _reportedCall) return;
+    final reason = await showCallReportReasonSheet(context);
+    if (reason == null || !mounted) return;
+
+    setState(() => _reporting = true);
+    try {
+      await widget.apiClient.reportCall(
+        accessToken: widget.accessToken,
+        sessionId: widget.sessionId,
+        reportedUserId: widget.partnerId,
+        reason: reason,
+      );
+      if (!mounted) return;
+      setState(() => _reportedCall = true);
+      _showSnack('Report sent. Thank you.');
+    } catch (_) {
+      _showSnack('Could not send report. Try again.');
+    } finally {
+      if (mounted) setState(() => _reporting = false);
     }
   }
 
@@ -321,7 +361,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
     _elapsedTimer?.cancel();
     _tickTimer?.cancel();
     _randomSignalSub?.cancel();
-    FirebaseChatService.instance.clearBusyStatus();
+    if (widget.managePresence) FirebaseChatService.instance.clearBusyStatus();
     final engine = _engine;
     _engine = null;
     if (engine != null) {
@@ -336,19 +376,38 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
     }
   }
 
-  void _leave() {
+  void _leave({bool showPostCall = false}) {
     if (_disposed) return;
     _disposed = true;
     _elapsedTimer?.cancel();
     _tickTimer?.cancel();
     _randomSignalSub?.cancel();
-    FirebaseChatService.instance.clearBusyStatus();
+    if (widget.managePresence) FirebaseChatService.instance.clearBusyStatus();
     final engine = _engine;
     _engine = null;
     if (engine != null) {
       engine.leaveChannel().then((_) => engine.release());
     }
-    if (mounted) Navigator.of(context).pop();
+    if (!mounted) return;
+    if (showPostCall) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => CallEndedScreen(
+            apiClient: widget.apiClient,
+            accessToken: widget.accessToken,
+            sessionId: widget.sessionId,
+            partnerId: widget.partnerId,
+            partnerName: widget.partnerName,
+            partnerAvatarUrl: widget.partnerAvatarUrl,
+            myUserId: widget.myUserId,
+            myDisplayName: widget.myDisplayName,
+            myAvatarUrl: widget.myAvatarUrl,
+          ),
+        ),
+      );
+    } else {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -372,7 +431,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
             )
             .ignore();
       }
-      FirebaseChatService.instance.clearBusyStatus();
+      if (widget.managePresence) FirebaseChatService.instance.clearBusyStatus();
     }
     _disposed = true;
     _elapsedTimer?.cancel();
@@ -575,6 +634,28 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
                 ),
               ),
               const Spacer(),
+              IconButton(
+                key: const Key('direct-call-report-button'),
+                tooltip: _reportedCall ? 'Reported' : 'Report call',
+                onPressed: _reporting || _reportedCall ? null : _reportCall,
+                icon: _reporting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white70,
+                        ),
+                      )
+                    : Icon(
+                        _reportedCall
+                            ? Icons.verified_user_rounded
+                            : Icons.report_gmailerrorred_rounded,
+                        color: _reportedCall
+                            ? Colors.greenAccent
+                            : Colors.white,
+                      ),
+              ),
               if (_remoteUid == null)
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -644,6 +725,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
                 onTap: _nextCall,
               ),
             _ControlButton(
+              key: const Key('direct-call-end-button'),
               icon: Icons.call_end_rounded,
               label: 'End',
               color: Colors.red,
@@ -660,6 +742,7 @@ class _DirectCallScreenState extends State<DirectCallScreen> {
 
 class _ControlButton extends StatelessWidget {
   const _ControlButton({
+    super.key,
     required this.icon,
     required this.label,
     required this.onTap,

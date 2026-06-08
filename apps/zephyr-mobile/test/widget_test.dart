@@ -1,13 +1,483 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'dart:async';
 
-import 'package:zephyr_mobile/main.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:zephyr_mobile/features/call/call_ended_screen.dart';
+import 'package:zephyr_mobile/features/call/direct_call_screen.dart';
+import 'package:zephyr_mobile/features/home/host_card_cover_assets.dart';
+import 'package:zephyr_mobile/features/home/widgets/follow_feed.dart';
+import 'package:zephyr_mobile/features/me/me_tab.dart';
+import 'package:zephyr_mobile/features/onboarding/onboarding_page.dart';
+import 'package:zephyr_mobile/l10n/app_localizations.dart';
+import 'package:zephyr_mobile/models/models.dart';
+import 'package:zephyr_mobile/services/api_client.dart';
+import 'package:zephyr_mobile/widgets/zephyr_app_header.dart';
 
 void main() {
-  testWidgets('Onboarding screen renders', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
+  testWidgets(
+    'onboarding shows current OAuth/legal surface without guest copy',
+    (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _localizedHost(
+          OnboardingScreen(
+            apiClient: _FakeApiClient(),
+            authGateway: _FakeAuthGateway(),
+            showAppleSignIn: false,
+            brandHero: const SizedBox(key: Key('test-hero'), height: 120),
+            onLoginSuccess: (_) {},
+          ),
+        ),
+      );
+      await tester.pump();
 
-    expect(find.text('Zephyr Onboarding'), findsOneWidget);
-    expect(find.text('Continue as Guest'), findsOneWidget);
-    expect(find.text('Display Name'), findsNothing);
+      expect(find.text('Continue with Google'), findsOneWidget);
+      expect(find.text('Continue as Guest'), findsNothing);
+      expect(find.text('You must be 17+ to use Zephyr.'), findsOneWidget);
+      expect(find.text('Terms of Service'), findsOneWidget);
+      expect(find.text('Privacy'), findsOneWidget);
+    },
+  );
+
+  testWidgets('cancelled Google sign-in shows product-safe error copy', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _localizedHost(
+        OnboardingScreen(
+          apiClient: _FakeApiClient(),
+          authGateway: _FakeAuthGateway(googleSession: null),
+          showAppleSignIn: false,
+          brandHero: const SizedBox(key: Key('test-hero'), height: 120),
+          onLoginSuccess: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Continue with Google'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign-in cancelled.'), findsOneWidget);
   });
+
+  testWidgets('new OAuth user completes setup after backend and RTDB writes', (
+    WidgetTester tester,
+  ) async {
+    final apiClient = _FakeApiClient();
+    final profileWrite = Completer<void>();
+    var profileWriteStarted = false;
+    String? completedToken;
+
+    await tester.pumpWidget(
+      _localizedHost(
+        OnboardingScreen(
+          apiClient: apiClient,
+          authGateway: _FakeAuthGateway(
+            googleSession: AuthSession(
+              accessToken: 'new-token',
+              user: _profile(onboardedAt: null),
+            ),
+          ),
+          showAppleSignIn: false,
+          brandHero: const SizedBox(key: Key('test-hero'), height: 120),
+          countryCodeResolver: () => 'mu',
+          profileWriter:
+              ({
+                required String displayName,
+                String? avatarUrl,
+                required String countryCode,
+                required String language,
+                String? birthday,
+              }) {
+                profileWriteStarted = true;
+                expect(displayName, 'Ava');
+                expect(countryCode, 'MU');
+                expect(language, 'en');
+                return profileWrite.future;
+              },
+          onLoginSuccess: (token) => completedToken = token,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Continue with Google'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gender'), findsOneWidget);
+    await tester.tap(find.text('Male'));
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Your language'), findsOneWidget);
+    await tester.tap(find.text('English'));
+    await tester.pump();
+
+    expect(apiClient.lastGender, 'Male');
+    expect(apiClient.lastLanguage, 'en');
+    expect(apiClient.lastCountryCode, 'MU');
+    expect(profileWriteStarted, isTrue);
+    expect(completedToken, isNull);
+
+    profileWrite.complete();
+    await tester.pumpAndSettle();
+
+    expect(completedToken, 'new-token');
+  });
+
+  test('following parser accepts deployed string IDs and legacy objects', () {
+    expect(
+      parseFollowingIdsResponse(<dynamic>[
+        'host-1',
+        <String, dynamic>{'userId': 'host-2'},
+        <String, dynamic>{'id': 'ignored'},
+      ]),
+      <String>{'host-1', 'host-2'},
+    );
+  });
+
+  testWidgets('follow feed has a useful empty state', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _localizedHost(
+        FollowFeed(
+          cards: <LiveFeedCard>[_feedCard()],
+          followingIds: const <String>{},
+          filterCountryName: null,
+          isTablet: false,
+          onCardTap: (_) {},
+          onRandomMatch: () {},
+          showRandomMatch: true,
+        ),
+      ),
+    );
+
+    expect(find.text('Follow someone to see them here.'), findsOneWidget);
+  });
+
+  testWidgets('follow feed can hide random match for host accounts', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _localizedHost(
+        FollowFeed(
+          cards: <LiveFeedCard>[_feedCard()],
+          followingIds: const <String>{},
+          filterCountryName: null,
+          isTablet: false,
+          onCardTap: (_) {},
+          onRandomMatch: () {},
+          showRandomMatch: false,
+        ),
+      ),
+    );
+
+    expect(find.text('Random match'), findsNothing);
+  });
+
+  test('host card cover assignment is stable and local', () {
+    final String first = HostCardCoverAssets.forUserId('host-1');
+    final String second = HostCardCoverAssets.forUserId('host-1');
+    final List<String> visibleCovers = HostCardCoverAssets.forVisibleGrid(
+      <String>['host-1', 'host-1', 'host-1', 'host-1', 'host-1'],
+    );
+
+    expect(first, second);
+    expect(first, startsWith('assets/images/host_covers/'));
+    expect(HostCardCoverAssets.all, hasLength(6));
+    expect(HostCardCoverAssets.all.toSet(), hasLength(6));
+    expect(visibleCovers.take(4).toSet(), hasLength(4));
+    expect(visibleCovers[4], first);
+  });
+
+  testWidgets('zephyr header replaces Me tab with avatar and wallet access', (
+    WidgetTester tester,
+  ) async {
+    var avatarTapped = false;
+    var rechargeTapped = false;
+
+    await tester.pumpWidget(
+      _localizedHost(
+        Scaffold(
+          body: Center(
+            child: ZephyrAppHeader(
+              me: _profile(),
+              wallet: WalletSummary(
+                coinBalance: 12345,
+                level: 4,
+                revenueUsd: 0,
+                sparkBalance: 678,
+              ),
+              apiReachable: true,
+              onAvatarTap: () => avatarTapped = true,
+              onRechargeTap: () => rechargeTapped = true,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('12.3K'), findsOneWidget);
+    expect(find.byIcon(Icons.add_rounded), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('Open profile'));
+    await tester.tap(find.byIcon(Icons.add_rounded));
+    expect(avatarTapped, isTrue);
+    expect(rechargeTapped, isTrue);
+
+    await tester.pumpWidget(
+      _localizedHost(
+        Scaffold(
+          body: Center(
+            child: ZephyrAppHeader(
+              me: _profile(isHost: true),
+              wallet: WalletSummary(
+                coinBalance: 12345,
+                level: 4,
+                revenueUsd: 0,
+                sparkBalance: 678,
+              ),
+              onAvatarTap: () {},
+              onRechargeTap: null,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('678'), findsOneWidget);
+    expect(find.byIcon(Icons.add_rounded), findsNothing);
+  });
+
+  testWidgets('direct call exposes safety UI and post-call screen reports', (
+    WidgetTester tester,
+  ) async {
+    final apiClient = _FakeApiClient();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DirectCallScreen(
+          apiClient: apiClient,
+          accessToken: 'token',
+          sessionId: 'session-1',
+          appId: 'agora-app',
+          channelName: 'channel',
+          uid: 1,
+          token: 'rtc-token',
+          partnerId: 'host-1',
+          partnerName: 'Mira',
+          myUserId: 'me-1',
+          myDisplayName: 'Ava',
+          startMedia: false,
+          managePresence: false,
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('direct-call-report-button')), findsOneWidget);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CallEndedScreen(
+          apiClient: apiClient,
+          accessToken: 'token',
+          sessionId: 'session-1',
+          partnerId: 'host-1',
+          partnerName: 'Mira',
+          myUserId: 'me-1',
+          myDisplayName: 'Ava',
+        ),
+      ),
+    );
+
+    expect(find.text('Call ended'), findsOneWidget);
+    expect(find.text('Message'), findsOneWidget);
+    expect(find.text('Report call'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('call-ended-report-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Harassment or abuse'));
+    await tester.pumpAndSettle();
+
+    expect(apiClient.reportedSessionId, 'session-1');
+    expect(apiClient.reportedUserId, 'host-1');
+  });
+
+  testWidgets('me tab shows economy overview and settings subpages', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      _localizedHost(
+        MeTab(
+          me: _profile(
+            onboardedAt: DateTime(2026, 6, 7),
+            callRateCoinsPerMinute: 4200,
+          ),
+          apiClient: _FakeApiClient(),
+          accessToken: 'token',
+          onLogout: () async {},
+          onDeleteAccount: () async {},
+          locale: null,
+          onLocaleChanged: (_) {},
+          themeMode: ThemeMode.system,
+          onThemeModeChanged: (_) {},
+          onProfileUpdated: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Coins'), findsOneWidget);
+    expect(find.text('Sparks'), findsOneWidget);
+    expect(find.text('Revenue'), findsOneWidget);
+    expect(find.text('Call price'), findsOneWidget);
+    expect(find.text('12.3K'), findsOneWidget);
+    expect(find.text('\$12.34'), findsOneWidget);
+    expect(find.text('4.2K /min'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Privacy'));
+    await tester.pumpAndSettle();
+    expect(find.text('Privacy controls'), findsOneWidget);
+    expect(find.text('Privacy Policy'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Notifications'));
+    await tester.pumpAndSettle();
+    expect(find.text('Message alerts'), findsOneWidget);
+    expect(find.text('Incoming call alerts'), findsOneWidget);
+  });
+}
+
+Widget _localizedHost(Widget child) {
+  return MaterialApp(
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    home: child,
+  );
+}
+
+UserProfile _profile({
+  DateTime? onboardedAt,
+  int? callRateCoinsPerMinute,
+  bool isHost = false,
+}) {
+  return UserProfile(
+    id: 'user-1',
+    displayName: 'Ava',
+    avatarUrl: null,
+    bio: null,
+    createdAt: DateTime(2026, 6, 7),
+    onboardedAt: onboardedAt,
+    callRateCoinsPerMinute: callRateCoinsPerMinute,
+    isHost: isHost,
+  );
+}
+
+LiveFeedCard _feedCard() {
+  return LiveFeedCard(
+    roomId: null,
+    title: 'Mira',
+    audienceCount: 0,
+    hostUserId: 'host-1',
+    hostDisplayName: 'Mira',
+    hostAvatarUrl: null,
+    hostCountryCode: 'PH',
+    hostLanguage: 'English',
+    hostStatus: 'online',
+    startedAt: DateTime(2026, 6, 7),
+  );
+}
+
+class _FakeAuthGateway implements OnboardingAuthGateway {
+  _FakeAuthGateway({AuthSession? googleSession})
+    : _googleSession = googleSession;
+
+  final AuthSession? _googleSession;
+
+  @override
+  Future<AuthSession?> continueWithGoogle() async => _googleSession;
+
+  @override
+  Future<AuthSession> continueWithApple() async {
+    return AuthSession(accessToken: 'apple-token', user: _profile());
+  }
+}
+
+class _FakeApiClient extends ZephyrApiClient {
+  _FakeApiClient() : super(baseUrl: 'http://localhost');
+
+  String? lastGender;
+  String? lastLanguage;
+  String? lastCountryCode;
+  String? reportedSessionId;
+  String? reportedUserId;
+  String? endedSessionId;
+
+  @override
+  Future<bool> ping() async => true;
+
+  @override
+  Future<WalletSummary> getWalletSummary(String accessToken) async {
+    return WalletSummary(
+      coinBalance: 12345,
+      level: 4,
+      revenueUsd: 12.34,
+      sparkBalance: 678,
+    );
+  }
+
+  @override
+  Future<UserProfile> updateMe(
+    String accessToken, {
+    String? displayName,
+    String? gender,
+    String? birthday,
+    String? countryCode,
+    String? language,
+    int? callRateCoinsPerMinute,
+    String? publicId,
+  }) async {
+    expect(accessToken, 'new-token');
+    lastGender = gender;
+    lastLanguage = language;
+    lastCountryCode = countryCode;
+    return _profile(onboardedAt: DateTime(2026, 6, 7));
+  }
+
+  @override
+  Future<void> reportCall({
+    required String accessToken,
+    required String sessionId,
+    required String reportedUserId,
+    String? reason,
+  }) async {
+    reportedSessionId = sessionId;
+    this.reportedUserId = reportedUserId;
+  }
+
+  @override
+  Future<CallSession> endCallSession({
+    required String accessToken,
+    required String sessionId,
+    String reason = 'caller_ended',
+  }) async {
+    endedSessionId = sessionId;
+    return CallSession(
+      id: sessionId,
+      callerUserId: 'me-1',
+      receiverUserId: 'host-1',
+      mode: 'direct',
+      rateCoinsPerMinute: 600,
+      totalBilledCoins: 0,
+      status: 'ended',
+      endReason: reason,
+    );
+  }
 }

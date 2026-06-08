@@ -138,17 +138,29 @@ abstract class AppLocalizations {
   /// **'Connecting...'**
   String get connecting;
 
-  /// No description provided for @continueAsGuest.
-  ///
-  /// In en, this message translates to:
-  /// **'Continue as Guest'**
-  String get continueAsGuest;
-
   /// No description provided for @signingIn.
   ///
   /// In en, this message translates to:
   /// **'Signing in...'**
   String get signingIn;
+
+  /// No description provided for @signInCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-in cancelled.'**
+  String get signInCancelled;
+
+  /// No description provided for @signInFailedTryAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn\'t sign you in. Please try again.'**
+  String get signInFailedTryAgain;
+
+  /// No description provided for @signInNetworkError.
+  ///
+  /// In en, this message translates to:
+  /// **'We couldn\'t reach Zephyr. Check your connection and try again.'**
+  String get signInNetworkError;
 
   /// No description provided for @continueWithGoogle.
   ///
@@ -162,11 +174,41 @@ abstract class AppLocalizations {
   /// **'Continue with Apple'**
   String get continueWithApple;
 
+  /// No description provided for @byContinuingPrefix.
+  ///
+  /// In en, this message translates to:
+  /// **'By continuing, you agree to our '**
+  String get byContinuingPrefix;
+
+  /// No description provided for @byContinuingAnd.
+  ///
+  /// In en, this message translates to:
+  /// **' and '**
+  String get byContinuingAnd;
+
+  /// No description provided for @termsOfService.
+  ///
+  /// In en, this message translates to:
+  /// **'Terms of Service'**
+  String get termsOfService;
+
+  /// No description provided for @ageGateNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'You must be 17+ to use Zephyr.'**
+  String get ageGateNotice;
+
   /// No description provided for @home.
   ///
   /// In en, this message translates to:
   /// **'Home'**
   String get home;
+
+  /// No description provided for @forYou.
+  ///
+  /// In en, this message translates to:
+  /// **'For you'**
+  String get forYou;
 
   /// No description provided for @live.
   ///
@@ -612,6 +654,12 @@ abstract class AppLocalizations {
   /// **'Gender'**
   String get gender;
 
+  /// No description provided for @selectYourGender.
+  ///
+  /// In en, this message translates to:
+  /// **'Select your gender to get started'**
+  String get selectYourGender;
+
   /// No description provided for @male.
   ///
   /// In en, this message translates to:
@@ -623,6 +671,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Female'**
   String get female;
+
+  /// No description provided for @yourLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Your language'**
+  String get yourLanguage;
+
+  /// No description provided for @translateMessagesForYou.
+  ///
+  /// In en, this message translates to:
+  /// **'We\'ll translate messages for you'**
+  String get translateMessagesForYou;
+
+  /// No description provided for @savingProfile.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving profile...'**
+  String get savingProfile;
 
   /// No description provided for @nonBinary.
   ///

@@ -1,9 +1,10 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../flags.dart';
 import '../../../models/models.dart';
 import '../../../services/firebase_chat_service.dart';
-import 'shake_call_button.dart';
+import '../host_card_cover_assets.dart';
 
 /// A card displaying a user's live/online status, used in all feed tabs.
 class LiveFeedCardWidget extends StatelessWidget {
@@ -13,8 +14,9 @@ class LiveFeedCardWidget extends StatelessWidget {
     required this.isTablet,
     this.showPreview = true,
     this.isJoining = false,
+    this.borderRadius,
+    this.coverAsset,
     this.onTap,
-    this.onCallTap,
     this.livePreviewWidget,
   });
 
@@ -22,13 +24,22 @@ class LiveFeedCardWidget extends StatelessWidget {
   final bool isTablet;
   final bool showPreview;
   final bool isJoining;
+  final double? borderRadius;
+  final String? coverAsset;
   final VoidCallback? onTap;
-  final VoidCallback? onCallTap;
   final Widget? livePreviewWidget;
 
   @override
   Widget build(BuildContext context) {
-    final double borderRadius = isTablet ? 44 : 34;
+    final double cardRadius = borderRadius ?? (isTablet ? 44 : 34);
+    final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final double cardTopShade = isDarkMode ? 0.30 : 0.42;
+    final double cardMiddleShade = isDarkMode ? 0.10 : 0.20;
+    final double cardBottomShade = isDarkMode ? 0.60 : 0.82;
+    final double cardTint = isDarkMode ? 0.08 : 0.18;
+    final Color? cardContour = isDarkMode
+        ? const Color(0xFFFFA726).withValues(alpha: 0.20)
+        : null;
 
     return ValueListenableBuilder<int>(
       valueListenable: FirebaseChatService.instance.presenceVersion,
@@ -40,6 +51,11 @@ class LiveFeedCardWidget extends StatelessWidget {
           );
           final String displayName =
               profile?.displayName ?? feedCard.hostDisplayName;
+          final String avatarUrl =
+              (profile?.avatarUrl ?? feedCard.hostAvatarUrl ?? '').trim();
+          final String avatarInitial = displayName.trim().isEmpty
+              ? '?'
+              : displayName.trim().substring(0, 1).toUpperCase();
           final String countryCode = profile?.countryCode.isNotEmpty == true
               ? profile!.countryCode
               : feedCard.hostCountryCode;
@@ -75,12 +91,12 @@ class LiveFeedCardWidget extends StatelessWidget {
           final bool isAway = status == 'away';
 
           return ClipRRect(
-            borderRadius: BorderRadius.circular(borderRadius),
+            borderRadius: BorderRadius.circular(cardRadius),
             child: Material(
               color: Colors.transparent,
-              borderRadius: BorderRadius.circular(borderRadius),
+              borderRadius: BorderRadius.circular(cardRadius),
               child: InkWell(
-                borderRadius: BorderRadius.circular(borderRadius),
+                borderRadius: BorderRadius.circular(cardRadius),
                 onTap: isJoining ? null : onTap,
                 child: Container(
                   decoration: const BoxDecoration(
@@ -92,6 +108,44 @@ class LiveFeedCardWidget extends StatelessWidget {
                   ),
                   child: Stack(
                     children: <Widget>[
+                      Positioned.fill(
+                        child: Image.asset(
+                          coverAsset ??
+                              HostCardCoverAssets.forUserId(
+                                feedCard.hostUserId,
+                              ),
+                          fit: BoxFit.cover,
+                          filterQuality: FilterQuality.medium,
+                          gaplessPlayback: true,
+                        ),
+                      ),
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: <Color>[
+                                Colors.black.withValues(alpha: cardTopShade),
+                                const Color(
+                                  0xFF171328,
+                                ).withValues(alpha: cardMiddleShade),
+                                Colors.black.withValues(alpha: cardBottomShade),
+                              ],
+                              stops: const <double>[0.0, 0.48, 1.0],
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: const Color(
+                              0xFF120E22,
+                            ).withValues(alpha: cardTint),
+                          ),
+                        ),
+                      ),
                       // ── top-left status badge
                       Positioned(
                         top: 16,
@@ -179,44 +233,66 @@ class LiveFeedCardWidget extends StatelessWidget {
                       Positioned(
                         bottom: 12,
                         left: 16,
-                        right: 4,
+                        right: 16,
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: <Widget>[
+                            _HostCardAvatar(
+                              avatarUrl: avatarUrl,
+                              fallbackText: avatarInitial,
+                            ),
+                            const SizedBox(width: 7),
                             Expanded(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Text(
-                                    displayName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 16,
+                              child: SizedBox(
+                                height: 28,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Text(
+                                      displayName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12.5,
+                                        height: 1.0,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    localeLine,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w500,
-                                      fontSize: 13,
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      localeLine,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w500,
+                                        fontSize: 11.5,
+                                        height: 1.0,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
-                            if (onCallTap != null)
-                              ShakeCallButton(onTap: onCallTap!),
                           ],
                         ),
                       ),
+                      if (cardContour != null)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(cardRadius),
+                                border: Border.all(
+                                  color: cardContour,
+                                  width: 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -224,6 +300,53 @@ class LiveFeedCardWidget extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _HostCardAvatar extends StatelessWidget {
+  const _HostCardAvatar({required this.avatarUrl, required this.fallbackText});
+
+  final String avatarUrl;
+  final String fallbackText;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool hasAvatar = avatarUrl.isNotEmpty;
+    return Container(
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.34),
+          width: 1,
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.40),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: CircleAvatar(
+        radius: 14,
+        backgroundColor: const Color(0xFF3A3147),
+        backgroundImage: hasAvatar
+            ? CachedNetworkImageProvider(avatarUrl)
+            : null,
+        child: hasAvatar
+            ? null
+            : Text(
+                fallbackText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
       ),
     );
   }

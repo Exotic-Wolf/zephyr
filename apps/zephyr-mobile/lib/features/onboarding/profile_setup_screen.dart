@@ -4,6 +4,18 @@ import 'package:flutter/material.dart';
 
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
+import '../../l10n/app_localizations.dart';
+
+typedef ProfileRealtimeWriter =
+    Future<void> Function({
+      required String displayName,
+      String? avatarUrl,
+      required String countryCode,
+      required String language,
+      String? birthday,
+    });
+
+typedef CountryCodeResolver = String Function();
 
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({
@@ -11,6 +23,8 @@ class ProfileSetupScreen extends StatefulWidget {
     required this.accessToken,
     required this.initialDisplayName,
     required this.onComplete,
+    this.profileWriter,
+    this.countryCodeResolver,
     super.key,
   });
 
@@ -18,6 +32,8 @@ class ProfileSetupScreen extends StatefulWidget {
   final String accessToken;
   final String initialDisplayName;
   final VoidCallback onComplete;
+  final ProfileRealtimeWriter? profileWriter;
+  final CountryCodeResolver? countryCodeResolver;
 
   @override
   State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
@@ -25,6 +41,7 @@ class ProfileSetupScreen extends StatefulWidget {
 
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final PageController _pageCtrl = PageController();
+  late final ProfileRealtimeWriter _profileWriter;
   String? _selectedGender;
   String? _selectedLanguage;
   bool _saving = false;
@@ -44,7 +61,18 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     {'code': 'ru', 'label': 'Русский', 'flag': '🇷🇺'},
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _profileWriter =
+        widget.profileWriter ?? FirebaseChatService.instance.writeMyProfile;
+  }
+
   String _detectCountryCode() {
+    final String? resolved = widget.countryCodeResolver?.call();
+    if (resolved != null && resolved.trim().isNotEmpty) {
+      return resolved.trim().toUpperCase();
+    }
     try {
       final parts = Platform.localeName.split('_');
       if (parts.length >= 2) return parts.last.substring(0, 2).toUpperCase();
@@ -79,7 +107,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         language: code,
         countryCode: country.isNotEmpty ? country : null,
       );
-      FirebaseChatService.instance.writeMyProfile(
+      await _profileWriter(
         displayName: widget.initialDisplayName,
         countryCode: country,
         language: code,
@@ -90,7 +118,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save: $e'),
+            content: Text(
+              AppLocalizations.of(context)!.failedToSaveProfile(e.toString()),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -112,10 +142,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         child: PageView(
           controller: _pageCtrl,
           physics: const NeverScrollableScrollPhysics(),
-          children: [
-            _buildGenderPage(),
-            _buildLanguagePage(),
-          ],
+          children: [_buildGenderPage(), _buildLanguagePage()],
         ),
       ),
     );
@@ -124,23 +151,23 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   // ─── Page 1: Gender ───────────────────────────────────────────────────────
 
   Widget _buildGenderPage() {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
         children: [
           const Spacer(flex: 2),
-          const Text(
-            'I am',
+          Text(
+            l10n.gender,
             style: TextStyle(
               color: Colors.white,
               fontSize: 34,
               fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Select your gender to get started',
+            l10n.selectYourGender,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.5),
               fontSize: 15,
@@ -151,17 +178,19 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             children: [
               Expanded(
                 child: _buildGenderCard(
-                  'Male',
-                  Icons.face_5_rounded,
-                  const Color(0xFF4A90D9),
+                  value: 'Male',
+                  label: l10n.male,
+                  icon: Icons.face_5_rounded,
+                  color: const Color(0xFF4A90D9),
                 ),
               ),
               const SizedBox(width: 20),
               Expanded(
                 child: _buildGenderCard(
-                  'Female',
-                  Icons.face_3_rounded,
-                  const Color(0xFFE84393),
+                  value: 'Female',
+                  label: l10n.female,
+                  icon: Icons.face_3_rounded,
+                  color: const Color(0xFFE84393),
                 ),
               ),
             ],
@@ -172,58 +201,69 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     );
   }
 
-  Widget _buildGenderCard(String gender, IconData icon, Color color) {
-    final bool selected = _selectedGender == gender;
-    return GestureDetector(
-      onTap: () => _selectGender(gender),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(vertical: 36),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: selected
-                ? [color, color.withValues(alpha: 0.7)]
-                : [color.withValues(alpha: 0.12), color.withValues(alpha: 0.06)],
-          ),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: selected ? color : color.withValues(alpha: 0.3),
-            width: selected ? 2 : 1,
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: color.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ]
-              : null,
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              size: 64,
-              color: selected
-                  ? Colors.white
-                  : color.withValues(alpha: 0.8),
+  Widget _buildGenderCard({
+    required String value,
+    required String label,
+    required IconData icon,
+    required Color color,
+  }) {
+    final bool selected = _selectedGender == value;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: GestureDetector(
+        onTap: () => _selectGender(value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 36),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: selected
+                  ? [color, color.withValues(alpha: 0.7)]
+                  : [
+                      color.withValues(alpha: 0.12),
+                      color.withValues(alpha: 0.06),
+                    ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              gender,
-              style: TextStyle(
-                color: selected
-                    ? Colors.white
-                    : Colors.white.withValues(alpha: 0.8),
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: selected ? color : color.withValues(alpha: 0.3),
+              width: selected ? 2 : 1,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                size: 64,
+                color: selected ? Colors.white : color.withValues(alpha: 0.8),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.8),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -239,6 +279,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
   Widget _buildLanguagePage() {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
@@ -249,22 +290,26 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             alignment: Alignment.centerLeft,
             child: IconButton(
               onPressed: _goBackToGender,
-              icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white70, size: 20),
+              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+              icon: const Icon(
+                Icons.arrow_back_ios_rounded,
+                color: Colors.white70,
+                size: 20,
+              ),
             ),
           ),
           const SizedBox(height: 12),
-          const Text(
-            'Your language',
+          Text(
+            l10n.yourLanguage,
             style: TextStyle(
               color: Colors.white,
               fontSize: 34,
               fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'We\'ll translate messages for you',
+            l10n.translateMessagesForYou,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.5),
               fontSize: 15,
@@ -284,47 +329,53 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               itemBuilder: (context, index) {
                 final lang = _languages[index];
                 final bool selected = _selectedLanguage == lang['code'];
-                return GestureDetector(
-                  onTap: _saving
-                      ? null
-                      : () => _selectLanguage(lang['code']!),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? const Color(0xFFFF8F00)
-                          : Colors.white.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
+                return Semantics(
+                  button: true,
+                  selected: selected,
+                  enabled: !_saving,
+                  label: lang['label'],
+                  child: GestureDetector(
+                    onTap: _saving
+                        ? null
+                        : () => _selectLanguage(lang['code']!),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      decoration: BoxDecoration(
                         color: selected
                             ? const Color(0xFFFF8F00)
-                            : Colors.white.withValues(alpha: 0.1),
+                            : Colors.white.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: selected
+                              ? const Color(0xFFFF8F00)
+                              : Colors.white.withValues(alpha: 0.1),
+                        ),
                       ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          lang['flag']!,
-                          style: const TextStyle(fontSize: 22),
-                        ),
-                        const SizedBox(width: 10),
-                        Flexible(
-                          child: Text(
-                            lang['label']!,
-                            style: TextStyle(
-                              color: selected
-                                  ? Colors.white
-                                  : Colors.white.withValues(alpha: 0.8),
-                              fontSize: 15,
-                              fontWeight: selected
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            lang['flag']!,
+                            style: const TextStyle(fontSize: 22),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              lang['label']!,
+                              style: TextStyle(
+                                color: selected
+                                    ? Colors.white
+                                    : Colors.white.withValues(alpha: 0.8),
+                                fontSize: 15,
+                                fontWeight: selected
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -332,10 +383,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ),
           ),
           if (_saving)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 32),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 32),
               child: Center(
-                child: CircularProgressIndicator(color: Color(0xFFFF8F00)),
+                child: Semantics(
+                  label: l10n.savingProfile,
+                  child: const CircularProgressIndicator(
+                    color: Color(0xFFFF8F00),
+                  ),
+                ),
               ),
             ),
         ],
