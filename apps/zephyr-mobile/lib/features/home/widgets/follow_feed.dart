@@ -12,8 +12,10 @@ class FollowFeed extends StatelessWidget {
     required this.filterCountryName,
     required this.isTablet,
     required this.onCardTap,
+    required this.onProfileTap,
     required this.onRandomMatch,
     required this.showRandomMatch,
+    this.joiningRoomId,
   });
 
   final List<LiveFeedCard> cards;
@@ -21,8 +23,10 @@ class FollowFeed extends StatelessWidget {
   final String? filterCountryName;
   final bool isTablet;
   final void Function(LiveFeedCard) onCardTap;
+  final void Function(LiveFeedCard) onProfileTap;
   final VoidCallback onRandomMatch;
   final bool showRandomMatch;
+  final String? joiningRoomId;
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +54,13 @@ class FollowFeed extends StatelessWidget {
 
     return Stack(
       children: <Widget>[
-        HostCardGrid(cards: followed, isTablet: isTablet, onCardTap: onCardTap),
+        HostCardGrid(
+          cards: followed,
+          isTablet: isTablet,
+          onCardTap: onCardTap,
+          onProfileTap: onProfileTap,
+          joiningRoomId: joiningRoomId,
+        ),
         if (showRandomMatch) _RandomMatchButton(onPressed: onRandomMatch),
       ],
     );

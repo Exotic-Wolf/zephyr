@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { DatabaseService } from '../core/database.service';
+import { DemoForYouSimulatorService } from '../core/demo-for-you-simulator.service';
 import { StoreService } from '../core/store.service';
 
 interface InternalSyncPresenceBody {
@@ -22,11 +23,18 @@ interface InternalSyncPresenceBody {
   updatedAt?: number;
 }
 
+interface DemoForYouStartBody {
+  count?: number;
+  intervals?: number[];
+  routeable?: boolean;
+}
+
 @Controller('v1')
 export class HealthController {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly storeService: StoreService,
+    private readonly demoForYouSimulator: DemoForYouSimulatorService,
   ) {}
 
   @Get('health/live')
@@ -76,6 +84,44 @@ export class HealthController {
     );
 
     return { ended: result.rowCount ?? 0 };
+  }
+
+  // ── Internal demo simulator controls ───────────────────────────────────────
+  @Get('internal/demo-for-you/status')
+  internalDemoForYouStatus(
+    @Headers('x-service-key') serviceKey: string | undefined,
+  ): ReturnType<DemoForYouSimulatorService['status']> {
+    this.assertInternalServiceKey(serviceKey);
+    return this.demoForYouSimulator.status();
+  }
+
+  @Post('internal/demo-for-you/start')
+  async internalDemoForYouStart(
+    @Headers('x-service-key') serviceKey: string | undefined,
+    @Body() body: DemoForYouStartBody = {},
+  ): Promise<ReturnType<DemoForYouSimulatorService['status']>> {
+    this.assertInternalServiceKey(serviceKey);
+    return this.demoForYouSimulator.start({
+      count: body.count,
+      intervals: body.intervals,
+      routeable: body.routeable,
+    });
+  }
+
+  @Post('internal/demo-for-you/stop')
+  internalDemoForYouStop(
+    @Headers('x-service-key') serviceKey: string | undefined,
+  ): ReturnType<DemoForYouSimulatorService['status']> {
+    this.assertInternalServiceKey(serviceKey);
+    return this.demoForYouSimulator.stop();
+  }
+
+  @Post('internal/demo-for-you/cleanup')
+  async internalDemoForYouCleanup(
+    @Headers('x-service-key') serviceKey: string | undefined,
+  ): Promise<{ removedHosts: number; removedRooms: number }> {
+    this.assertInternalServiceKey(serviceKey);
+    return this.demoForYouSimulator.cleanup();
   }
 
   // ── Internal endpoint for Cloud Functions ──────────────────────────────────
@@ -148,5 +194,12 @@ export class HealthController {
       updatedAt: body.updatedAt,
     });
     return { status: 'synced' };
+  }
+
+  private assertInternalServiceKey(serviceKey: string | undefined): void {
+    const expectedKey = process.env.SERVICE_KEY;
+    if (!expectedKey || serviceKey !== expectedKey) {
+      throw new UnauthorizedException('Invalid service key');
+    }
   }
 }

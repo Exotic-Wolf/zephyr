@@ -17,6 +17,7 @@ class LiveFeedCardWidget extends StatelessWidget {
     this.borderRadius,
     this.coverAsset,
     this.onTap,
+    this.onProfileTap,
     this.livePreviewWidget,
   });
 
@@ -27,6 +28,7 @@ class LiveFeedCardWidget extends StatelessWidget {
   final double? borderRadius;
   final String? coverAsset;
   final VoidCallback? onTap;
+  final VoidCallback? onProfileTap;
   final Widget? livePreviewWidget;
 
   @override
@@ -65,12 +67,36 @@ class LiveFeedCardWidget extends StatelessWidget {
           final String localeLine = showPreview
               ? '${CountryFlags.flagEmoji(countryCode)} $countryCode $language'
               : '${CountryFlags.flagEmoji(countryCode)} $countryCode';
-          final String status =
-              FirebaseChatService.instance.presenceStateCached(
-                feedCard.hostUserId,
-              ) ??
-              feedCard.hostStatus;
+          final String fallbackCoverAsset = HostCardCoverAssets.forUser(
+            userId: feedCard.hostUserId,
+            displayName: feedCard.hostDisplayName,
+            countryCode: feedCard.hostCountryCode,
+          );
+          final String coverSource =
+              (coverAsset ?? feedCard.hostCoverUrl ?? fallbackCoverAsset)
+                  .trim();
+          final String? cachedPresence = FirebaseChatService.instance
+              .presenceStateCached(feedCard.hostUserId)
+              ?.trim()
+              .toLowerCase();
+          final String feedStatus = feedCard.hostStatus.trim().toLowerCase();
+          final bool hasLiveRoom =
+              (feedCard.roomId?.trim().isNotEmpty ?? false);
+          String status = cachedPresence ?? feedStatus;
+          if (hasLiveRoom &&
+              (feedStatus == 'live' || feedStatus == 'premium_live')) {
+            status = feedStatus;
+          } else if (hasLiveRoom &&
+              (status.isEmpty ||
+                  status == 'offline' ||
+                  status == 'online' ||
+                  status == 'away')) {
+            status = 'live';
+          }
           final bool isLive = status == 'live' || status == 'premium_live';
+          final String viewerCountLabel = _formatViewerCount(
+            feedCard.audienceCount,
+          );
 
           final Color statusDot = switch (status) {
             'premium_live' => const Color(0xFFFF2D55),
@@ -109,14 +135,9 @@ class LiveFeedCardWidget extends StatelessWidget {
                   child: Stack(
                     children: <Widget>[
                       Positioned.fill(
-                        child: Image.asset(
-                          coverAsset ??
-                              HostCardCoverAssets.forUserId(
-                                feedCard.hostUserId,
-                              ),
-                          fit: BoxFit.cover,
-                          filterQuality: FilterQuality.medium,
-                          gaplessPlayback: true,
+                        child: _HostCoverImage(
+                          source: coverSource,
+                          fallbackAsset: fallbackCoverAsset,
                         ),
                       ),
                       Positioned.fill(
@@ -198,6 +219,12 @@ class LiveFeedCardWidget extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (!showPreview && isLive)
+                        Positioned(
+                          top: 16,
+                          right: 16,
+                          child: _ViewerCountBadge(label: viewerCountLabel),
+                        ),
                       // ── joining overlay
                       Positioned(
                         top: 20,
@@ -234,49 +261,54 @@ class LiveFeedCardWidget extends StatelessWidget {
                         bottom: 12,
                         left: 16,
                         right: 16,
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: <Widget>[
-                            _HostCardAvatar(
-                              avatarUrl: avatarUrl,
-                              fallbackText: avatarInitial,
-                            ),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: SizedBox(
-                                height: 28,
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: <Widget>[
-                                    Text(
-                                      displayName,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 12.5,
-                                        height: 1.0,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: onProfileTap,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: <Widget>[
+                              _HostCardAvatar(
+                                avatarUrl: avatarUrl,
+                                fallbackText: avatarInitial,
+                              ),
+                              const SizedBox(width: 7),
+                              Expanded(
+                                child: SizedBox(
+                                  height: 28,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Text(
+                                        displayName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 12.5,
+                                          height: 1.0,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 1),
-                                    Text(
-                                      localeLine,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w500,
-                                        fontSize: 11.5,
-                                        height: 1.0,
+                                      const SizedBox(height: 1),
+                                      Text(
+                                        localeLine,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 11.5,
+                                          height: 1.0,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                       if (cardContour != null)
@@ -300,6 +332,81 @@ class LiveFeedCardWidget extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+String _formatViewerCount(int value) {
+  if (value >= 1000000) {
+    final double compact = value / 1000000;
+    return '${compact.toStringAsFixed(compact >= 10 ? 0 : 1)}M';
+  }
+  if (value >= 1000) {
+    final double compact = value / 1000;
+    return '${compact.toStringAsFixed(compact >= 10 ? 0 : 1)}K';
+  }
+  return value.toString();
+}
+
+class _ViewerCountBadge extends StatelessWidget {
+  const _ViewerCountBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.visibility_rounded, color: Colors.white, size: 12),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HostCoverImage extends StatelessWidget {
+  const _HostCoverImage({required this.source, required this.fallbackAsset});
+
+  final String source;
+  final String fallbackAsset;
+
+  @override
+  Widget build(BuildContext context) {
+    if (HostCardCoverAssets.isBundledAsset(source)) {
+      return Image.asset(
+        source,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
+        gaplessPlayback: true,
+      );
+    }
+
+    return CachedNetworkImage(
+      imageUrl: source,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.medium,
+      fadeInDuration: const Duration(milliseconds: 120),
+      errorWidget: (context, _, __) => Image.asset(
+        fallbackAsset,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
       ),
     );
   }

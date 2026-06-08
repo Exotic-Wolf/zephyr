@@ -13,6 +13,7 @@ import '../me/me_tab.dart';
 import '../me/balance_page.dart';
 import '../explore/explore_page.dart';
 import '../live/go_live_countdown_page.dart';
+import '../live/viewer_live_screen.dart';
 import '../chat/inbox_firebase_page.dart';
 import '../profile/profile_page.dart';
 import '../../app_constants.dart';
@@ -51,6 +52,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  static const int _forYouPageSize = 24;
+
   UserProfile? _me;
   WalletSummary? _wallet;
   List<LiveFeedCard> _feedCards = <LiveFeedCard>[];
@@ -65,6 +68,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription<List<FirebaseConversation>>? _inboxBadgeSub;
   String? _error;
   int _inboxUnreadTotal = 0;
+  String? _joiningRoomId;
+  int _feedOffset = 0;
+  bool _hasMoreFeedCards = true;
+  bool _loadingMoreFeedCards = false;
 
   // ── Incoming call state ───────────────────────────────────────────────────
   StreamSubscription<DatabaseEvent>? _incomingCallSub;
@@ -495,7 +502,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       final List<dynamic> data = await Future.wait<dynamic>(<Future<dynamic>>[
         widget.apiClient.getMe(widget.accessToken),
-        widget.apiClient.listLiveFeed(widget.accessToken),
+        widget.apiClient.listLiveFeed(
+          widget.accessToken,
+          limit: _forYouPageSize,
+          liveOnly: true,
+        ),
         widget.apiClient.getFollowingIds(widget.accessToken),
       ]);
 
@@ -510,9 +521,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _me = me;
         _followingIds = followingIds;
         final incoming = <LiveFeedCard>[
-          ...feedCards.where((LiveFeedCard c) => _isVisibleHostCard(c, me.id)),
+          ...feedCards.where(
+            (LiveFeedCard c) => _isVisibleHostCard(c, me.id) && _isLiveCard(c),
+          ),
         ];
         _rankFeed(incoming);
+        _feedOffset = feedCards.length;
+        _hasMoreFeedCards = feedCards.length == _forYouPageSize;
+        _loadingMoreFeedCards = false;
       });
       _refreshWallet().ignore();
       // Start listening for incoming calls now that we have userId
@@ -662,16 +678,61 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       final List<LiveFeedCard> feedCards = await widget.apiClient.listLiveFeed(
         widget.accessToken,
+        limit: _forYouPageSize,
+        liveOnly: true,
       );
       if (!mounted) return;
       final incoming = <LiveFeedCard>[
-        ...feedCards.where((LiveFeedCard c) => _isVisibleHostCard(c, _me?.id)),
+        ...feedCards.where(
+          (LiveFeedCard c) => _isVisibleHostCard(c, _me?.id) && _isLiveCard(c),
+        ),
       ];
-      _rankFeed(incoming);
-      if (_selectedTabIndex == 0) setState(() {});
+      setState(() {
+        _rankFeed(incoming);
+        _feedOffset = feedCards.length;
+        _hasMoreFeedCards = feedCards.length == _forYouPageSize;
+        _loadingMoreFeedCards = false;
+      });
     } catch (_) {
       // ignore — next poll will retry
     }
+  }
+
+  Future<void> _loadMoreFeedCards() async {
+    if (_loadingMoreFeedCards || !_hasMoreFeedCards || !mounted) return;
+
+    setState(() => _loadingMoreFeedCards = true);
+    try {
+      final List<LiveFeedCard> feedCards = await widget.apiClient.listLiveFeed(
+        widget.accessToken,
+        limit: _forYouPageSize,
+        offset: _feedOffset,
+        liveOnly: true,
+      );
+      if (!mounted) return;
+      final List<LiveFeedCard> incoming = feedCards
+          .where(
+            (LiveFeedCard c) =>
+                _isVisibleHostCard(c, _me?.id) && _isLiveCard(c),
+          )
+          .toList();
+      setState(() {
+        final Map<String, LiveFeedCard> merged = <String, LiveFeedCard>{
+          for (final LiveFeedCard card in _feedCards) _feedCardKey(card): card,
+          for (final LiveFeedCard card in incoming) _feedCardKey(card): card,
+        };
+        _rankFeed(merged.values.toList());
+        _feedOffset += feedCards.length;
+        _hasMoreFeedCards = feedCards.length == _forYouPageSize;
+        _loadingMoreFeedCards = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMoreFeedCards = false);
+    }
+  }
+
+  String _feedCardKey(LiveFeedCard card) {
+    return card.roomId?.isNotEmpty == true ? card.roomId! : card.hostUserId;
   }
 
   /// Ranks host cards so Following can show the most available hosts first.
@@ -716,6 +777,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (card.hostUserId == myUserId) return false;
     final String? gender = card.hostGender?.trim().toLowerCase();
     return gender == null || gender.isEmpty || gender == 'female';
+  }
+
+  bool _isLiveCard(LiveFeedCard card) {
+    final String status = card.hostStatus.trim().toLowerCase();
+    return card.roomId?.isNotEmpty == true ||
+        status == 'live' ||
+        status == 'premium_live';
   }
 
   Widget _buildInboxNavIcon({required bool selected, required bool isDark}) {
@@ -768,6 +836,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _openLiveRoom(LiveFeedCard feedCard) async {
+    final String? roomId = feedCard.roomId;
+    final UserProfile? me = _me;
+    if (roomId == null || roomId.isEmpty || me == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This host is not live right now.')),
+      );
+      return;
+    }
+
+    int viewerCount = feedCard.audienceCount;
+    if (mounted) setState(() => _joiningRoomId = roomId);
+    try {
+      final Room room = await widget.apiClient.joinRoom(
+        widget.accessToken,
+        roomId,
+      );
+      viewerCount = room.audienceCount;
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not enter this live.')),
+      );
+      await _loadData();
+      return;
+    } finally {
+      if (mounted) setState(() => _joiningRoomId = null);
+    }
+
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => ViewerLiveScreen(
+          feedCard: feedCard,
+          apiClient: widget.apiClient,
+          accessToken: widget.accessToken,
+          myUserId: me.id,
+          myDisplayName: me.displayName,
+          onLeave: () => _loadData().ignore(),
+          initialViewerCount: viewerCount,
+          didJoin: true,
+        ),
+      ),
+    );
+    if (mounted) await _loadData();
+  }
+
   Future<void> _openProfilePage(LiveFeedCard feedCard) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -798,7 +914,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return ForYouFeed(
       cards: _feedCards,
       isTablet: MediaQuery.sizeOf(context).width >= tabletBreakpoint,
-      onCardTap: _openProfilePage,
+      onCardTap: _openLiveRoom,
+      onProfileTap: _openProfilePage,
+      onRefresh: _refreshFeed,
+      onLoadMore: () => _loadMoreFeedCards().ignore(),
+      onRandomMatch: _startRandomMatchFromHome,
+      showRandomMatch: _me?.isHost == false,
+      hasMore: _hasMoreFeedCards,
+      isLoadingMore: _loadingMoreFeedCards,
+      joiningRoomId: _joiningRoomId,
     );
   }
 
@@ -808,9 +932,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       followingIds: _followingIds,
       filterCountryName: null,
       isTablet: isTablet,
-      onCardTap: _openProfilePage,
+      onCardTap: _openLiveRoom,
+      onProfileTap: _openProfilePage,
       onRandomMatch: _startRandomMatchFromHome,
       showRandomMatch: _me?.isHost == false,
+      joiningRoomId: _joiningRoomId,
     );
   }
 

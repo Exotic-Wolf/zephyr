@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import * as admin from 'firebase-admin';
+import { admin, ensureFirebaseAdminInitialized } from './firebase-admin';
 
 @Injectable()
 export class FcmService implements OnModuleInit {
@@ -7,26 +7,11 @@ export class FcmService implements OnModuleInit {
   private initialized = false;
 
   onModuleInit() {
-    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-    if (!serviceAccountJson) {
+    this.initialized = ensureFirebaseAdminInitialized(this.logger);
+    if (!this.initialized) {
       this.logger.warn(
         'FIREBASE_SERVICE_ACCOUNT_JSON not set — push notifications disabled',
       );
-      return;
-    }
-    try {
-      const serviceAccount = JSON.parse(serviceAccountJson);
-      const databaseURL =
-        process.env.FIREBASE_DATABASE_URL ||
-        `https://${serviceAccount.project_id}-default-rtdb.asia-southeast1.firebasedatabase.app`;
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        databaseURL,
-      });
-      this.initialized = true;
-      this.logger.log('Firebase Admin SDK initialized');
-    } catch (err) {
-      this.logger.error('Failed to initialize Firebase Admin SDK', err);
     }
   }
 

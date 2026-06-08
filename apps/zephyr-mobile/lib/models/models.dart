@@ -436,6 +436,7 @@ class LiveFeedCard {
     required this.hostUserId,
     required this.hostDisplayName,
     required this.hostAvatarUrl,
+    this.hostCoverUrl,
     this.hostGender,
     required this.hostCountryCode,
     required this.hostLanguage,
@@ -450,6 +451,7 @@ class LiveFeedCard {
   final String hostUserId;
   final String hostDisplayName;
   final String? hostAvatarUrl;
+  final String? hostCoverUrl;
   final String? hostGender;
   final String hostCountryCode;
   final String hostLanguage;
@@ -467,6 +469,7 @@ class LiveFeedCard {
       hostUserId: json['hostUserId'] as String,
       hostDisplayName: json['hostDisplayName'] as String,
       hostAvatarUrl: json['hostAvatarUrl'] as String?,
+      hostCoverUrl: json['hostCoverUrl'] as String?,
       hostGender: json['hostGender'] as String?,
       hostCountryCode: (json['hostCountryCode'] as String? ?? 'PH')
           .trim()
@@ -487,6 +490,7 @@ class LiveFeedCard {
     int? audienceCount,
     String? hostDisplayName,
     String? hostAvatarUrl,
+    String? hostCoverUrl,
     String? hostGender,
   }) {
     return LiveFeedCard(
@@ -496,6 +500,7 @@ class LiveFeedCard {
       hostUserId: hostUserId,
       hostDisplayName: hostDisplayName ?? this.hostDisplayName,
       hostAvatarUrl: hostAvatarUrl ?? this.hostAvatarUrl,
+      hostCoverUrl: hostCoverUrl ?? this.hostCoverUrl,
       hostGender: hostGender ?? this.hostGender,
       hostCountryCode: hostCountryCode,
       hostLanguage: hostLanguage,

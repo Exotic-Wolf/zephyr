@@ -382,10 +382,12 @@ class ZephyrApiClient {
   Future<List<LiveFeedCard>> listLiveFeed(
     String accessToken, {
     int limit = 20,
+    int offset = 0,
+    bool liveOnly = false,
   }) async {
     final dynamic data = await _request(
       method: 'GET',
-      path: '/v1/feed/live?limit=$limit',
+      path: '/v1/feed/live?limit=$limit&offset=$offset&liveOnly=$liveOnly',
       accessToken: accessToken,
     );
 

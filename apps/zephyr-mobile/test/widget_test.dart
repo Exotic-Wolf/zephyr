@@ -147,6 +147,7 @@ void main() {
           filterCountryName: null,
           isTablet: false,
           onCardTap: (_) {},
+          onProfileTap: (_) {},
           onRandomMatch: () {},
           showRandomMatch: true,
         ),
@@ -167,6 +168,7 @@ void main() {
           filterCountryName: null,
           isTablet: false,
           onCardTap: (_) {},
+          onProfileTap: (_) {},
           onRandomMatch: () {},
           showRandomMatch: false,
         ),
@@ -179,16 +181,11 @@ void main() {
   test('host card cover assignment is stable and local', () {
     final String first = HostCardCoverAssets.forUserId('host-1');
     final String second = HostCardCoverAssets.forUserId('host-1');
-    final List<String> visibleCovers = HostCardCoverAssets.forVisibleGrid(
-      <String>['host-1', 'host-1', 'host-1', 'host-1', 'host-1'],
-    );
 
     expect(first, second);
     expect(first, startsWith('assets/images/host_covers/'));
     expect(HostCardCoverAssets.all, hasLength(6));
     expect(HostCardCoverAssets.all.toSet(), hasLength(6));
-    expect(visibleCovers.take(4).toSet(), hasLength(4));
-    expect(visibleCovers[4], first);
   });
 
   testWidgets('zephyr header replaces Me tab with avatar and wallet access', (

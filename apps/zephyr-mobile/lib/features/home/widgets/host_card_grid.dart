@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../models/models.dart';
-import '../host_card_cover_assets.dart';
 import 'live_feed_card.dart';
 
 class HostCardGrid extends StatelessWidget {
@@ -10,20 +9,27 @@ class HostCardGrid extends StatelessWidget {
     required this.cards,
     required this.isTablet,
     required this.onCardTap,
+    required this.onProfileTap,
+    this.joiningRoomId,
+    this.onLoadMore,
+    this.hasMore = false,
+    this.isLoadingMore = false,
   });
 
   final List<LiveFeedCard> cards;
   final bool isTablet;
   final void Function(LiveFeedCard) onCardTap;
+  final void Function(LiveFeedCard) onProfileTap;
+  final String? joiningRoomId;
+  final VoidCallback? onLoadMore;
+  final bool hasMore;
+  final bool isLoadingMore;
 
   @override
   Widget build(BuildContext context) {
     if (cards.isEmpty) {
       return const SizedBox.expand();
     }
-    final List<String> coverAssets = HostCardCoverAssets.forVisibleGrid(
-      cards.map((LiveFeedCard card) => card.hostUserId).toList(),
-    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -35,26 +41,38 @@ class HostCardGrid extends StatelessWidget {
         final double cardHeight = ((gridHeight - padding.vertical - gap) / 2)
             .clamp(220, 520);
 
-        return GridView.builder(
-          padding: padding,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: gap,
-            mainAxisSpacing: gap,
-            mainAxisExtent: cardHeight,
-          ),
-          itemCount: cards.length,
-          itemBuilder: (BuildContext context, int index) {
-            final LiveFeedCard card = cards[index];
-            return LiveFeedCardWidget(
-              feedCard: card,
-              isTablet: isTablet,
-              showPreview: false,
-              borderRadius: isTablet ? 10 : 7,
-              coverAsset: coverAssets[index],
-              onTap: () => onCardTap(card),
-            );
+        return NotificationListener<ScrollNotification>(
+          onNotification: (ScrollNotification notification) {
+            if (hasMore &&
+                !isLoadingMore &&
+                notification.metrics.extentAfter < cardHeight * 1.5) {
+              onLoadMore?.call();
+            }
+            return false;
           },
+          child: GridView.builder(
+            padding: padding,
+            physics: const AlwaysScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: gap,
+              mainAxisSpacing: gap,
+              mainAxisExtent: cardHeight,
+            ),
+            itemCount: cards.length,
+            itemBuilder: (BuildContext context, int index) {
+              final LiveFeedCard card = cards[index];
+              return LiveFeedCardWidget(
+                feedCard: card,
+                isTablet: isTablet,
+                showPreview: false,
+                isJoining: card.roomId != null && card.roomId == joiningRoomId,
+                borderRadius: isTablet ? 10 : 7,
+                onTap: () => onCardTap(card),
+                onProfileTap: () => onProfileTap(card),
+              );
+            },
+          ),
         );
       },
     );

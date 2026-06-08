@@ -11,35 +11,41 @@ class HostCardCoverAssets {
   ];
 
   static String forUserId(String userId) {
-    return all[_preferredIndex(userId)];
+    return forUser(userId: userId);
   }
 
-  static List<String> forVisibleGrid(List<String> userIds) {
-    final List<String> assets = <String>[];
-    final Set<int> usedInViewport = <int>{};
-
-    for (int index = 0; index < userIds.length; index += 1) {
-      if (index % 4 == 0) {
-        usedInViewport.clear();
-      }
-
-      int assetIndex = _preferredIndex(userIds[index]);
-      while (usedInViewport.contains(assetIndex)) {
-        assetIndex = (assetIndex + 1) % all.length;
-      }
-
-      usedInViewport.add(assetIndex);
-      assets.add(all[assetIndex]);
-    }
-
-    return assets;
+  static String forUser({
+    required String userId,
+    String? displayName,
+    String? countryCode,
+  }) {
+    return all[_preferredIndex(_seedFor(userId, displayName, countryCode))];
   }
 
-  static int _preferredIndex(String userId) {
-    if (userId.isEmpty) return 0;
-    int hash = 5381;
-    for (final int codeUnit in userId.codeUnits) {
-      hash = ((hash << 5) + hash + codeUnit) & 0x7FFFFFFF;
+  static bool isBundledAsset(String value) {
+    return value.trim().startsWith('assets/');
+  }
+
+  static String _seedFor(
+    String userId,
+    String? displayName,
+    String? countryCode,
+  ) {
+    final String name = displayName?.trim() ?? '';
+    final String country = countryCode?.trim().toUpperCase() ?? '';
+    return <String>[
+      if (name.isNotEmpty) name,
+      if (country.isNotEmpty) country,
+      userId,
+    ].join('|');
+  }
+
+  static int _preferredIndex(String seed) {
+    if (seed.isEmpty) return 0;
+    int hash = 0x811C9DC5;
+    for (final int codeUnit in seed.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 0x01000193) & 0xFFFFFFFF;
     }
     return hash % all.length;
   }

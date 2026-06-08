@@ -18,6 +18,7 @@
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
+    "demo:for-you": "node scripts/demo-for-you-hosts.mjs",
     "smoke": "node scripts/smoke.mjs",
     "smoke:db": "node scripts/smoke-db.mjs",
     "test:db:race": "ZEPHYR_RUN_DB_RACE_TESTS=true jest core/store.service.db.spec.ts --runInBand",

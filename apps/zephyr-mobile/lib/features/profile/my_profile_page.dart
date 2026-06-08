@@ -12,6 +12,7 @@ import '../../services/firebase_chat_service.dart';
 import '../../widgets/language_picker_sheet.dart';
 import 'profile_page.dart';
 import '../../l10n/app_localizations.dart';
+import '../home/host_card_cover_assets.dart';
 
 class MyProfilePage extends StatefulWidget {
   const MyProfilePage({
@@ -88,6 +89,12 @@ class _MyProfilePageState extends State<MyProfilePage> {
   }
 
   String get _userId => widget.me?.publicId ?? '—';
+
+  ImageProvider _coverImageProvider(String coverUrl) {
+    return HostCardCoverAssets.isBundledAsset(coverUrl)
+        ? AssetImage(coverUrl)
+        : CachedNetworkImageProvider(coverUrl);
+  }
 
   UserProfile? _copyCurrentProfile({
     String? displayName,
@@ -397,7 +404,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
                 color: isDark ? const Color(0xFF1E1E2E) : Colors.grey.shade200,
                 image: _coverUrl != null
                     ? DecorationImage(
-                        image: CachedNetworkImageProvider(_coverUrl!),
+                        image: _coverImageProvider(_coverUrl!),
                         fit: BoxFit.cover,
                       )
                     : null,
@@ -811,6 +818,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
                       hostUserId: me?.id ?? '',
                       hostDisplayName: me?.displayName ?? '',
                       hostAvatarUrl: me?.avatarUrl,
+                      hostCoverUrl: me?.coverUrl,
                       hostCountryCode: me?.countryCode ?? '',
                       hostLanguage: me?.language ?? '',
                       hostStatus: 'online',

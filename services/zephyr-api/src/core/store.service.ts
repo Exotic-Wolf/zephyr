@@ -24,6 +24,52 @@ function derivePublicId(uuid: string, attempt = 0): string {
   return Math.abs(h).toString().padStart(8, '0').substring(0, 8);
 }
 
+const DEFAULT_HOST_COVER_ASSETS = [
+  'assets/images/host_covers/host_cover_jazz.jpg',
+  'assets/images/host_covers/host_cover_beach.jpg',
+  'assets/images/host_covers/host_cover_club.jpg',
+  'assets/images/host_covers/host_cover_rooftop.jpg',
+  'assets/images/host_covers/host_cover_cafe.jpg',
+  'assets/images/host_covers/host_cover_music.jpg',
+] as const;
+
+function defaultHostCoverForUser(
+  userId: string,
+  displayName?: string | null,
+  countryCode?: string | null,
+): string {
+  const seed = [
+    displayName?.trim(),
+    countryCode?.trim().toUpperCase(),
+    userId,
+  ]
+    .filter(Boolean)
+    .join('|');
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  const index = hash % DEFAULT_HOST_COVER_ASSETS.length;
+  return DEFAULT_HOST_COVER_ASSETS[index];
+}
+
+function hostCoverOrDefault(
+  userId: string,
+  gender: string | null | undefined,
+  coverUrl: string | null | undefined,
+  displayName?: string | null,
+  countryCode?: string | null,
+): string | null {
+  const normalizedCoverUrl = coverUrl?.trim();
+  if (normalizedCoverUrl) {
+    return normalizedCoverUrl;
+  }
+  return gender === 'Female'
+    ? defaultHostCoverForUser(userId, displayName, countryCode)
+    : null;
+}
+
 export interface UserProfile {
   id: string;
   publicId: string | null;
@@ -60,6 +106,7 @@ export interface LiveFeedCard {
   hostUserId: string;
   hostDisplayName: string;
   hostAvatarUrl: string | null;
+  hostCoverUrl: string | null;
   hostGender: string | null;
   hostCountryCode: string;
   hostLanguage: string;
@@ -1033,11 +1080,17 @@ export class StoreService implements OnModuleInit {
       const currentUser = this.toUserProfile(currentResult.rows[0]);
       const nextDisplayName = updates.displayName?.trim() || currentUser.displayName;
       const nextAvatarUrl = updates.avatarUrl !== undefined ? updates.avatarUrl : currentUser.avatarUrl;
-      const nextCoverUrl = updates.coverUrl !== undefined ? updates.coverUrl : currentUser.coverUrl;
       const nextBio = updates.bio !== undefined ? updates.bio : currentUser.bio;
       const nextGender = updates.gender !== undefined ? updates.gender : currentUser.gender;
-      const nextBirthday = updates.birthday !== undefined ? updates.birthday : currentUser.birthday;
       const nextCountryCode = updates.countryCode !== undefined ? updates.countryCode : currentUser.countryCode;
+      const nextCoverUrl = hostCoverOrDefault(
+        userId,
+        nextGender,
+        updates.coverUrl !== undefined ? updates.coverUrl : currentUser.coverUrl,
+        nextDisplayName,
+        nextCountryCode,
+      );
+      const nextBirthday = updates.birthday !== undefined ? updates.birthday : currentUser.birthday;
       const nextLanguage = updates.language !== undefined ? updates.language : currentUser.language;
       const nextCallRate = updates.callRateCoinsPerMinute !== undefined ? updates.callRateCoinsPerMinute : currentUser.callRateCoinsPerMinute;
       const nextPublicId = updates.publicId !== undefined ? updates.publicId : currentUser.publicId;
@@ -1085,14 +1138,22 @@ export class StoreService implements OnModuleInit {
     if (!user) {
       throw new NotFoundException('User not found');
     }
+    const nextGender = updates.gender !== undefined ? updates.gender : user.gender;
+    const nextCoverUrl = hostCoverOrDefault(
+      userId,
+      nextGender,
+      updates.coverUrl !== undefined ? updates.coverUrl : user.coverUrl,
+      updates.displayName?.trim() || user.displayName,
+      updates.countryCode !== undefined ? updates.countryCode : user.countryCode,
+    );
 
     const nextUser: UserProfile = {
       ...user,
       displayName: updates.displayName?.trim() || user.displayName,
       avatarUrl: updates.avatarUrl !== undefined ? updates.avatarUrl : user.avatarUrl,
-      coverUrl: updates.coverUrl !== undefined ? updates.coverUrl : user.coverUrl,
+      coverUrl: nextCoverUrl,
       bio: updates.bio !== undefined ? updates.bio : user.bio,
-      gender: updates.gender !== undefined ? updates.gender : user.gender,
+      gender: nextGender,
       isHost: updates.gender !== undefined ? updates.gender === 'Female' : user.isHost,
       birthday: updates.birthday !== undefined ? updates.birthday : user.birthday,
       countryCode: updates.countryCode !== undefined ? updates.countryCode : user.countryCode,
@@ -1204,16 +1265,24 @@ export class StoreService implements OnModuleInit {
     });
   }
 
-  async listLiveFeed(limit = 50): Promise<LiveFeedCard[]> {
+  async listLiveFeed(
+    limit = 50,
+    options: { offset?: number; liveOnly?: boolean } = {},
+  ): Promise<LiveFeedCard[]> {
     const normalizedLimit = Number.isFinite(limit)
       ? Math.min(Math.max(Math.trunc(limit), 1), 100)
       : 50;
+    const normalizedOffset = Number.isFinite(options.offset)
+      ? Math.max(Math.trunc(options.offset ?? 0), 0)
+      : 0;
+    const liveOnly = options.liveOnly === true;
 
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{
         host_user_id: string;
         host_display_name: string;
         host_avatar_url: string | null;
+        host_cover_url: string | null;
         host_gender: string | null;
         host_country_code: string | null;
         host_language: string | null;
@@ -1229,6 +1298,7 @@ export class StoreService implements OnModuleInit {
             users.id            AS host_user_id,
             users.display_name  AS host_display_name,
             users.avatar_url    AS host_avatar_url,
+            users.cover_url     AS host_cover_url,
             users.gender        AS host_gender,
             users.country_code  AS host_country_code,
             users.language      AS host_language,
@@ -1243,13 +1313,16 @@ export class StoreService implements OnModuleInit {
           WHERE users.provider IS NOT NULL
             AND users.is_host = TRUE
             AND users.gender = 'Female'
+            ${liveOnly ? 'AND rooms.id IS NOT NULL' : ''}
           ORDER BY
             (rooms.id IS NOT NULL) DESC,
             rooms.audience_count DESC NULLS LAST,
+            rooms.created_at DESC NULLS LAST,
             users.display_name ASC
           LIMIT $1
+          OFFSET $2
         `,
-        [normalizedLimit],
+        [normalizedLimit, normalizedOffset],
       );
 
       return result.rows.map((row) => ({
@@ -1259,6 +1332,13 @@ export class StoreService implements OnModuleInit {
         hostUserId: row.host_user_id,
         hostDisplayName: row.host_display_name,
         hostAvatarUrl: row.host_avatar_url,
+        hostCoverUrl: hostCoverOrDefault(
+          row.host_user_id,
+          row.host_gender,
+          row.host_cover_url,
+          row.host_display_name,
+          row.host_country_code,
+        ),
         hostGender: row.host_gender,
         hostCountryCode: row.host_country_code ?? 'PH',
         hostLanguage: row.host_language ?? 'English',
@@ -1284,6 +1364,13 @@ export class StoreService implements OnModuleInit {
           hostUserId: u.id,
           hostDisplayName: u.displayName,
           hostAvatarUrl: u.avatarUrl ?? null,
+          hostCoverUrl: hostCoverOrDefault(
+            u.id,
+            u.gender,
+            u.coverUrl,
+            u.displayName,
+            u.countryCode,
+          ),
           hostGender: u.gender ?? null,
           hostCountryCode: u.countryCode ?? 'PH',
           hostLanguage: u.language ?? 'English',
@@ -1292,12 +1379,13 @@ export class StoreService implements OnModuleInit {
           startedAt: room?.createdAt ?? new Date().toISOString(),
         };
       })
+      .filter((card) => !liveOnly || card.roomId !== null)
       .sort((a, b) => {
         if (a.hostStatus === 'live' && b.hostStatus !== 'live') return -1;
         if (b.hostStatus === 'live' && a.hostStatus !== 'live') return 1;
         return b.audienceCount - a.audienceCount;
       })
-      .slice(0, normalizedLimit);
+      .slice(normalizedOffset, normalizedOffset + normalizedLimit);
   }
 
   async getRoomHostUserId(roomId: string): Promise<string | null> {

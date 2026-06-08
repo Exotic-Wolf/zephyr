@@ -82,11 +82,14 @@ When the app direction changes, do not patch around stale wording. Replace it, d
 | P0 | Done | Codex | Wire realtime and backend ledger gates into CI/default checks | Root `pnpm check` runs RTDB + Firestore + Storage rules, backend test/build, and GitHub Actions runs RTDB/Firestore/Storage rules, backend tests, DB race tests, and backend build |
 | P0 | Done | Codex | Replace stale Flutter widget test harness | Widget tests now cover current OAuth/legal surface, no guest copy, cancellation copy, profile setup ordering, following-response parsing, Follow empty state, and call safety/post-call reporting; `flutter test` passed 6/6 on 7 Jun 2026 |
 | P1 | Done | Codex | Wire follow/profile/feed host model end-to-end | Mobile now accepts the deployed following-ID response shape, ProfilePage follow/unfollow calls backend endpoints, follower counts come from Postgres profile responses, Following has an empty state, and feed cards open host/profile discovery instead of starting immediate direct calls |
-| P1 | Done | Codex | Add lightweight host card cover fallback | Added six optimized local 540x960 cover assets (jazz, beach, club, rooftop, cafe, music), deterministic user-id preference with visible-grid de-duplication, and card scrims so feed cards feel alive without network, storage, or fake-person defaults |
+| P1 | Done | Codex | Add host card cover defaults | Added six optimized local 540x960 cover assets (jazz, beach, club, rooftop, cafe, music); female host onboarding now persists one identity-seeded default cover when `cover_url` is empty, feed cards consume `hostCoverUrl`, uploaded covers replace the default, and identity-seeded local fallback remains only for old/offline data |
 | P1 | Done | Codex | Filter customer/boy accounts out of host feed | Backend `/v1/feed/live` now returns only `is_host = true` + `gender = Female` users; database startup backfills Female accounts into host status and removes legacy host status from non-female rows; in-memory fallback matches production behavior; unit coverage proves a customer live room does not enter the host feed |
 | P1 | Done | Codex | Move Me entry into app header | Root shell now has a reusable Zephyr header with avatar/profile access plus customer coin/recharge or host spark balance; Me is no longer a footer destination |
 | P1 | Done | Codex | Move Follow out of Home into footer Following tab | Followed hosts live in the second footer destination, Following, matching the cleaner Tango-style information architecture |
 | P1 | Done | Codex | Replace old Home shell with For you card grid | Extreme-left footer tab is now For you with the shared Zephyr header and a dense Tango-style 2x2 host card grid using thin gutters and barely-rounded cards |
+| P1 | Direction locked | User/Codex | Rework For you into Tango-style live discovery | For you is not a low-inventory directory: it must scale to hundreds/thousands of live host/girl cards, show live supply first, avoid user-facing filters, support pull-to-refresh, lazy loading, viewer counts, body-tap live entry, identity-strip profile entry, and later live preview/hide-chrome polish |
+| P1 | Done | Codex | Implement launch-minimum For you live discovery core | For you now requests live-only paged feed data, removes normal placeholder/offline cards, shows viewer counts, supports pull-to-refresh, triggers lazy loading near the end of the grid, keeps body-tap live entry, keeps identity-strip profile entry, and uses a premium empty state with customer Random match CTA |
+| P1 | Done | Codex | Add reversible backend For you demo host simulator | Zephyr API can seed marked female demo hosts, write RTDB canonical `profiles`/`presence`, mirror Postgres feed projections, rotate through live, premium live, online, away, direct-call busy, random-call busy, and offline every 15/30/60/120 seconds, and cleanup all marked demo users/rooms through protected internal controls |
 | P1 | Done | Codex | Upgrade Me/profile/wallet/settings entrance | Me now shows live wallet overview metrics, sparks, revenue, and call price; profile avatar/cover updates preserve full returned profile state; Account/Privacy/Notifications settings rows open real subpages; Level/Revenue/Wallet show spark context; widget coverage guards the new entrance |
 | P1 | Done | Codex | Unify block/report ownership | Thread chat and profile moderation now use backend `user_blocks`/`user_reports`; Firestore keeps only backend-written block projections for rules enforcement |
 | P1 | Audit finding | Codex | Refresh stale non-Markdown contracts/test helpers/source comments | Markdown docs now carry the living-direction protocol; OpenAPI, smoke/e2e helpers, and a few source comments still describe old guest/socket behavior |
@@ -99,18 +102,19 @@ When the app direction changes, do not patch around stale wording. Replace it, d
 
 Immediate next work:
 
-1. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
-2. Upload and smoke the inbox-hardened Android AAB `1.0.7+8`: login, inbox, send text, send image, receipts, block, report, logout/offline.
-3. Wait for Google Play merchant/bank verification, create/publish `pack_299`, then smoke one internal-test purchase/refund.
-4. Refresh stale non-Markdown contracts/test helpers/source comments: OpenAPI guest-login, smoke/e2e guest helpers, socket/LiveKit comments.
-5. Retest direct call with two online accounts after the deployed presence-sync trigger, including in-call report and post-call Message/Report/Done behavior.
-6. Manual smoke the Following + Me entrances: follow/unfollow/count adjustment, empty Following state, feed card opens the selected host/profile, Me dashboard metrics load, Settings subpages open, and profile avatar/cover edits return cleanly.
-7. Expand the reusable Gift module beyond live, then wire inbox gifts first and reuse it for call/random call/premium live.
-8. Implement premium live lifecycle, paid entry, lock screen, metered billing, and `PremiumLiveRealtime`.
+1. Manual smoke the launch-minimum For you page on iPhone using the reversible demo host simulator: live-only feed, viewer count, pull-to-refresh, lazy-load trigger, body-tap live entry, identity-strip profile entry, and empty state with Random match after cleanup.
+2. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
+3. Upload and smoke the inbox-hardened Android AAB `1.0.7+8`: login, inbox, send text, send image, receipts, block, report, logout/offline.
+4. Wait for Google Play merchant/bank verification, create/publish `pack_299`, then smoke one internal-test purchase/refund.
+5. Refresh stale non-Markdown contracts/test helpers/source comments: OpenAPI guest-login, smoke/e2e guest helpers, socket/LiveKit comments.
+6. Retest direct call with two online accounts after the deployed presence-sync trigger, including in-call report and post-call Message/Report/Done behavior.
+7. Manual smoke the Following + Me entrances: follow/unfollow/count adjustment, empty Following state, feed card opens the selected host/profile, Me dashboard metrics load, Settings subpages open, and profile avatar/cover edits return cleanly.
+8. Expand the reusable Gift module beyond live, then wire inbox gifts first and reuse it for call/random call/premium live.
+9. Implement premium live lifecycle, paid entry, lock screen, metered billing, and `PremiumLiveRealtime`.
 
 ---
 
-## Current Solution Snapshot (7 Jun 2026)
+## Current Solution Snapshot (8 Jun 2026)
 
 This is the current working truth after re-auditing `PRODUCT.md`, `.github/copilot-instructions.md`, and the repository implementation.
 
@@ -124,7 +128,7 @@ This is the current working truth after re-auditing `PRODUCT.md`, `.github/copil
 | Backend economy | A+. Call ticks, direct/random call gifts, live gifts, IAP credit/refund, and race/idempotency paths are transaction-safe and tested. |
 | IAP | A pending store sign-off. Code/backend/env are hardened, but Google Play merchant/bank verification and real internal-test purchase/refund smoke remain blocked. |
 | Calls | Direct and random call flows are implemented, with in-call report entry and post-call Message/Report/Done safety flow now wired and widget-tested. Home keeps the floating Random match CTA for customer accounts only; host/girl accounts receive random-call invite ribbons instead. Both call flows still need two-account manual smoke. |
-| Follow/feed | Mostly wired. Backend follow endpoints, footer Following tab, empty state, deployed following-ID parsing, female host-only feed filtering, feed-card profile/preview entry, ProfilePage follow/count persistence, customer-only Random match CTA, and local deterministic card-cover fallbacks with no duplicate cover in the visible 2x2 group are in place; curated suggestions, future timed preview/phantom call CTA, and manual entrance smoke remain. |
+| Follow/feed | Launch-minimum For you core is in place. Backend follow endpoints, footer Following tab, empty state, deployed following-ID parsing, female host-only feed filtering, ProfilePage follow/count persistence, customer-only Random match CTA, persisted identity-seeded default host covers with uploaded-cover override, and identity-seeded card-cover fallback are in place. For you now requests live-only paged feed data, removes normal placeholder/offline cards, shows viewer count, supports pull-to-refresh, lazy-loads near the end of the grid, uses body-tap live entry, uses identity-strip profile entry, and keeps a premium empty state with customer Random match CTA. Later polish: short live preview while scrolling, hide header/footer on scroll, stronger backend ranking, and mini-live after exit. |
 | Me/profile/wallet/settings | A-level entrance. Me dashboard now surfaces coins, sparks, revenue, and call price; profile avatar/cover uploads return full profile state; wallet/level/revenue pages show spark context; Account/Privacy/Notifications settings rows are no longer dead. A+ still needs manual smoke, deeper revenue/payout detail, persisted notification controls, and localization of the new English settings copy. |
 | Gifts | Live gift sending now goes backend -> Postgres ledger -> Admin RTDB fan-out. Shared gift module still needs expansion to inbox, direct/random calls, and premium live. |
 | Premium live | Documented, not implemented. Paid entry, lock screen, per-minute premium billing, and `PremiumLiveRealtime` remain future work. |
@@ -171,6 +175,16 @@ pnpm --filter zephyr-api db:up
 pnpm --filter zephyr-api start:dev:localdb
 pnpm --filter zephyr-api db:down
 
+# Local reversible For you demo hosts against the selected DATABASE_URL + RTDB
+pnpm --filter zephyr-api demo:for-you -- run --count=24 --yes
+pnpm --filter zephyr-api demo:for-you -- cleanup --yes
+
+# Backend-owned For you simulator controls (Render, protected by SERVICE_KEY)
+curl -fsS -H "X-Service-Key: $SERVICE_KEY" -H "Content-Type: application/json" -d '{"count":24,"intervals":[15,30,60,120],"routeable":false}' https://zephyr-api-wr1s.onrender.com/v1/internal/demo-for-you/start
+curl -fsS -H "X-Service-Key: $SERVICE_KEY" https://zephyr-api-wr1s.onrender.com/v1/internal/demo-for-you/status
+curl -fsS -H "X-Service-Key: $SERVICE_KEY" -X POST https://zephyr-api-wr1s.onrender.com/v1/internal/demo-for-you/stop
+curl -fsS -H "X-Service-Key: $SERVICE_KEY" -X POST https://zephyr-api-wr1s.onrender.com/v1/internal/demo-for-you/cleanup
+
 # Test and build (backend)
 pnpm --filter zephyr-api test
 pnpm --filter zephyr-api build
@@ -198,6 +212,12 @@ cd apps/zephyr-mobile && flutter test
 | `APPLE_BUNDLE_ID` | Production IAP | `com.zephyr.zephyrMobile` |
 | `GOOGLE_PLAY_PACKAGE_NAME` | Production IAP | `com.zephyr.zephyr_mobile` |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY` or `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY_BASE64` | Production IAP | Google Play Developer API service account JSON for Android Publisher verification |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Realtime/Admin fan-out + demo simulator | Firebase Admin service account JSON for RTDB/FCM server writes |
+| `FIREBASE_DATABASE_URL` | Realtime/Admin fan-out + demo simulator | Optional explicit RTDB URL; defaults from Firebase project ID |
+| `DEMO_FOR_YOU_SIMULATOR_ENABLED` | No | `true` starts the backend-owned For you simulator on API boot; keep `false`/unset outside temporary test windows |
+| `DEMO_FOR_YOU_SIMULATOR_COUNT` | No | Demo host count when auto-enabled; default `24`, max `100` |
+| `DEMO_FOR_YOU_SIMULATOR_INTERVALS` | No | Comma-separated rotation seconds; default `15,30,60,120` |
+| `DEMO_FOR_YOU_SIMULATOR_ROUTEABLE` | No | `true` makes demo hosts eligible for routing; keep `false` unless testing fake matchmaking behavior |
 | `AGORA_APP_ID` | Yes | Agora RTC app ID |
 | `AGORA_APP_CERTIFICATE` | Yes | Agora RTC certificate |
 | `DIRECT_CALL_ALLOWED_RATES` | No | Comma-separated coins/min (default: `2100,3200,4200,5400,6400,8000,27000`) |
@@ -984,7 +1004,7 @@ Two screens, one flow:
 - 2-page horizontal PageView (no swipe — programmatic navigation only)
 - **Page 1 — Gender:** "I am" heading, two large gradient cards (Male / Female). Tap auto-advances after 300ms
 - **Page 2 — Language:** Grid of 12 languages (EN, AR, PT, ES, FIL, HI, ID, TH, VI, ZH, FR, RU) with flag emoji. Back button to return to gender
-- On language select: calls `PATCH /v1/users/me` (gender + language + auto-detected country), writes profile to RTDB `profiles/{userId}`, then navigates to home
+- On language select: calls `PATCH /v1/users/me` (gender + language + auto-detected country), persists a default host card cover for Female hosts when `coverUrl` is empty, writes profile to RTDB `profiles/{userId}`, then navigates to home
 - `onboardedAt` set server-side via `COALESCE(onboarded_at, NOW())` — idempotent
 
 ### App Shell
@@ -1003,11 +1023,23 @@ Two screens, one flow:
 
 ### Tab 0 — For you
 
+Target: Tango-style live discovery feed at real supply scale, not a filtered user directory.
+
 Shared Zephyr header plus dense `HostCardGrid`:
 - 2 columns x 2 visible rows on phone
 - Thin 4px gutters
 - Barely-rounded card corners, mostly rectangular
-- Uses optimized local host cover assets with no duplicate cover inside the visible 2x2 group, plus current card status/profile behavior; direct call is intentionally deferred to profile/live/inbox or a future timed preview CTA
+- No visible user filter on For you
+- Feed should scale to hundreds/thousands of live host/girl cards per day; the visible 2x2 grid is only the viewport
+- Launch-minimum implementation requests live-only paged feed data; offline hosts do not appear as normal For you cards
+- Uses persisted host `coverUrl` first; Female hosts get one identity-seeded default local cover during onboarding, uploaded covers replace it, and identity-seeded local fallback remains for old/offline data
+- Card shows viewer count so users can read stream momentum before entering
+- Main card/image tap enters the host live room when a live `roomId` exists; tapping the compact avatar/name/flag identity strip opens the host profile
+- Pull-to-refresh/elastic swipe down reloads the live set and can reshuffle discovery ordering
+- Infinite scroll/lazy loading is in place through `limit` + `offset`; never load the full live supply into memory at once
+- If no live host is returned, For you shows a premium empty state with customer Random match CTA instead of fake suggested cards
+- Later polish: short live preview for visible cards while scrolling, header/footer hide on upward scroll and return on small downward scroll, and a floating recording/live action that hides with the footer
+- Deferred: mini-live floating rectangle after leaving a live. It is useful Tango behavior but too complex for this pass
 
 ### Tab 1 — Following
 
@@ -1365,7 +1397,7 @@ Later-dated audits supersede older entries when implementation has moved on. His
 | Aspect | Grade | Notes |
 |--------|-------|-------|
 | Product architecture | B+ | The source-of-truth design is strong: Flutter + NestJS + Postgres + Firebase RTDB/Firestore + Agora is the right split for this app. The gap is execution completeness, not the big architecture choice. |
-| Mobile entrances | A | Login, onboarding, For you, Following, explore, inbox, direct call, random call, live, profile, wallet, and settings are present. Root navigation now uses a Zephyr header for avatar/profile access plus wallet context, with Me removed from the footer and Following promoted to the second footer tab. The old Home Popular/Discover shell is no longer active; For you now starts the new Tango-style 2x2 card feed. Feed cards use lightweight local card-cover fallbacks with visible 2x2 de-duplication, backend feed returns female host/girl accounts only, cards open host/profile discovery rather than immediate direct calls, the floating Random match CTA is customer-only, ProfilePage follow/counts are backend-backed, Following empty state exists, Me dashboard shows wallet/spark/revenue/rate context, Settings subpages are wired, and call report/post-call safety is covered. Remaining gap: manual entrance smoke, Explore identity polish, deeper revenue/notification settings, future preview/phantom CTA, and premium live. |
+| Mobile entrances | A | Login, onboarding, For you, Following, explore, inbox, direct call, random call, live, profile, wallet, and settings are present. Root navigation now uses a Zephyr header for avatar/profile access plus wallet context, with Me removed from the footer and Following promoted to the second footer tab. The old Home Popular/Discover shell is no longer active; For you has the launch-minimum Tango-style live discovery core: live-only paged feed, no visible user filter, viewer counts, pull-to-refresh, lazy-load trigger, body tap enters live when a room exists, identity strip opens profile, and premium empty state with customer Random match CTA. Persisted host covers come first, Female host onboarding assigns a default cover when empty, uploaded covers override it, backend feed returns female host/girl accounts only, ProfilePage follow/counts are backend-backed, Following empty state exists, Me dashboard shows wallet/spark/revenue/rate context, Settings subpages are wired, and call report/post-call safety is covered. Remaining gap: manual entrance smoke, Explore identity polish, deeper revenue/notification settings, future live preview/hide-chrome polish, future phantom CTA, and premium live. |
 | Realtime availability | A+ | Canonical RTDB presence is now a real source-of-truth cell: coherent rules, premium/free-live transition states, backend projection, and routeability gates are proven by emulator tests and `pnpm check`. |
 | Backend economy | A+ | Paid call ticks and gifts have transaction-safe row locks, idempotency replay, real Postgres race tests, transactional IAP credit/refund, Android token verification, and backend-confirmed live gift fan-out. |
 | IAP production readiness | A | Android code/backend contract now matches Google Play token verification and real app IDs, Render production env is set, and wallet catalog UX now exposes unavailable Play products cleanly. Remaining sign-off: Google Play merchant/bank verification, one-time product catalog visibility, and one internal-test purchase/refund smoke. |

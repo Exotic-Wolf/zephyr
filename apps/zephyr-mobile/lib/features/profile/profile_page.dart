@@ -14,6 +14,7 @@ import '../call/direct_call_screen.dart';
 import '../../flags.dart';
 import '../../widgets/coin_icon.dart';
 import '../../l10n/app_localizations.dart';
+import '../home/host_card_cover_assets.dart';
 
 // ── ProfilePage ─────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ class _ProfilePageState extends State<ProfilePage> {
   // Fresh profile data (overrides card data once fetched)
   String? _freshDisplayName;
   String? _freshAvatarUrl;
+  String? _freshCoverUrl;
 
   LiveFeedCard get _card => widget.feedCard;
 
@@ -81,7 +83,15 @@ class _ProfilePageState extends State<ProfilePage> {
     return _card.hostAvatarUrl;
   }
 
+  String? get _coverUrl => _freshCoverUrl ?? _card.hostCoverUrl;
+
   int? get _callRate => _freshCallRate;
+
+  ImageProvider _coverImageProvider(String coverUrl) {
+    return HostCardCoverAssets.isBundledAsset(coverUrl)
+        ? AssetImage(coverUrl)
+        : CachedNetworkImageProvider(coverUrl);
+  }
 
   @override
   void initState() {
@@ -106,6 +116,7 @@ class _ProfilePageState extends State<ProfilePage> {
           _freshCallRate = user.callRateCoinsPerMinute;
           _freshDisplayName = user.displayName;
           _freshAvatarUrl = user.avatarUrl;
+          _freshCoverUrl = user.coverUrl;
           _followerCount = user.followerCount;
         });
       }
@@ -391,6 +402,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final double bottomPad = MediaQuery.of(context).padding.bottom;
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final String? coverUrl = _coverUrl?.trim();
     return Scaffold(
       backgroundColor: isDark ? null : const Color(0xFFF2F2F7),
       bottomNavigationBar: widget.isPreview
@@ -637,7 +649,17 @@ class _ProfilePageState extends State<ProfilePage> {
                 fit: StackFit.expand,
                 children: <Widget>[
                   // cover photo placeholder (same blue as card)
-                  Container(color: const Color(0xFF1FA4EA)),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1FA4EA),
+                      image: coverUrl != null && coverUrl.isNotEmpty
+                          ? DecorationImage(
+                              image: _coverImageProvider(coverUrl),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
+                  ),
                   // avatar centred in lower half
                   Positioned(
                     left: 0,
