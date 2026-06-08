@@ -147,9 +147,17 @@ class _MyAppState extends State<MyApp> {
             }
           }
         } catch (_) {
+          try {
+            await FirebaseChatService.instance.clearSession().timeout(
+              const Duration(seconds: 3),
+              onTimeout: () {},
+            );
+          } catch (_) {}
           await _storage.delete(key: _tokenKey);
+          ZephyrApiClient.accessToken = null;
           if (mounted) {
             setState(() {
+              _accessToken = null;
               _pendingSetupToken = null;
               _pendingSetupDisplayName = null;
             });
