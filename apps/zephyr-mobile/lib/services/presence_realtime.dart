@@ -26,6 +26,7 @@ class PresenceRealtime {
 
   final Map<String, String> _presenceCache = {};
   final Map<String, String> _presenceRoomCache = {};
+  final Map<String, DateTime> _demoNextRotationCache = {};
   final Map<String, StreamSubscription<DatabaseEvent>> _presenceSubs = {};
   final Map<String, DateTime> _presenceLastAccess = {};
   StreamSubscription<DatabaseEvent>? _connectedSub;
@@ -49,6 +50,10 @@ class PresenceRealtime {
   String? stateCached(String userId) => _presenceCache[userId];
 
   String? roomIdCached(String userId) => _presenceRoomCache[userId];
+
+  DateTime? demoNextRotationAtCached(String userId) {
+    return _demoNextRotationCache[userId];
+  }
 
   void warm(List<String> userIds) {
     for (final String uid in userIds) {
@@ -81,15 +86,25 @@ class PresenceRealtime {
                   'offline')
             : 'offline';
         final String? roomId = data is Map ? data['roomId'] as String? : null;
+        final DateTime? demoNextRotationAt = data is Map
+            ? _demoNextRotationAtFrom(data['demo'])
+            : null;
 
         final bool changed =
-            _presenceCache[uid] != state || _presenceRoomCache[uid] != roomId;
+            _presenceCache[uid] != state ||
+            _presenceRoomCache[uid] != roomId ||
+            _demoNextRotationCache[uid] != demoNextRotationAt;
 
         _presenceCache[uid] = state;
         if ((state == 'live' || state == 'premium_live') && roomId != null) {
           _presenceRoomCache[uid] = roomId;
         } else {
           _presenceRoomCache.remove(uid);
+        }
+        if (demoNextRotationAt != null) {
+          _demoNextRotationCache[uid] = demoNextRotationAt;
+        } else {
+          _demoNextRotationCache.remove(uid);
         }
 
         if (changed) {
@@ -476,6 +491,7 @@ class PresenceRealtime {
     _presenceLastAccess.clear();
     _presenceCache.clear();
     _presenceRoomCache.clear();
+    _demoNextRotationCache.clear();
 
     _isLive = false;
     _isLivePaused = false;
@@ -489,5 +505,18 @@ class PresenceRealtime {
     _busyActivity = 'direct_call';
     _isBackground = false;
     _myUserId = null;
+  }
+
+  DateTime? _demoNextRotationAtFrom(Object? value) {
+    if (value is! Map) return null;
+    if (value['simulator'] != 'for_you') return null;
+    final Object? rawNextRotationAt = value['nextRotationAt'];
+    final int? milliseconds = switch (rawNextRotationAt) {
+      int value => value,
+      double value => value.toInt(),
+      _ => null,
+    };
+    if (milliseconds == null || milliseconds <= 0) return null;
+    return DateTime.fromMillisecondsSinceEpoch(milliseconds);
   }
 }

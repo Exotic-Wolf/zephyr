@@ -61,6 +61,10 @@ class FirebaseChatService {
   bool? isOnlineCached(String userId) => presence.isOnlineCached(userId);
   String? presenceStateCached(String userId) => presence.stateCached(userId);
   String? presenceRoomIdCached(String userId) => presence.roomIdCached(userId);
+  DateTime? demoNextRotationAtCached(String userId) {
+    return presence.demoNextRotationAtCached(userId);
+  }
+
   void warmPresence(List<String> userIds) => presence.warm(userIds);
 
   RtdbProfile? profileCached(String userId) => profiles.cached(userId);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -97,6 +99,8 @@ class LiveFeedCardWidget extends StatelessWidget {
           final String viewerCountLabel = _formatViewerCount(
             feedCard.audienceCount,
           );
+          final DateTime? demoNextRotationAt = FirebaseChatService.instance
+              .demoNextRotationAtCached(feedCard.hostUserId);
 
           final Color statusDot = switch (status) {
             'premium_live' => const Color(0xFFFF2D55),
@@ -257,6 +261,19 @@ class LiveFeedCardWidget extends StatelessWidget {
                                 ),
                               ),
                         ),
+                      if (demoNextRotationAt != null)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Center(
+                              child: Transform.translate(
+                                offset: const Offset(0, -8),
+                                child: _DemoRotationCountdown(
+                                  nextRotationAt: demoNextRotationAt,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       Positioned(
                         bottom: 12,
                         left: 16,
@@ -332,6 +349,79 @@ class LiveFeedCardWidget extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _DemoRotationCountdown extends StatefulWidget {
+  const _DemoRotationCountdown({required this.nextRotationAt});
+
+  final DateTime nextRotationAt;
+
+  @override
+  State<_DemoRotationCountdown> createState() => _DemoRotationCountdownState();
+}
+
+class _DemoRotationCountdownState extends State<_DemoRotationCountdown> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Duration remaining = widget.nextRotationAt.difference(DateTime.now());
+    final int seconds = remaining.inSeconds.clamp(0, 999);
+    final String label = seconds == 0
+        ? 'Switching'
+        : 'Next ${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.46),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: const Color(0xFFFFA726).withValues(alpha: 0.45),
+          width: 1,
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.34),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(Icons.timer_rounded, color: Color(0xFFFFB74D), size: 13),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                height: 1,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

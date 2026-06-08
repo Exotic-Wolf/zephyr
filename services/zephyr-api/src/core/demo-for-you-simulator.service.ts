@@ -521,6 +521,11 @@ export class DemoForYouSimulatorService
 
   private scheduleHost(host: DemoHost, delaySeconds: number): void {
     if (!this.running) return;
+    void this.writeDemoNextRotation(host.id, delaySeconds).catch((error) => {
+      this.logger.warn(
+        `Failed to write demo countdown for ${host.display_name}: ${String(error)}`,
+      );
+    });
     const timer = setTimeout(async () => {
       this.timers.delete(host.id);
       if (!this.running) return;
@@ -697,6 +702,26 @@ export class DemoForYouSimulatorService
         previousRoomId: null,
         state: state.status,
         updatedAt: admin.database.ServerValue.TIMESTAMP,
+        demo: {
+          simulator: 'for_you',
+          routeable: this.routeable,
+        },
+      });
+  }
+
+  private async writeDemoNextRotation(
+    hostUserId: string,
+    delaySeconds: number,
+  ): Promise<void> {
+    const nextRotationAt = Date.now() + delaySeconds * 1000;
+    await admin
+      .database()
+      .ref(`presence/${hostUserId}/demo`)
+      .update({
+        simulator: 'for_you',
+        routeable: this.routeable,
+        nextRotationAt,
+        nextRotationAtIso: new Date(nextRotationAt).toISOString(),
       });
   }
 
