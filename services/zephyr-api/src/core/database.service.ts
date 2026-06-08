@@ -118,7 +118,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       ADD COLUMN IF NOT EXISTS call_rate_coins_per_minute INT,
       ADD COLUMN IF NOT EXISTS public_id TEXT,
       ADD COLUMN IF NOT EXISTS cover_url TEXT,
-      ADD COLUMN IF NOT EXISTS is_host BOOLEAN NOT NULL DEFAULT FALSE;
+      ADD COLUMN IF NOT EXISTS is_host BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS active_session_id TEXT,
+      ADD COLUMN IF NOT EXISTS active_device_id TEXT,
+      ADD COLUMN IF NOT EXISTS active_session_started_at TIMESTAMPTZ;
     `);
 
     await this.pool.query(`
@@ -153,6 +156,19 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         expires_at TIMESTAMPTZ NOT NULL
       );
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE sessions
+      ADD COLUMN IF NOT EXISTS session_id TEXT,
+      ADD COLUMN IF NOT EXISTS device_id TEXT,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    `);
+
+    await this.pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS sessions_user_session_id_idx
+      ON sessions(user_id, session_id)
+      WHERE session_id IS NOT NULL;
     `);
 
     await this.pool.query(`

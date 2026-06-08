@@ -15,4 +15,8 @@ export class AppleLoginDto {
   @IsOptional()
   @IsString()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  deviceId?: string;
 }

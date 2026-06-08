@@ -248,6 +248,19 @@ export interface WalletTransaction {
 interface Session {
   token: string;
   userId: string;
+  sessionId: string;
+  deviceId: string;
+  expiresAt: number;
+}
+
+interface AuthDeviceOptions {
+  deviceId?: string | null;
+}
+
+interface AuthSessionRecord {
+  token: string;
+  sessionId: string;
+  deviceId: string;
   expiresAt: number;
 }
 
@@ -589,16 +602,115 @@ export class StoreService implements OnModuleInit {
   private readonly rooms = new Map<string, Room>();
   private readonly googleSubjectToUserId = new Map<string, string>();
   private readonly appleSubjectToUserId = new Map<string, string>();
+  private readonly activeSessionIds = new Map<string, string>();
   private readonly walletBalances = new Map<string, number>();
   private readonly userLevels = new Map<string, number>();
   private readonly userRevenueUsd = new Map<string, number>();
   private readonly userSparkBalances = new Map<string, number>();
   private readonly callSessions = new Map<string, CallSession>();
 
-  async issueGuestSession(displayName?: string): Promise<{ accessToken: string; user: UserProfile }> {
+  private normalizeDeviceId(deviceId?: string | null): string {
+    const normalized = deviceId?.trim();
+    if (!normalized) {
+      return `server-${randomUUID()}`;
+    }
+    if (
+      normalized.length < 8 ||
+      normalized.length > 128 ||
+      !/^[A-Za-z0-9._:-]+$/.test(normalized)
+    ) {
+      throw new BadRequestException(
+        'deviceId must be 8-128 characters and contain only letters, numbers, dot, underscore, colon, or dash',
+      );
+    }
+
+    return normalized;
+  }
+
+  private createAuthSession(
+    userId: string,
+    options: AuthDeviceOptions = {},
+  ): AuthSessionRecord {
+    const sessionId = randomUUID();
+    const deviceId = this.normalizeDeviceId(options.deviceId);
+    return {
+      token: this.signJwt(userId, sessionId, deviceId),
+      sessionId,
+      deviceId,
+      expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 7,
+    };
+  }
+
+  private rememberInMemorySession(
+    userId: string,
+    session: AuthSessionRecord,
+  ): void {
+    this.activeSessionIds.set(userId, session.sessionId);
+    this.sessions.set(session.token, {
+      token: session.token,
+      userId,
+      sessionId: session.sessionId,
+      deviceId: session.deviceId,
+      expiresAt: session.expiresAt,
+    });
+  }
+
+  private async activateDatabaseSession(
+    userId: string,
+    session: AuthSessionRecord,
+  ): Promise<void> {
+    if (!this.databaseService?.isEnabled()) {
+      throw new Error('Database is not enabled');
+    }
+
+    await this.databaseService.transaction(async (client) => {
+      await client.query(
+        `
+          INSERT INTO sessions (
+            token,
+            user_id,
+            expires_at,
+            session_id,
+            device_id,
+            created_at
+          )
+          VALUES ($1, $2, $3, $4, $5, NOW())
+        `,
+        [
+          session.token,
+          userId,
+          new Date(session.expiresAt).toISOString(),
+          session.sessionId,
+          session.deviceId,
+        ],
+      );
+      await client.query(
+        `
+          UPDATE users
+          SET active_session_id = $2,
+              active_device_id = $3,
+              active_session_started_at = NOW()
+          WHERE id = $1
+        `,
+        [userId, session.sessionId, session.deviceId],
+      );
+      await client.query(
+        `
+          DELETE FROM sessions
+          WHERE user_id = $1
+            AND token <> $2
+        `,
+        [userId, session.token],
+      );
+    });
+  }
+
+  async issueGuestSession(
+    displayName?: string,
+    options: AuthDeviceOptions = {},
+  ): Promise<{ accessToken: string; user: UserProfile }> {
     const userId = randomUUID();
-    const token = this.signJwt(userId);
-    const expiresAt = Date.now() + 1000 * 60 * 60 * 24 * 7;
+    const session = this.createAuthSession(userId, options);
     const now = new Date().toISOString();
     const user: UserProfile = {
       id: userId,
@@ -626,28 +738,21 @@ export class StoreService implements OnModuleInit {
         `,
         [user.id, user.displayName, user.avatarUrl, user.bio, await this.uniquePublicId(user.id), user.createdAt],
       );
-      await this.databaseService.query(
-        `
-          INSERT INTO sessions (token, user_id, expires_at)
-          VALUES ($1, $2, $3)
-        `,
-        [token, user.id, new Date(expiresAt).toISOString()],
-      );
+      await this.activateDatabaseSession(user.id, session);
 
-      return { accessToken: token, user };
+      return { accessToken: session.token, user };
     }
 
     this.users.set(userId, user);
-    this.sessions.set(token, {
-      token,
-      userId,
-      expiresAt,
-    });
+    this.rememberInMemorySession(userId, session);
 
-    return { accessToken: token, user };
+    return { accessToken: session.token, user };
   }
 
-  async issueGoogleSession(idToken: string): Promise<{ accessToken: string; user: UserProfile }> {
+  async issueGoogleSession(
+    idToken: string,
+    options: AuthDeviceOptions = {},
+  ): Promise<{ accessToken: string; user: UserProfile }> {
     let ticket;
     try {
       ticket = await this.googleClient.verifyIdToken({
@@ -729,8 +834,7 @@ export class StoreService implements OnModuleInit {
         );
       }
 
-      const accessToken = this.signJwt(userId);
-      const expiresAt = Date.now() + 1000 * 60 * 60 * 24 * 7;
+      const session = this.createAuthSession(userId, options);
 
       const userResult = await this.databaseService.query<{
         id: string;
@@ -757,16 +861,10 @@ export class StoreService implements OnModuleInit {
         [userId],
       );
 
-      await this.databaseService.query(
-        `
-          INSERT INTO sessions (token, user_id, expires_at)
-          VALUES ($1, $2, $3)
-        `,
-        [accessToken, userId, new Date(expiresAt).toISOString()],
-      );
+      await this.activateDatabaseSession(userId, session);
 
       return {
-        accessToken,
+        accessToken: session.token,
         user: this.toUserProfile(userResult.rows[0]),
       };
     }
@@ -777,8 +875,7 @@ export class StoreService implements OnModuleInit {
       this.googleSubjectToUserId.set(googleSubject, userId);
     }
 
-    const accessToken = this.signJwt(userId);
-    const expiresAt = Date.now() + 1000 * 60 * 60 * 24 * 7;
+    const session = this.createAuthSession(userId, options);
 
     const user: UserProfile = {
       id: userId,
@@ -799,18 +896,19 @@ export class StoreService implements OnModuleInit {
     };
 
     this.users.set(userId, user);
-    this.sessions.set(accessToken, {
-      token: accessToken,
-      userId,
-      expiresAt,
-    });
+    this.rememberInMemorySession(userId, session);
 
-    return { accessToken, user };
+    return { accessToken: session.token, user };
   }
 
   async issueAppleSession(
     idToken: string,
-    profileHints?: { givenName?: string; familyName?: string; email?: string },
+    profileHints?: {
+      givenName?: string;
+      familyName?: string;
+      email?: string;
+      deviceId?: string | null;
+    },
   ): Promise<{ accessToken: string; user: UserProfile }> {
     const payload = await this.verifyAppleIdToken(idToken);
     const appleSubject = payload.sub;
@@ -888,8 +986,9 @@ export class StoreService implements OnModuleInit {
         );
       }
 
-      const accessToken = this.signJwt(userId);
-      const expiresAt = Date.now() + 1000 * 60 * 60 * 24 * 7;
+      const session = this.createAuthSession(userId, {
+        deviceId: profileHints?.deviceId,
+      });
 
       const userResult = await this.databaseService.query<{
         id: string;
@@ -916,16 +1015,10 @@ export class StoreService implements OnModuleInit {
         [userId],
       );
 
-      await this.databaseService.query(
-        `
-          INSERT INTO sessions (token, user_id, expires_at)
-          VALUES ($1, $2, $3)
-        `,
-        [accessToken, userId, new Date(expiresAt).toISOString()],
-      );
+      await this.activateDatabaseSession(userId, session);
 
       return {
-        accessToken,
+        accessToken: session.token,
         user: this.toUserProfile(userResult.rows[0]),
       };
     }
@@ -936,8 +1029,9 @@ export class StoreService implements OnModuleInit {
       this.appleSubjectToUserId.set(appleSubject, userId);
     }
 
-    const accessToken = this.signJwt(userId);
-    const expiresAt = Date.now() + 1000 * 60 * 60 * 24 * 7;
+    const session = this.createAuthSession(userId, {
+      deviceId: profileHints?.deviceId,
+    });
 
     const user: UserProfile = {
       id: userId,
@@ -958,13 +1052,9 @@ export class StoreService implements OnModuleInit {
     };
 
     this.users.set(userId, user);
-    this.sessions.set(accessToken, {
-      token: accessToken,
-      userId,
-      expiresAt,
-    });
+    this.rememberInMemorySession(userId, session);
 
-    return { accessToken, user };
+    return { accessToken: session.token, user };
   }
 
   async getUserFromAuthHeader(authorization?: string): Promise<UserProfile> {
@@ -986,16 +1076,19 @@ export class StoreService implements OnModuleInit {
         birthday: string | null;
         country_code: string | null;
         language: string | null;
-        is_admin: boolean;
-        call_rate_coins_per_minute: number | null;
-        onboarded_at: string | null;
-        created_at: string;
-      }>(
-        `
-          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.cover_url, u.bio, u.gender, u.birthday,
-                 u.country_code, u.language, u.is_admin, u.is_host, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at
-          FROM sessions s
-          INNER JOIN users u ON u.id = s.user_id
+	        is_admin: boolean;
+	        call_rate_coins_per_minute: number | null;
+	        onboarded_at: string | null;
+	        created_at: string;
+	        session_id: string | null;
+	        active_session_id: string | null;
+	      }>(
+	        `
+	          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.cover_url, u.bio, u.gender, u.birthday,
+	                 u.country_code, u.language, u.is_admin, u.is_host, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at,
+	                 s.session_id, u.active_session_id
+	          FROM sessions s
+	          INNER JOIN users u ON u.id = s.user_id
           WHERE s.token = $1 AND s.user_id = $2 AND s.expires_at > NOW()
           LIMIT 1
         `,
@@ -1006,16 +1099,23 @@ export class StoreService implements OnModuleInit {
         throw new UnauthorizedException('Invalid or expired token');
       }
 
-      return this.toUserProfile(result.rows[0]);
+      const row = result.rows[0];
+      if (row.active_session_id && row.session_id !== row.active_session_id) {
+        throw new UnauthorizedException('Session moved to another device');
+      }
+
+      return this.toUserProfile(row);
     }
 
     const session = this.sessions.get(token);
 
     if (
-      !session ||
-      session.expiresAt < Date.now() ||
-      session.userId !== tokenPayload.sub
-    ) {
+	      !session ||
+	      session.expiresAt < Date.now() ||
+	      session.userId !== tokenPayload.sub ||
+	      (this.activeSessionIds.has(session.userId) &&
+	        this.activeSessionIds.get(session.userId) !== session.sessionId)
+	    ) {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
@@ -1197,6 +1297,7 @@ export class StoreService implements OnModuleInit {
     }
 
     this.users.delete(userId);
+    this.activeSessionIds.delete(userId);
     this.walletBalances.delete(userId);
     this.userLevels.delete(userId);
     this.userRevenueUsd.delete(userId);
@@ -4412,13 +4513,15 @@ export class StoreService implements OnModuleInit {
     return audiences;
   }
 
-  private signJwt(userId: string): string {
+  private signJwt(userId: string, sessionId?: string, deviceId?: string): string {
     const secret = this.getJwtSecret();
 
     return sign(
       {
         sub: userId,
         jti: randomUUID(),
+        ...(sessionId ? { sid: sessionId } : {}),
+        ...(deviceId ? { did: deviceId } : {}),
       },
       secret,
       {

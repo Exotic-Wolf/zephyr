@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/models.dart';
 import '../../services/api_client.dart';
+import '../../services/device_session_service.dart';
 import '../../app_constants.dart';
 import '../../l10n/app_localizations.dart';
 import 'profile_setup_screen.dart';
@@ -40,7 +41,8 @@ class PlatformOnboardingAuthGateway implements OnboardingAuthGateway {
     if (idToken == null || idToken.isEmpty) {
       throw StateError('missing_google_id_token');
     }
-    return _apiClient.googleLogin(idToken);
+    final String deviceId = await DeviceSessionService.getDeviceId();
+    return _apiClient.googleLogin(idToken, deviceId: deviceId);
   }
 
   @override
@@ -56,11 +58,13 @@ class PlatformOnboardingAuthGateway implements OnboardingAuthGateway {
     if (idToken == null || idToken.isEmpty) {
       throw StateError('missing_apple_id_token');
     }
+    final String deviceId = await DeviceSessionService.getDeviceId();
     return _apiClient.appleLogin(
       idToken: idToken,
       email: credential.email,
       givenName: credential.givenName,
       familyName: credential.familyName,
+      deviceId: deviceId,
     );
   }
 }

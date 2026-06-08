@@ -21,6 +21,26 @@ describe('StoreService', () => {
     expect(user.displayName).toBe('wolf');
   });
 
+  it('rejects an older token after a newer mobile session becomes active', async () => {
+    const first = await storeService.issueGuestSession('wolf', {
+      deviceId: 'mobile-test-device-a',
+    });
+    const replacement = (storeService as any).createAuthSession(first.user.id, {
+      deviceId: 'mobile-test-device-b',
+    });
+
+    (storeService as any).rememberInMemorySession(first.user.id, replacement);
+
+    await expect(
+      storeService.getUserFromAuthHeader(`Bearer ${first.accessToken}`),
+    ).rejects.toThrow(UnauthorizedException);
+
+    const current = await storeService.getUserFromAuthHeader(
+      `Bearer ${replacement.token}`,
+    );
+    expect(current.id).toBe(first.user.id);
+  });
+
   it('rejects invalid profile displayName update', async () => {
     const session = await storeService.issueGuestSession('wolf');
 

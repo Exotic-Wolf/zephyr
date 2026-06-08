@@ -17,7 +17,9 @@ export class AuthController {
   async googleLogin(
     @Body() body: GoogleLoginDto,
   ): Promise<{ accessToken: string; user: unknown }> {
-    return this.storeService.issueGoogleSession(body.idToken);
+    return this.storeService.issueGoogleSession(body.idToken, {
+      deviceId: body.deviceId,
+    });
   }
 
   @Post('apple-login')
@@ -29,6 +31,7 @@ export class AuthController {
       givenName: body.givenName,
       familyName: body.familyName,
       email: body.email,
+      deviceId: body.deviceId,
     });
   }
 

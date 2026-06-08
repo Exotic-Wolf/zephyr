@@ -62,11 +62,16 @@ class ZephyrApiClient {
     }
   }
 
-  Future<AuthSession> googleLogin(String idToken) async {
+  Future<AuthSession> googleLogin(String idToken, {String? deviceId}) async {
+    final Map<String, dynamic> body = <String, dynamic>{'idToken': idToken};
+    if (deviceId != null && deviceId.isNotEmpty) {
+      body['deviceId'] = deviceId;
+    }
+
     final Map<String, dynamic> data = await _request(
       method: 'POST',
       path: '/v1/auth/google-login',
-      body: <String, dynamic>{'idToken': idToken},
+      body: body,
     );
 
     return AuthSession(
@@ -80,6 +85,7 @@ class ZephyrApiClient {
     String? givenName,
     String? familyName,
     String? email,
+    String? deviceId,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{'idToken': idToken};
     if (givenName != null) {
@@ -90,6 +96,9 @@ class ZephyrApiClient {
     }
     if (email != null) {
       body['email'] = email;
+    }
+    if (deviceId != null && deviceId.isNotEmpty) {
+      body['deviceId'] = deviceId;
     }
 
     final Map<String, dynamic> data = await _request(

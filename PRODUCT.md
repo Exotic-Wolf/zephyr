@@ -76,6 +76,9 @@ When the app direction changes, do not patch around stale wording. Replace it, d
 | P0 | Done | Codex | Add Firestore rules emulator suite | `pnpm test:firestore:rules` proves participant-only chat ownership, immutable participants, bounded unread, message immutability, receiver-only receipts, constrained deletes, and block projection denial |
 | P0 | Done | Codex | Add Storage rules emulator suite | `pnpm test:storage:rules` proves participant-only chat image reads, uploader-only image creation, image/type/size bounds, outsider denial, and immutable chat image objects |
 | P0 | Done | Codex | Generate Android inbox A+ AAB `1.0.7+8` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab`; direct Gradle `:app:bundleRelease` passed on 7 Jun 2026 and package remains `com.zephyr.zephyr_mobile` |
+| P0 | Done | Codex | Make inbox text sends optimistic | Text bubbles now appear immediately, the composer clears without blocking the send arrow, pending sends show an in-bubble clock, and failed sends stay in-thread with red `Retry` using the same idempotency key |
+| P0 | Done | Codex | Enforce one active mobile API session per account | OAuth login sends a stable app-install device id; backend stamps a new active session id on the user, deletes older session rows, and rejects older bearer tokens after another phone logs in |
+| P0 | Done | Codex | Generate Android session/inbox AAB `1.0.8+9` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab`; manifest verifies package `com.zephyr.zephyr_mobile`, version name `1.0.8`, version code `9`; SHA-256 `6ae1f7554e84866d60c51882db082d997d75611aecae113509de59eabc831b27` |
 | P0 | Done | Codex | Enforce canonical presence coherence in RTDB rules | Rules now reject incoherent availability cells such as premium live with random routing enabled or display/state mismatch |
 | P0 | Done | Codex | Move live audience ownership to per-viewer RTDB cells | Viewers now own only `live_rooms/{roomId}/audience/{userId}`; shared `audience_count` is no longer client-writable |
 | P0 | Done | Codex | Move live-room gift display fan-out behind backend/Admin SDK | Client gift UI now waits for backend economy success; backend writes trusted RTDB gift events and clients cannot forge them |
@@ -104,7 +107,7 @@ Immediate next work:
 
 1. Manual smoke the launch-minimum For you page on iPhone using the reversible demo host simulator: live-only feed, viewer count, pull-to-refresh, lazy-load trigger, body-tap live entry, identity-strip profile entry, and empty state with Random match after cleanup.
 2. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
-3. Upload and smoke the inbox-hardened Android AAB `1.0.7+8`: login, inbox, send text, send image, receipts, block, report, logout/offline.
+3. Upload and smoke the session/inbox Android AAB `1.0.8+9`: OAuth login, second-phone login invalidates the older API session, inbox optimistic text send, failed-send retry, send image, receipts, block, report, logout/offline.
 4. Wait for Google Play merchant/bank verification, create/publish `pack_299`, then smoke one internal-test purchase/refund.
 5. Refresh stale non-Markdown contracts/test helpers/source comments: OpenAPI guest-login, smoke/e2e guest helpers, socket/LiveKit comments.
 6. Retest direct call with two online accounts after the deployed presence-sync trigger, including in-call report and post-call Message/Report/Done behavior.
@@ -121,10 +124,11 @@ This is the current working truth after re-auditing `PRODUCT.md`, `.github/copil
 | Area | Current state |
 |---|---|
 | Overall solution grade | B+ today. The architecture and core safety rails are strong; the remaining gap is product completion, manual smoke sign-off, and stale non-Markdown artifacts. |
-| Verified checks | `pnpm check` passed earlier on 7 Jun; `pnpm --filter zephyr-api test:db:race` passed 3/3 against local Postgres; current mobile-entrance pass: `flutter test` passed 10/10, `flutter analyze` passed, `pnpm --filter zephyr-api test` passed, and `pnpm --filter zephyr-api build` passed. |
-| Known failing check | None recorded in the current local checks. Remaining gates are manual smoke/store checks and stale non-Markdown contract/helper cleanup. |
+| Verified checks | `pnpm check` passed earlier on 7 Jun; `pnpm --filter zephyr-api test:db:race` passed 3/3 against local Postgres; current pass on 8 Jun: `pnpm --filter zephyr-api test` passed 24 tests with 3 skipped DB-race tests, `pnpm --filter zephyr-api build` passed, `flutter analyze` passed, `flutter test` passed 10/10, and direct Gradle `./gradlew :app:bundleRelease` produced signed AAB `1.0.8+9`. |
+| Known failing check | Local `flutter build appbundle` wrapper reported native debug-symbol stripping failure; direct Gradle `:app:bundleRelease` succeeds and produced the uploadable signed AAB. `flutter doctor -v` still reports Android cmdline-tools missing and Android license status unknown on this Mac. |
+| Auth/session | Launch-level A. OAuth login carries a stable app-install device id; the backend maintains one active mobile API session per account, so a newer phone login invalidates older bearer tokens. Full A+ still needs Firebase rule-level session revocation/custom-claim checks so already-open Firestore/RTDB sessions are also forced out instantly. |
 | Realtime architecture | A+. Canonical RTDB presence, RTDB rules, module ownership, backend projection, per-viewer live audience, and backend-trusted live gift fan-out are in place and covered by emulator tests. |
-| Messaging/inbox | A+ core and media. Firestore/Storage rules, transactional sends, backend-verified push, block/report ownership, image upload rules, and Android AAB `1.0.7+8` are ready for manual smoke. |
+| Messaging/inbox | A+ core and media. Firestore/Storage rules, transactional sends, backend-verified push, block/report ownership, image upload rules, optimistic text sends, in-bubble failed-send retry, and Android AAB `1.0.8+9` are ready for manual smoke. |
 | Backend economy | A+. Call ticks, direct/random call gifts, live gifts, IAP credit/refund, and race/idempotency paths are transaction-safe and tested. |
 | IAP | A pending store sign-off. Code/backend/env are hardened, but Google Play merchant/bank verification and real internal-test purchase/refund smoke remain blocked. |
 | Calls | Direct and random call flows are implemented, with in-call report entry and post-call Message/Report/Done safety flow now wired and widget-tested. Home keeps the floating Random match CTA for customer accounts only; host/girl accounts receive random-call invite ribbons instead. Both call flows still need two-account manual smoke. |
@@ -234,6 +238,7 @@ Tables are auto-created on startup when `DATABASE_URL` is set.
 - Unified JSON error envelope on all failures
 - Google token verified server-side with audience check
 - Apple token verified via JWKS
+- OAuth sessions are single-active per account at the backend API layer; a new phone login replaces the older bearer token
 - IAP receipts verified cryptographically (Apple JWS + Google Publisher API)
 - Internal endpoints protected by `X-Service-Key` header
 

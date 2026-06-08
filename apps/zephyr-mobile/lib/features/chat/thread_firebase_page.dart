@@ -48,10 +48,12 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   StreamSubscription<List<FirebaseMessage>>? _sub;
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
-  bool _sending = false;
+  bool _sendingImage = false;
   bool _loadingMore = false;
   bool _hasMore = true;
   bool _streamReady = false;
+  final Map<String, FirebaseMessage> _optimisticMessages = {};
+  final Map<String, String> _failedSends = {};
   final Map<String, String> _translations = {}; // messageId -> translated text
   final Set<String> _translating = {}; // messageIds currently being translated
 
@@ -100,9 +102,14 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         .watchMessages(widget.otherUserId)
         .listen((List<FirebaseMessage> msgs) {
           if (mounted) {
+            final Set<String> committedIds = msgs.map((m) => m.id).toSet();
             setState(() {
               _messages = msgs;
               _streamReady = true;
+              _optimisticMessages.removeWhere(
+                (id, _) => committedIds.contains(id),
+              );
+              _failedSends.removeWhere((id, _) => committedIds.contains(id));
             });
             _scrollToBottom();
             // Mark incoming messages as read continuously while chat is open
@@ -200,7 +207,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
 
   Future<void> _send() async {
     final String text = _inputCtrl.text.trim();
-    if (text.isEmpty || _sending) return;
+    if (text.isEmpty) return;
     if (text.length > 2000) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Message too long (max 2000 characters)')),
@@ -230,27 +237,49 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
 
     _sendTimestamps.add(now);
     _lastSentText = text;
-    setState(() => _sending = true);
-    _inputCtrl.clear();
     final String key = _generateKey();
+    final FirebaseMessage optimistic = FirebaseMessage(
+      id: key,
+      senderId: widget.myUserId,
+      body: text,
+      createdAt: now,
+    );
 
+    setState(() {
+      _optimisticMessages[key] = optimistic;
+      _failedSends.remove(key);
+    });
+    _inputCtrl.clear();
+    _scrollToBottom(jump: true);
+
+    unawaited(_commitOptimisticText(optimistic));
+  }
+
+  Future<void> _commitOptimisticText(FirebaseMessage message) async {
     try {
       await FirebaseChatService.instance.sendMessage(
         otherUserId: widget.otherUserId,
-        body: text,
+        body: message.body,
         myDisplayName: widget.myDisplayName,
         myAvatarUrl: widget.myAvatarUrl,
-        idempotencyKey: key,
+        idempotencyKey: message.id,
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Send failed: $e')));
+        setState(() {
+          if (_optimisticMessages.containsKey(message.id)) {
+            _failedSends[message.id] = apiErrorMessage(e);
+          }
+        });
       }
-    } finally {
-      if (mounted) setState(() => _sending = false);
     }
+  }
+
+  void _retryOptimisticText(String messageId) {
+    final FirebaseMessage? message = _optimisticMessages[messageId];
+    if (message == null) return;
+    setState(() => _failedSends.remove(messageId));
+    unawaited(_commitOptimisticText(message));
   }
 
   Future<void> _pickAndSendImage() async {
@@ -259,7 +288,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       imageQuality: 70,
     );
     if (picked == null) return;
-    setState(() => _sending = true);
+    setState(() => _sendingImage = true);
     try {
       await FirebaseChatService.instance.sendImage(
         otherUserId: widget.otherUserId,
@@ -274,11 +303,25 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         ).showSnackBar(SnackBar(content: Text('Image send failed: $e')));
       }
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) setState(() => _sendingImage = false);
     }
   }
 
-  List<FirebaseMessage> get _allMessages => [..._olderMessages, ..._messages];
+  List<FirebaseMessage> get _allMessages {
+    final Set<String> committedIds = {
+      ..._olderMessages.map((m) => m.id),
+      ..._messages.map((m) => m.id),
+    };
+    final List<FirebaseMessage> visible = [
+      ..._olderMessages,
+      ..._messages,
+      ..._optimisticMessages.entries
+          .where((entry) => !committedIds.contains(entry.key))
+          .map((entry) => entry.value),
+    ];
+    visible.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return visible;
+  }
 
   void _showMessageMenu(FirebaseMessage msg) {
     final bool isMe = msg.senderId == widget.myUserId;
@@ -658,10 +701,40 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     );
   }
 
+  Widget _buildRetrySendControl({required String messageId}) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _retryOptimisticText(messageId),
+      child: const Padding(
+        padding: EdgeInsets.only(left: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.error_outline_rounded,
+              size: 14,
+              color: Color(0xFFE53935),
+            ),
+            SizedBox(width: 3),
+            Text(
+              'Retry',
+              style: TextStyle(
+                color: Color(0xFFE53935),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double bottomPad = MediaQuery.of(context).padding.bottom;
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final List<FirebaseMessage> visibleMessages = _allMessages;
 
     return Scaffold(
       backgroundColor: isDark ? null : Colors.white,
@@ -790,11 +863,11 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           Column(
             children: [
               Expanded(
-                child: !_streamReady
+                child: !_streamReady && visibleMessages.isEmpty
                     ? const Center(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : _messages.isEmpty && _olderMessages.isEmpty
+                    : visibleMessages.isEmpty
                     ? Center(
                         child: Text(
                           'Say hello!',
@@ -808,10 +881,11 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                           horizontal: 12,
                           vertical: 16,
                         ),
-                        itemCount: _allMessages.length + (_loadingMore ? 1 : 0),
+                        itemCount:
+                            visibleMessages.length + (_loadingMore ? 1 : 0),
                         itemBuilder: (BuildContext ctx, int i) {
                           // Loading indicator at top (end of reverse list)
-                          if (_loadingMore && i == _allMessages.length) {
+                          if (_loadingMore && i == visibleMessages.length) {
                             return const Padding(
                               padding: EdgeInsets.all(16),
                               child: Center(
@@ -821,13 +895,16 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                               ),
                             );
                           }
-                          final int msgIdx = _allMessages.length - 1 - i;
-                          final FirebaseMessage msg = _allMessages[msgIdx];
+                          final int msgIdx = visibleMessages.length - 1 - i;
+                          final FirebaseMessage msg = visibleMessages[msgIdx];
                           final bool isMe = msg.senderId == widget.myUserId;
+                          final bool isOptimistic = _optimisticMessages
+                              .containsKey(msg.id);
+                          final String? sendError = _failedSends[msg.id];
                           final bool showHeader =
                               msgIdx == 0 ||
                               _isDifferentDay(
-                                _allMessages[msgIdx - 1].createdAt,
+                                visibleMessages[msgIdx - 1].createdAt,
                                 msg.createdAt,
                               );
                           final bool isDeleted = msg.type == 'deleted';
@@ -840,7 +917,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                   _formatDateHeader(msg.createdAt),
                                 ),
                               GestureDetector(
-                                onLongPress: isDeleted
+                                onLongPress: isDeleted || isOptimistic
                                     ? null
                                     : () => _showMessageMenu(msg),
                                 child: Row(
@@ -1025,21 +1102,31 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                                 ),
                                                 if (isMe) ...[
                                                   const SizedBox(width: 3),
-                                                  Icon(
-                                                    msg.readAt != null
-                                                        ? Icons.done_all
-                                                        : msg.deliveredAt !=
-                                                              null
-                                                        ? Icons.done_all
-                                                        : Icons.done,
-                                                    size: 13,
-                                                    color: msg.readAt != null
-                                                        ? Colors.blue.shade300
-                                                        : msg.deliveredAt !=
-                                                              null
-                                                        ? Colors.white70
-                                                        : Colors.white54,
-                                                  ),
+                                                  if (sendError != null)
+                                                    _buildRetrySendControl(
+                                                      messageId: msg.id,
+                                                    )
+                                                  else
+                                                    Icon(
+                                                      isOptimistic
+                                                          ? Icons
+                                                                .schedule_rounded
+                                                          : msg.readAt != null
+                                                          ? Icons.done_all
+                                                          : msg.deliveredAt !=
+                                                                null
+                                                          ? Icons.done_all
+                                                          : Icons.done,
+                                                      size: 13,
+                                                      color: isOptimistic
+                                                          ? Colors.black54
+                                                          : msg.readAt != null
+                                                          ? Colors.blue.shade300
+                                                          : msg.deliveredAt !=
+                                                                null
+                                                          ? Colors.white70
+                                                          : Colors.white54,
+                                                    ),
                                                 ],
                                               ],
                                             ),
@@ -1062,16 +1149,30 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                 child: Row(
                   children: [
                     GestureDetector(
-                      onTap: _sending ? null : _pickAndSendImage,
+                      onTap: _sendingImage ? null : _pickAndSendImage,
                       child: Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: Icon(
-                          Icons.image_outlined,
-                          color: isDark
-                              ? Colors.grey.shade400
-                              : Colors.grey.shade600,
-                          size: 26,
-                        ),
+                        child: _sendingImage
+                            ? const SizedBox(
+                                width: 26,
+                                height: 26,
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : Icon(
+                                Icons.image_outlined,
+                                color: isDark
+                                    ? Colors.grey.shade400
+                                    : Colors.grey.shade600,
+                                size: 26,
+                              ),
                       ),
                     ),
                     Expanded(
@@ -1099,36 +1200,22 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    _sending
-                        ? const SizedBox(
-                            width: 40,
-                            height: 40,
-                            child: Center(
-                              child: SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            ),
-                          )
-                        : GestureDetector(
-                            onTap: _send,
-                            child: Container(
-                              width: 40,
-                              height: 40,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Color(0xFFFF8F00),
-                              ),
-                              child: const Icon(
-                                Icons.send_rounded,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                            ),
-                          ),
+                    GestureDetector(
+                      onTap: _send,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Color(0xFFFF8F00),
+                        ),
+                        child: const Icon(
+                          Icons.send_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
