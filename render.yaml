@@ -22,3 +22,17 @@ services:
         value: true
       - key: REDIS_URL
         sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false
+      - key: SERVICE_KEY
+        sync: false
+      - key: DEMO_FOR_YOU_SIMULATOR_ENABLED
+        value: true
+      - key: DEMO_FOR_YOU_SIMULATOR_COUNT
+        value: 24
+      - key: DEMO_FOR_YOU_SIMULATOR_INTERVALS
+        value: 15,30,60,120
+      - key: DEMO_FOR_YOU_SIMULATOR_ROUTEABLE
+        value: false
