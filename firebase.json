@@ -14,9 +14,17 @@
   },
   "emulators": {
     "singleProjectMode": false,
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 8080
+    },
     "database": {
       "host": "127.0.0.1",
       "port": 9000
+    },
+    "storage": {
+      "host": "127.0.0.1",
+      "port": 9199
     },
     "ui": {
       "enabled": false

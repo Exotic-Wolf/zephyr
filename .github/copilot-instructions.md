@@ -23,7 +23,7 @@ This file is the agent operating guide. `PRODUCT.md` is the living product/archi
 | Presence / signaling / live events | Firebase RTDB via `FirebaseChatService.instance` and module facades (`PresenceRealtime`, `ProfilesRealtime`, `DirectCallSignals`, `LiveRoomRealtime`) |
 | Chat/message real-time | Firestore listeners; Storage for chat images |
 | Presence -> PG sync | Firebase Cloud Function trigger on `presence/{userId}` |
-| Backend-trusted fan-out | Firebase Admin through backend `FcmService` for call/match signals, push, and live gift display events |
+| Backend-trusted fan-out | Firebase Admin through backend `FcmService` for active-session projections, custom-token claims, call/match signals, push, and live gift display events |
 | Media (video/audio) | Agora RTC |
 | Persistent data / validation | PostgreSQL via REST (`ZephyrApiClient`) |
 | Push notifications | FCM (`FcmService` on backend) |
@@ -43,6 +43,7 @@ This file is the agent operating guide. `PRODUCT.md` is the living product/archi
 - **NEVER** duplicate presence state across systems with periodic timers.
 
 ## Firebase RTDB paths:
+- `session_controls/{userId}` — backend/Admin-owned active mobile session projection. Clients never read or write it directly; RTDB/Firestore/Storage rules use it to reject stale Firebase custom tokens.
 - `presence/{userId}` — canonical availability cell owned by `PresenceRealtime`; users write only their own node.
 - `profiles/{userId}` — displayName, avatarUrl, countryCode, language, birthday (single source of truth for user identity).
 - `direct_calls/{userId}` — direct/random call signaling owned by `DirectCallSignals`; participant ownership and immutable session metadata are rules-checked.
@@ -66,9 +67,10 @@ This file is the agent operating guide. `PRODUCT.md` is the living product/archi
 2. Chat messages? -> Firestore through the existing chat service; images go through Storage rules.
 3. Media? -> Agora RTC.
 4. Validation / economy / DB write? -> REST endpoint and Postgres.
-5. Never create a new Firebase or RTDB instance anywhere.
-6. Never add socket.io, web_socket_channel, or any socket library.
-7. Never poll for presence/realtime state; use listeners. Room heartbeat is the liveness exception for live hosts.
+5. Auth/realtime access? -> backend mints session-bound Firebase custom tokens; never client-write `session_controls`.
+6. Never create a new Firebase or RTDB instance anywhere.
+7. Never add socket.io, web_socket_channel, or any socket library.
+8. Never poll for presence/realtime state; use listeners. Room heartbeat is the liveness exception for live hosts.
 
 ## Economy:
 - Gifts: 60% receiver, 40% platform. ~5500 coins/USD.

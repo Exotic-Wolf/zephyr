@@ -17,7 +17,23 @@ import {
 const projectId = 'zephyr-firestore-rules-test';
 let env;
 
-const db = (uid) => env.authenticatedContext(uid).firestore();
+const activeSessionId = (uid) => `active-${uid}`;
+const db = (uid) =>
+  env.authenticatedContext(uid, { sessionId: activeSessionId(uid) }).firestore();
+const staleDb = (uid) =>
+  env.authenticatedContext(uid, { sessionId: `stale-${uid}` }).firestore();
+
+const seedActiveSessions = async (...uids) => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await Promise.all(
+      uids.map((uid) =>
+        setDoc(doc(context.firestore(), `session_controls/${uid}`), {
+          activeSessionId: activeSessionId(uid),
+        }),
+      ),
+    );
+  });
+};
 
 const chat = (overrides = {}) => ({
   participants: ['alice', 'bob'],
@@ -50,6 +66,7 @@ before(async () => {
 
 beforeEach(async () => {
   await env.clearFirestore();
+  await seedActiveSessions('alice', 'bob', 'mallory', 'charlie');
 });
 
 after(async () => {
@@ -57,6 +74,12 @@ after(async () => {
 });
 
 describe('chat rules', () => {
+  test('reject stale Firebase custom-token sessions', async () => {
+    const alice = staleDb('alice');
+
+    await assertFails(setDoc(doc(alice, 'chats/alice_bob'), chat()));
+  });
+
   test('allow participants to create a valid chat and reject participant tampering', async () => {
     const alice = db('alice');
     const chatRef = doc(alice, 'chats/alice_bob');

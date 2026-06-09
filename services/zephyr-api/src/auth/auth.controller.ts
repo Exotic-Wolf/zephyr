@@ -17,9 +17,11 @@ export class AuthController {
   async googleLogin(
     @Body() body: GoogleLoginDto,
   ): Promise<{ accessToken: string; user: unknown }> {
-    return this.storeService.issueGoogleSession(body.idToken, {
+    const session = await this.storeService.issueGoogleSession(body.idToken, {
       deviceId: body.deviceId,
     });
+    await this.publishActiveFirebaseSession(session);
+    return { accessToken: session.accessToken, user: session.user };
   }
 
   @Post('apple-login')
@@ -27,23 +29,42 @@ export class AuthController {
   async appleLogin(
     @Body() body: AppleLoginDto,
   ): Promise<{ accessToken: string; user: unknown }> {
-    return this.storeService.issueAppleSession(body.idToken, {
+    const session = await this.storeService.issueAppleSession(body.idToken, {
       givenName: body.givenName,
       familyName: body.familyName,
       email: body.email,
       deviceId: body.deviceId,
     });
+    await this.publishActiveFirebaseSession(session);
+    return { accessToken: session.accessToken, user: session.user };
   }
 
   @Post('firebase-token')
   async getFirebaseToken(
     @Headers('authorization') authorization: string | undefined,
   ): Promise<{ firebaseToken: string }> {
-    const me = await this.storeService.getUserFromAuthHeader(authorization);
-    const token = await this.fcmService.createCustomToken(me.id);
+    const session =
+      await this.storeService.getAuthSessionFromAuthHeader(authorization);
+    await this.publishActiveFirebaseSession(session);
+    const token = await this.fcmService.createCustomToken(session.user.id, {
+      sessionId: session.sessionId,
+      deviceId: session.deviceId,
+    });
     if (!token) {
       throw new Error('Firebase Admin not initialized');
     }
     return { firebaseToken: token };
+  }
+
+  private async publishActiveFirebaseSession(session: {
+    user: { id: string };
+    sessionId: string;
+    deviceId: string;
+  }): Promise<void> {
+    await this.fcmService.setActiveFirebaseSession({
+      userId: session.user.id,
+      sessionId: session.sessionId,
+      deviceId: session.deviceId,
+    });
   }
 }

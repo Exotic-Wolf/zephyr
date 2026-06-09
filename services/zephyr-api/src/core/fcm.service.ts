@@ -125,9 +125,43 @@ export class FcmService implements OnModuleInit {
     }
   }
 
-  async createCustomToken(userId: string): Promise<string | null> {
+  async setActiveFirebaseSession(input: {
+    userId: string;
+    sessionId: string;
+    deviceId: string;
+  }): Promise<void> {
+    if (!this.initialized) return;
+
+    await Promise.all([
+      admin
+        .firestore()
+        .collection('session_controls')
+        .doc(input.userId)
+        .set({
+          activeSessionId: input.sessionId,
+          activeDeviceId: input.deviceId,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }),
+      admin.database().ref(`session_controls/${input.userId}`).set({
+        activeSessionId: input.sessionId,
+        activeDeviceId: input.deviceId,
+        updatedAt: admin.database.ServerValue.TIMESTAMP,
+      }),
+    ]);
+  }
+
+  async createCustomToken(
+    userId: string,
+    claims?: {
+      sessionId?: string | null;
+      deviceId?: string | null;
+    },
+  ): Promise<string | null> {
     if (!this.initialized) return null;
-    return admin.auth().createCustomToken(userId);
+    return admin.auth().createCustomToken(userId, {
+      ...(claims?.sessionId ? { sessionId: claims.sessionId } : {}),
+      ...(claims?.deviceId ? { deviceId: claims.deviceId } : {}),
+    });
   }
 
   async writeBlockProjection(blockerId: string, blockedId: string): Promise<void> {
@@ -239,6 +273,7 @@ export class FcmService implements OnModuleInit {
       .database()
       .ref()
       .update({
+        [`session_controls/${userId}`]: null,
         [`presence/${userId}`]: null,
         [`profiles/${userId}`]: null,
         [`direct_calls/${userId}`]: null,
@@ -275,6 +310,7 @@ export class FcmService implements OnModuleInit {
     // Firestore: delete all chats this user participated in (including subcollections).
     try {
       const firestore = admin.firestore();
+      await firestore.collection('session_controls').doc(userId).delete();
       const chatSnap = await firestore
         .collection('chats')
         .where('participants', 'array-contains', userId)

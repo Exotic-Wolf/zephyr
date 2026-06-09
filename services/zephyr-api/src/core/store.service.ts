@@ -264,6 +264,19 @@ interface AuthSessionRecord {
   expiresAt: number;
 }
 
+export interface IssuedAuthSession {
+  accessToken: string;
+  user: UserProfile;
+  sessionId: string;
+  deviceId: string;
+}
+
+export interface AuthenticatedAuthSession {
+  user: UserProfile;
+  sessionId: string;
+  deviceId: string;
+}
+
 export interface CallRateTier {
   label: string;
   minLevel: number;
@@ -708,7 +721,7 @@ export class StoreService implements OnModuleInit {
   async issueGuestSession(
     displayName?: string,
     options: AuthDeviceOptions = {},
-  ): Promise<{ accessToken: string; user: UserProfile }> {
+  ): Promise<IssuedAuthSession> {
     const userId = randomUUID();
     const session = this.createAuthSession(userId, options);
     const now = new Date().toISOString();
@@ -740,19 +753,29 @@ export class StoreService implements OnModuleInit {
       );
       await this.activateDatabaseSession(user.id, session);
 
-      return { accessToken: session.token, user };
+      return {
+        accessToken: session.token,
+        user,
+        sessionId: session.sessionId,
+        deviceId: session.deviceId,
+      };
     }
 
     this.users.set(userId, user);
     this.rememberInMemorySession(userId, session);
 
-    return { accessToken: session.token, user };
+    return {
+      accessToken: session.token,
+      user,
+      sessionId: session.sessionId,
+      deviceId: session.deviceId,
+    };
   }
 
   async issueGoogleSession(
     idToken: string,
     options: AuthDeviceOptions = {},
-  ): Promise<{ accessToken: string; user: UserProfile }> {
+  ): Promise<IssuedAuthSession> {
     let ticket;
     try {
       ticket = await this.googleClient.verifyIdToken({
@@ -866,6 +889,8 @@ export class StoreService implements OnModuleInit {
       return {
         accessToken: session.token,
         user: this.toUserProfile(userResult.rows[0]),
+        sessionId: session.sessionId,
+        deviceId: session.deviceId,
       };
     }
 
@@ -898,7 +923,12 @@ export class StoreService implements OnModuleInit {
     this.users.set(userId, user);
     this.rememberInMemorySession(userId, session);
 
-    return { accessToken: session.token, user };
+    return {
+      accessToken: session.token,
+      user,
+      sessionId: session.sessionId,
+      deviceId: session.deviceId,
+    };
   }
 
   async issueAppleSession(
@@ -909,7 +939,7 @@ export class StoreService implements OnModuleInit {
       email?: string;
       deviceId?: string | null;
     },
-  ): Promise<{ accessToken: string; user: UserProfile }> {
+  ): Promise<IssuedAuthSession> {
     const payload = await this.verifyAppleIdToken(idToken);
     const appleSubject = payload.sub;
 
@@ -1020,6 +1050,8 @@ export class StoreService implements OnModuleInit {
       return {
         accessToken: session.token,
         user: this.toUserProfile(userResult.rows[0]),
+        sessionId: session.sessionId,
+        deviceId: session.deviceId,
       };
     }
 
@@ -1054,10 +1086,17 @@ export class StoreService implements OnModuleInit {
     this.users.set(userId, user);
     this.rememberInMemorySession(userId, session);
 
-    return { accessToken: session.token, user };
+    return {
+      accessToken: session.token,
+      user,
+      sessionId: session.sessionId,
+      deviceId: session.deviceId,
+    };
   }
 
-  async getUserFromAuthHeader(authorization?: string): Promise<UserProfile> {
+  async getAuthSessionFromAuthHeader(
+    authorization?: string,
+  ): Promise<AuthenticatedAuthSession> {
     if (!authorization || !authorization.startsWith('Bearer ')) {
       throw new UnauthorizedException('Missing bearer token');
     }
@@ -1081,12 +1120,13 @@ export class StoreService implements OnModuleInit {
 	        onboarded_at: string | null;
 	        created_at: string;
 	        session_id: string | null;
+	        device_id: string | null;
 	        active_session_id: string | null;
 	      }>(
 	        `
 	          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.cover_url, u.bio, u.gender, u.birthday,
 	                 u.country_code, u.language, u.is_admin, u.is_host, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at,
-	                 s.session_id, u.active_session_id
+	                 s.session_id, s.device_id, u.active_session_id
 	          FROM sessions s
 	          INNER JOIN users u ON u.id = s.user_id
           WHERE s.token = $1 AND s.user_id = $2 AND s.expires_at > NOW()
@@ -1104,7 +1144,15 @@ export class StoreService implements OnModuleInit {
         throw new UnauthorizedException('Session moved to another device');
       }
 
-      return this.toUserProfile(row);
+      if (!row.session_id || !row.device_id) {
+        throw new UnauthorizedException('Session metadata missing');
+      }
+
+      return {
+        user: this.toUserProfile(row),
+        sessionId: row.session_id,
+        deviceId: row.device_id,
+      };
     }
 
     const session = this.sessions.get(token);
@@ -1124,7 +1172,16 @@ export class StoreService implements OnModuleInit {
       throw new UnauthorizedException('Session user not found');
     }
 
-    return user;
+    return {
+      user,
+      sessionId: session.sessionId,
+      deviceId: session.deviceId,
+    };
+  }
+
+  async getUserFromAuthHeader(authorization?: string): Promise<UserProfile> {
+    const session = await this.getAuthSessionFromAuthHeader(authorization);
+    return session.user;
   }
 
   async updateUser(

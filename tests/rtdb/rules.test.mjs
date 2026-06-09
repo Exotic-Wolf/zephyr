@@ -54,8 +54,24 @@ const liveRoom = (overrides = {}) => ({
   ...overrides,
 });
 
-const db = (uid) => env.authenticatedContext(uid).database();
+const activeSessionId = (uid) => `active-${uid}`;
+const db = (uid) =>
+  env.authenticatedContext(uid, { sessionId: activeSessionId(uid) }).database();
+const staleDb = (uid) =>
+  env.authenticatedContext(uid, { sessionId: `stale-${uid}` }).database();
 const anonDb = () => env.unauthenticatedContext().database();
+
+const seedActiveSessions = async (...uids) => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await Promise.all(
+      uids.map((uid) =>
+        set(ref(context.database(), `session_controls/${uid}`), {
+          activeSessionId: activeSessionId(uid),
+        }),
+      ),
+    );
+  });
+};
 
 before(async () => {
   env = await initializeTestEnvironment({
@@ -70,6 +86,7 @@ before(async () => {
 
 beforeEach(async () => {
   await env.clearDatabase();
+  await seedActiveSessions('alice', 'bob', 'charlie', 'host', 'viewer');
 });
 
 after(async () => {
@@ -77,6 +94,10 @@ after(async () => {
 });
 
 describe('presence rules', () => {
+  test('reject stale Firebase custom-token sessions', async () => {
+    await assertFails(set(ref(staleDb('alice'), 'presence/alice'), presence()));
+  });
+
   test('enforce owner writes and canonical schema', async () => {
     await assertFails(set(ref(anonDb(), 'presence/alice'), presence()));
     await assertSucceeds(set(ref(db('alice'), 'presence/alice'), presence()));

@@ -78,6 +78,7 @@ When the app direction changes, do not patch around stale wording. Replace it, d
 | P0 | Done | Codex | Generate Android inbox A+ AAB `1.0.7+8` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab`; direct Gradle `:app:bundleRelease` passed on 7 Jun 2026 and package remains `com.zephyr.zephyr_mobile` |
 | P0 | Done | Codex | Make inbox text sends optimistic | Text bubbles now appear immediately, the composer clears without blocking the send arrow, pending sends show an in-bubble clock, and failed sends stay in-thread with red `Retry` using the same idempotency key |
 | P0 | Done | Codex | Enforce one active mobile API session per account | OAuth login sends a stable app-install device id; backend stamps a new active session id on the user, deletes older session rows, and rejects older bearer tokens after another phone logs in |
+| P0 | Done | Codex | Enforce one active Firebase session per account | Backend mirrors the active mobile session to Firestore/RTDB `session_controls`, mints Firebase custom tokens with `sessionId`/`deviceId` claims, and Firestore/RTDB/Storage rules reject stale Firebase tokens |
 | P0 | Done | Codex | Generate Android session/inbox AAB `1.0.8+9` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab`; manifest verifies package `com.zephyr.zephyr_mobile`, version name `1.0.8`, version code `9`; SHA-256 `cc83910b0a0b7c243bddb8077fd7ba810c0b681a57d050af784d7ff112ae69fb` |
 | P0 | Done | Codex | Enforce canonical presence coherence in RTDB rules | Rules now reject incoherent availability cells such as premium live with random routing enabled or display/state mismatch |
 | P0 | Done | Codex | Move live audience ownership to per-viewer RTDB cells | Viewers now own only `live_rooms/{roomId}/audience/{userId}`; shared `audience_count` is no longer client-writable |
@@ -107,7 +108,7 @@ Immediate next work:
 
 1. Manual smoke the launch-minimum For you page on iPhone using the reversible demo host simulator: live-only feed, viewer count, pull-to-refresh, lazy-load trigger, body-tap live entry, identity-strip profile entry, and empty state with Random match after cleanup.
 2. Manually smoke test random call with two accounts: customer seeks, host sees ribbon, host accepts, host declines, host timeout, customer next, both end.
-3. Upload and smoke the session/inbox Android AAB `1.0.8+9`: OAuth login, second-phone login invalidates the older API session, inbox optimistic text send, failed-send retry, send image, receipts, block, report, logout/offline.
+3. Upload and smoke the session/inbox Android AAB `1.0.8+9`: OAuth login, second-phone login invalidates the older API and Firebase sessions, inbox optimistic text send, failed-send retry, send image, receipts, block, report, logout/offline.
 4. Wait for Google Play merchant/bank verification, create/publish `pack_299`, then smoke one internal-test purchase/refund.
 5. Refresh stale non-Markdown contracts/test helpers/source comments: OpenAPI guest-login, smoke/e2e guest helpers, socket/LiveKit comments.
 6. Retest direct call with two online accounts after the deployed presence-sync trigger, including in-call report and post-call Message/Report/Done behavior.
@@ -117,16 +118,16 @@ Immediate next work:
 
 ---
 
-## Current Solution Snapshot (8 Jun 2026)
+## Current Solution Snapshot (9 Jun 2026)
 
 This is the current working truth after re-auditing `PRODUCT.md`, `.github/copilot-instructions.md`, and the repository implementation.
 
 | Area | Current state |
 |---|---|
 | Overall solution grade | B+ today. The architecture and core safety rails are strong; the remaining gap is product completion, manual smoke sign-off, and stale non-Markdown artifacts. |
-| Verified checks | `pnpm check` passed earlier on 7 Jun; `pnpm --filter zephyr-api test:db:race` passed 3/3 against local Postgres; current pass on 8 Jun: `pnpm --filter zephyr-api test` passed 24 tests with 3 skipped DB-race tests, `pnpm --filter zephyr-api build` passed, `flutter analyze` passed, `flutter test` passed 10/10, and direct Gradle `./gradlew :app:bundleRelease` produced signed AAB `1.0.8+9`. |
+| Verified checks | `pnpm check:realtime` passed on 9 Jun with stale-session denial covered in RTDB, Firestore, and Storage rules; `pnpm --filter zephyr-api test` passed 24 tests with 3 skipped DB-race tests; `pnpm --filter zephyr-api build` passed. Previous 8 Jun mobile pass: `flutter analyze`, `flutter test` 10/10, and direct Gradle `./gradlew :app:bundleRelease` produced signed AAB `1.0.8+9`. |
 | Known failing check | Local `flutter build appbundle` wrapper reported native debug-symbol stripping failure; direct Gradle `:app:bundleRelease` succeeds and produced the uploadable signed AAB. `flutter doctor -v` still reports Android cmdline-tools missing and Android license status unknown on this Mac. |
-| Auth/session | Launch-level A. OAuth login carries a stable app-install device id; the backend maintains one active mobile API session per account, so a newer phone login invalidates older bearer tokens. On next launch, an older phone clears its local backend token and Firebase chat session when restore is rejected. Full A+ still needs Firebase rule-level session revocation/custom-claim checks so already-open Firestore/RTDB sessions are also forced out instantly. |
+| Auth/session | A+. OAuth login carries a stable app-install device id; the backend maintains one active mobile API session per account, deletes older session rows, mirrors the active session to Firebase `session_controls`, and mints Firebase custom tokens with `sessionId`/`deviceId` claims. Firestore, RTDB, and Storage rules reject stale Firebase sessions, so the older phone loses API and Firebase access after a newer login. |
 | Realtime architecture | A+. Canonical RTDB presence, RTDB rules, module ownership, backend projection, per-viewer live audience, and backend-trusted live gift fan-out are in place and covered by emulator tests. |
 | Messaging/inbox | A+ core and media. Firestore/Storage rules, transactional sends, backend-verified push, block/report ownership, image upload rules, optimistic text sends, in-bubble failed-send retry, and Android AAB `1.0.8+9` are ready for manual smoke. |
 | Backend economy | A+. Call ticks, direct/random call gifts, live gifts, IAP credit/refund, and race/idempotency paths are transaction-safe and tested. |
@@ -317,7 +318,7 @@ BASE_URL=https://your-api-domain.com node scripts/smoke.mjs
 | `core/store.service.ts` | All DB logic — messages, rooms, economy, wallets |
 | `core/database.service.ts` | Schema init, migrations, periodic cleanup |
 | `core/rtc.service.ts` | Agora token generation |
-| `core/fcm.service.ts` | Firebase Admin — push notifications + RTDB writes for backend-owned call, match, and live gift fan-out |
+| `core/fcm.service.ts` | Firebase Admin — push notifications, active-session projections, custom-token claims, RTDB writes for backend-owned call/match/live gift fan-out |
 | `auth/auth.controller.ts` | `POST /v1/auth/google-login`, `/apple-login`, `/firebase-token` — OAuth sessions and custom Firebase token for client auth |
 | `messages/messages.controller.ts` | `POST /v1/messages/push` — FCM push relay, device tokens, delivery/read receipts |
 | `rooms/rooms.controller.ts` | Live room management — create/join/leave/end/gift/rtc-token |
@@ -328,10 +329,12 @@ BASE_URL=https://your-api-domain.com node scripts/smoke.mjs
 
 ## DB Schema (Postgres)
 
-Tables: `users`, `wallets`, `spark_wallets`, `wallet_transactions`, `user_following`, `user_blocks`, `rooms`, `messages`, `call_sessions`, `gifts`
+Tables: `users`, `sessions`, `wallets`, `spark_wallets`, `wallet_transactions`, `user_following`, `user_blocks`, `rooms`, `messages`, `call_sessions`, `gifts`
 
 Key columns:
 - `users.public_id TEXT UNIQUE` — 8-digit derived hash
+- `users.active_session_id TEXT` — current mobile session; newer login revokes older bearer tokens
+- `sessions.session_id TEXT` + `sessions.device_id TEXT` — API token session metadata used to mint session-bound Firebase tokens
 - `users.call_rate_coins_per_minute INT` — receiver sets their direct call rate
 - `rooms.last_heartbeat TIMESTAMPTZ` — updated every 15s by host
 - `messages.read_at TIMESTAMPTZ` — null = unread, set = read (blue tick)
@@ -405,11 +408,12 @@ PATCH /v1/messages/:messageId/read
 ```
 
 Firebase Chat:
-- Backend: `POST /v1/auth/firebase-token` -> custom token for Firebase Auth
+- Backend: `POST /v1/auth/firebase-token` -> session-bound custom token for Firebase Auth
 - Firestore: messages + conversations (real-time listeners)
 - RTDB: canonical presence (connection/activity/routing/display status with onDisconnect)
 - Storage: image uploads (5MB limit, format validation)
 - FCM: push via `POST /v1/messages/push`
+- Active-session guard: backend writes `session_controls/{userId}` in Firestore + RTDB; Firestore/RTDB/Storage rules require `request.auth.token.sessionId` / `auth.token.sessionId` to match the active record
 - Features: read/delivered receipts, block/report, delete for me/everyone, translate, anti-spam, pagination
 
 ---
@@ -1289,6 +1293,15 @@ Later-dated audits supersede older entries when implementation has moved on. His
 | Security/compliance | A+ | No guest login path or generated guest localization remains; Google/Apple tokens are verified server-side; onboarding shows 17+ requirement plus Terms/Privacy links before sign-in. |
 | Testability | A+ | `flutter test` now covers current OAuth/legal surface, no guest copy, cancellation copy, and new-user setup ordering; `flutter analyze` passes. |
 | Code quality | A+ | Clean module split remains, tap recognizer leak was removed from legal links, profile RTDB write is awaited, and `UserProfile.derivePublicId` recursion was fixed after tests surfaced it. |
+
+### Auth / Session Enforcement — 9 Jun 2026 — Overall: A+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| One active mobile session | A+ | OAuth login carries a stable app-install device id; backend stamps `users.active_session_id`, stores `sessions.session_id`/`device_id`, and deletes older session rows so stale bearer tokens fail. |
+| Firebase revocation | A+ | Backend mirrors the current session to Firestore/RTDB `session_controls/{userId}` and mints Firebase custom tokens with `sessionId`/`deviceId` claims, so Firebase access is bound to the same active mobile session. |
+| Rules enforcement | A+ | Firestore, RTDB, and Storage rules now require the token session claim to match the backend-owned active-session projection before chat, presence, live-room, profile, or image access is allowed. |
+| Restore/logout behavior | A+ | An older phone clears local backend/Firebase chat state when restore is rejected; already-open Firebase listeners/writes are also rejected once rules see the stale session claim. |
+| Testability | A+ | `pnpm check:realtime` passed on 9 Jun 2026 with explicit stale-session denial coverage in RTDB, Firestore, and Storage emulator suites; backend test/build also passed. |
 
 ### Me / Profile / Wallet Entrance — 7 Jun 2026 — Overall: A
 | Aspect | Grade | Notes |
