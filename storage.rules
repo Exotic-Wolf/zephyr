@@ -4,9 +4,9 @@ service firebase.storage {
   match /b/{bucket}/o {
     function hasActiveSession() {
       return request.auth != null
-        && request.auth.token.sessionId is string
-        && firestore.exists(/databases/(default)/documents/session_controls/$(request.auth.uid))
-        && firestore.get(/databases/(default)/documents/session_controls/$(request.auth.uid)).data.activeSessionId == request.auth.token.sessionId;
+        && (!firestore.exists(/databases/(default)/documents/session_controls/$(request.auth.uid))
+          || (request.auth.token.sessionId is string
+            && firestore.get(/databases/(default)/documents/session_controls/$(request.auth.uid)).data.activeSessionId == request.auth.token.sessionId));
     }
 
     // No access by default

@@ -20,6 +20,7 @@ let env;
 const activeSessionId = (uid) => `active-${uid}`;
 const db = (uid) =>
   env.authenticatedContext(uid, { sessionId: activeSessionId(uid) }).firestore();
+const legacyDb = (uid) => env.authenticatedContext(uid).firestore();
 const staleDb = (uid) =>
   env.authenticatedContext(uid, { sessionId: `stale-${uid}` }).firestore();
 
@@ -74,6 +75,12 @@ after(async () => {
 });
 
 describe('chat rules', () => {
+  test('allow pre-migration Firebase sessions before backend projection exists', async () => {
+    await env.clearFirestore();
+
+    await assertSucceeds(setDoc(doc(legacyDb('alice'), 'chats/alice_bob'), chat()));
+  });
+
   test('reject stale Firebase custom-token sessions', async () => {
     const alice = staleDb('alice');
 

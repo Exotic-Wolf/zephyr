@@ -57,6 +57,7 @@ const liveRoom = (overrides = {}) => ({
 const activeSessionId = (uid) => `active-${uid}`;
 const db = (uid) =>
   env.authenticatedContext(uid, { sessionId: activeSessionId(uid) }).database();
+const legacyDb = (uid) => env.authenticatedContext(uid).database();
 const staleDb = (uid) =>
   env.authenticatedContext(uid, { sessionId: `stale-${uid}` }).database();
 const anonDb = () => env.unauthenticatedContext().database();
@@ -94,6 +95,12 @@ after(async () => {
 });
 
 describe('presence rules', () => {
+  test('allow pre-migration Firebase sessions before backend projection exists', async () => {
+    await env.clearDatabase();
+
+    await assertSucceeds(set(ref(legacyDb('alice'), 'presence/alice'), presence()));
+  });
+
   test('reject stale Firebase custom-token sessions', async () => {
     await assertFails(set(ref(staleDb('alice'), 'presence/alice'), presence()));
   });

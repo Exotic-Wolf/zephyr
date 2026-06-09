@@ -14,9 +14,11 @@ let env;
 const activeSessionId = (uid) => `active-${uid}`;
 const storage = (uid) =>
   env.authenticatedContext(uid, { sessionId: activeSessionId(uid) }).storage();
+const legacyStorage = (uid) => env.authenticatedContext(uid).storage();
 const staleStorage = (uid) =>
   env.authenticatedContext(uid, { sessionId: `stale-${uid}` }).storage();
 const objectRef = (uid, path) => storage(uid).ref(path);
+const legacyObjectRef = (uid, path) => legacyStorage(uid).ref(path);
 const staleObjectRef = (uid, path) => staleStorage(uid).ref(path);
 
 const seedActiveSessions = async (...uids) => {
@@ -60,8 +62,20 @@ after(async () => {
 });
 
 describe('chat image storage rules', () => {
+  test('allow pre-migration Firebase sessions before backend projection exists', async () => {
+    await env.clearStorage();
+    await env.clearFirestore();
+
+    await assertSucceeds(
+      legacyObjectRef('alice', 'chats/alice_bob/alice/legacy.png').put(
+        imageBytes,
+        { contentType: 'image/png' },
+      ),
+    );
+  });
+
   test('reject stale Firebase custom-token sessions', async () => {
-    const path = 'chats/alice_bob/alice/pic.png';
+    const path = 'chats/alice_bob/alice/stale.png';
 
     await assertFails(
       staleObjectRef('alice', path).put(imageBytes, { contentType: 'image/png' }),

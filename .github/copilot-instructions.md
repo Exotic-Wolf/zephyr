@@ -43,7 +43,7 @@ This file is the agent operating guide. `PRODUCT.md` is the living product/archi
 - **NEVER** duplicate presence state across systems with periodic timers.
 
 ## Firebase RTDB paths:
-- `session_controls/{userId}` — backend/Admin-owned active mobile session projection. Clients never read or write it directly; RTDB/Firestore/Storage rules use it to reject stale Firebase custom tokens.
+- `session_controls/{userId}` — backend/Admin-owned active mobile session projection. Clients never read or write it directly; RTDB/Firestore/Storage rules allow pre-projection sessions for migration safety, then use it to reject stale Firebase custom tokens once present.
 - `presence/{userId}` — canonical availability cell owned by `PresenceRealtime`; users write only their own node.
 - `profiles/{userId}` — displayName, avatarUrl, countryCode, language, birthday (single source of truth for user identity).
 - `direct_calls/{userId}` — direct/random call signaling owned by `DirectCallSignals`; participant ownership and immutable session metadata are rules-checked.

@@ -12,9 +12,9 @@ service cloud.firestore {
 
     function hasActiveSession() {
       return signedIn()
-        && request.auth.token.sessionId is string
-        && exists(activeSessionPath(request.auth.uid))
-        && get(activeSessionPath(request.auth.uid)).data.activeSessionId == request.auth.token.sessionId;
+        && (!exists(activeSessionPath(request.auth.uid))
+          || (request.auth.token.sessionId is string
+            && get(activeSessionPath(request.auth.uid)).data.activeSessionId == request.auth.token.sessionId));
     }
 
     // No access by default

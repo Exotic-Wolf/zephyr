@@ -78,7 +78,7 @@ When the app direction changes, do not patch around stale wording. Replace it, d
 | P0 | Done | Codex | Generate Android inbox A+ AAB `1.0.7+8` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab`; direct Gradle `:app:bundleRelease` passed on 7 Jun 2026 and package remains `com.zephyr.zephyr_mobile` |
 | P0 | Done | Codex | Make inbox text sends optimistic | Text bubbles now appear immediately, the composer clears without blocking the send arrow, pending sends show an in-bubble clock, and failed sends stay in-thread with red `Retry` using the same idempotency key |
 | P0 | Done | Codex | Enforce one active mobile API session per account | OAuth login sends a stable app-install device id; backend stamps a new active session id on the user, deletes older session rows, and rejects older bearer tokens after another phone logs in |
-| P0 | Done | Codex | Enforce one active Firebase session per account | Backend mirrors the active mobile session to Firestore/RTDB `session_controls`, mints Firebase custom tokens with `sessionId`/`deviceId` claims, and Firestore/RTDB/Storage rules reject stale Firebase tokens |
+| P0 | Done | Codex | Enforce one active Firebase session per account | Backend mirrors the active mobile session to Firestore/RTDB `session_controls`, mints Firebase custom tokens with `sessionId`/`deviceId` claims, and Firestore/RTDB/Storage rules reject stale Firebase tokens once the backend-owned projection exists |
 | P0 | Done | Codex | Generate Android session/inbox AAB `1.0.8+9` | Built signed release bundle at `apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab`; manifest verifies package `com.zephyr.zephyr_mobile`, version name `1.0.8`, version code `9`; SHA-256 `cc83910b0a0b7c243bddb8077fd7ba810c0b681a57d050af784d7ff112ae69fb` |
 | P0 | Done | Codex | Enforce canonical presence coherence in RTDB rules | Rules now reject incoherent availability cells such as premium live with random routing enabled or display/state mismatch |
 | P0 | Done | Codex | Move live audience ownership to per-viewer RTDB cells | Viewers now own only `live_rooms/{roomId}/audience/{userId}`; shared `audience_count` is no longer client-writable |
@@ -125,9 +125,9 @@ This is the current working truth after re-auditing `PRODUCT.md`, `.github/copil
 | Area | Current state |
 |---|---|
 | Overall solution grade | B+ today. The architecture and core safety rails are strong; the remaining gap is product completion, manual smoke sign-off, and stale non-Markdown artifacts. |
-| Verified checks | `pnpm check:realtime` passed on 9 Jun with stale-session denial covered in RTDB, Firestore, and Storage rules; `pnpm --filter zephyr-api test` passed 24 tests with 3 skipped DB-race tests; `pnpm --filter zephyr-api build` passed. Previous 8 Jun mobile pass: `flutter analyze`, `flutter test` 10/10, and direct Gradle `./gradlew :app:bundleRelease` produced signed AAB `1.0.8+9`. |
+| Verified checks | `pnpm check:realtime` passed on 9 Jun with migration-safe no-projection allowance and stale-session denial covered in RTDB, Firestore, and Storage rules; `pnpm --filter zephyr-api test` passed 24 tests with 3 skipped DB-race tests; `pnpm --filter zephyr-api build` passed. Previous 8 Jun mobile pass: `flutter analyze`, `flutter test` 10/10, and direct Gradle `./gradlew :app:bundleRelease` produced signed AAB `1.0.8+9`. |
 | Known failing check | Local `flutter build appbundle` wrapper reported native debug-symbol stripping failure; direct Gradle `:app:bundleRelease` succeeds and produced the uploadable signed AAB. `flutter doctor -v` still reports Android cmdline-tools missing and Android license status unknown on this Mac. |
-| Auth/session | A+. OAuth login carries a stable app-install device id; the backend maintains one active mobile API session per account, deletes older session rows, mirrors the active session to Firebase `session_controls`, and mints Firebase custom tokens with `sessionId`/`deviceId` claims. Firestore, RTDB, and Storage rules reject stale Firebase sessions, so the older phone loses API and Firebase access after a newer login. |
+| Auth/session | A+. OAuth login carries a stable app-install device id; the backend maintains one active mobile API session per account, deletes older session rows, mirrors the active session to Firebase `session_controls`, and mints Firebase custom tokens with `sessionId`/`deviceId` claims. Firestore, RTDB, and Storage rules are migration-safe: before a projection exists they allow the existing Firebase token, and once the projection exists they reject stale Firebase sessions. |
 | Realtime architecture | A+. Canonical RTDB presence, RTDB rules, module ownership, backend projection, per-viewer live audience, and backend-trusted live gift fan-out are in place and covered by emulator tests. |
 | Messaging/inbox | A+ core and media. Firestore/Storage rules, transactional sends, backend-verified push, block/report ownership, image upload rules, optimistic text sends, in-bubble failed-send retry, and Android AAB `1.0.8+9` are ready for manual smoke. |
 | Backend economy | A+. Call ticks, direct/random call gifts, live gifts, IAP credit/refund, and race/idempotency paths are transaction-safe and tested. |
@@ -413,7 +413,7 @@ Firebase Chat:
 - RTDB: canonical presence (connection/activity/routing/display status with onDisconnect)
 - Storage: image uploads (5MB limit, format validation)
 - FCM: push via `POST /v1/messages/push`
-- Active-session guard: backend writes `session_controls/{userId}` in Firestore + RTDB; Firestore/RTDB/Storage rules require `request.auth.token.sessionId` / `auth.token.sessionId` to match the active record
+- Active-session guard: backend writes `session_controls/{userId}` in Firestore + RTDB; Firestore/RTDB/Storage rules allow pre-projection sessions during migration, then require `request.auth.token.sessionId` / `auth.token.sessionId` to match the active record once present
 - Features: read/delivered receipts, block/report, delete for me/everyone, translate, anti-spam, pagination
 
 ---
@@ -1298,10 +1298,10 @@ Later-dated audits supersede older entries when implementation has moved on. His
 | Aspect | Grade | Notes |
 |--------|-------|-------|
 | One active mobile session | A+ | OAuth login carries a stable app-install device id; backend stamps `users.active_session_id`, stores `sessions.session_id`/`device_id`, and deletes older session rows so stale bearer tokens fail. |
-| Firebase revocation | A+ | Backend mirrors the current session to Firestore/RTDB `session_controls/{userId}` and mints Firebase custom tokens with `sessionId`/`deviceId` claims, so Firebase access is bound to the same active mobile session. |
-| Rules enforcement | A+ | Firestore, RTDB, and Storage rules now require the token session claim to match the backend-owned active-session projection before chat, presence, live-room, profile, or image access is allowed. |
+| Firebase revocation | A+ | Backend mirrors the current session to Firestore/RTDB `session_controls/{userId}` and mints Firebase custom tokens with `sessionId`/`deviceId` claims, so Firebase access binds to the same active mobile session after the projection exists. |
+| Rules enforcement | A+ | Firestore, RTDB, and Storage rules allow pre-projection sessions for safe rollout, then require the token session claim to match the backend-owned active-session projection before chat, presence, live-room, profile, or image access is allowed. |
 | Restore/logout behavior | A+ | An older phone clears local backend/Firebase chat state when restore is rejected; already-open Firebase listeners/writes are also rejected once rules see the stale session claim. |
-| Testability | A+ | `pnpm check:realtime` passed on 9 Jun 2026 with explicit stale-session denial coverage in RTDB, Firestore, and Storage emulator suites; backend test/build also passed. |
+| Testability | A+ | `pnpm check:realtime` passed on 9 Jun 2026 with explicit pre-projection allowance and stale-session denial coverage in RTDB, Firestore, and Storage emulator suites; backend test/build also passed. |
 
 ### Me / Profile / Wallet Entrance — 7 Jun 2026 — Overall: A
 | Aspect | Grade | Notes |
