@@ -14,7 +14,7 @@ Before every implementation, bug fix, review, audit, or docs change:
 - check whether a module/component/service/adapter/helper/value object already exists
 - state the task contract before editing
 
-When a task touches a third-party system, official third-party documentation comes first. Always. This includes Firebase, Firestore, RTDB, FCM, Google Auth, Apple Auth, Apple IAP, Google Play Billing, Agora, Cloudinary, Render, Postgres hosting behavior, app store rules, and any SDK or external API.
+When a task touches a third-party system, official third-party documentation comes first. Always. This includes Firebase, Firestore, RTDB, FCM, Google Auth, Apple Auth, Apple IAP, Google Play Billing, Agora, Cloudinary, Render, Postgres hosting behavior, app store rules, and any SDK or external API. For Firebase work, classify the surface first: Auth, Firestore, Storage, RTDB, FCM, or Functions. If RTDB is in the read/write/listener path, read `docs/product/rtdb-contract.md`; if not, state RTDB is out of scope.
 
 Do not rely on memory, old code, old comments, blog posts, or previous chat claims when official third-party behavior is relevant.
 
@@ -23,6 +23,7 @@ Task owner docs:
 | Task touches | Read |
 |---|---|
 | Architecture, ownership, source of truth, realtime | `docs/product/architecture.md` |
+| RTDB paths, fields, rules, listeners, realtime writes | `docs/product/rtdb-contract.md` |
 | Commands, env, deploy, rollback, release operations | `docs/product/operations.md` |
 | Paths, packages, DB notes, endpoints | `docs/product/code-reference.md` |
 | Economy, pricing, gifts, premium live, compliance, calls | `docs/product/product-model.md` |
@@ -46,7 +47,7 @@ Before editing, state the contract in concrete terms:
 - manual smoke needed, if automation cannot prove it
 - docs likely to change
 
-If any answer is unclear, stop and inspect before editing. Do not code from vibes.
+If any answer is unclear, stop and inspect before editing. For bugs, add targeted logs/assertions/breakpoints at the owning boundary before changing behavior, then keep only useful guarded diagnostics. Do not code from vibes.
 
 ## 3. Source Of Truth Gate
 
@@ -102,7 +103,7 @@ Core gates:
 Default proof:
 
 - unit test for every module or component that contains logic
-- rule/emulator test for Firebase, Firestore, RTDB, or Storage behavior
+- dedicated rule/emulator test for every Firebase, Firestore, RTDB, or Storage path, field, listener, write contract, or permission change
 - backend test for API, database, economy, session, push, or projection behavior
 - Flutter test for UI state, navigation, lifecycle, or client module behavior
 - manual smoke or profiling when real devices, third-party SDKs, payments, push, calls, live video, performance, or lifecycle transitions cannot be proven by automation
@@ -117,6 +118,7 @@ Do not call code reusable, fixed, done, top-tier, A+, or production-ready until 
 - No Socket.IO, WebSocket runtime, or new socket dependency.
 - No presence polling. Use RTDB listeners. Live-room heartbeat is only room liveness.
 - No new Firebase or RTDB singleton. Use `FirebaseChatService.instance` or module facades behind it.
+- RTDB contracts are mission-critical. Every new RTDB path, field, listener, or write must have an owning module, security rule coverage, targeted tests, and adjacent regression checks before reuse.
 - No client-owned economy writes. Wallet, gifts, calls, IAP, refunds, and revenue are backend/Postgres-owned.
 - No client-forged trusted realtime events. Backend/Admin fan-out is required for trusted gift/session events.
 - No duplicate identity source. User identity lives in RTDB `profiles/{userId}`.
@@ -185,6 +187,7 @@ Owning docs:
 
 - `docs/product/current-state.md`: blockers, current state, launch readiness, active TODOs, immediate next work
 - `docs/product/architecture.md`: source of truth, module ownership, hard rules, realtime contracts
+- `docs/product/rtdb-contract.md`: RTDB paths, fields, writers, readers, rules, listeners, tests
 - `docs/product/operations.md`: commands, env vars, deploy, rollback, release operations, smoke tests
 - `docs/product/code-reference.md`: paths, packages, DB notes, endpoints, code structure
 - `docs/product/product-model.md`: economy, pricing, gifts, premium live, compliance, call mechanics

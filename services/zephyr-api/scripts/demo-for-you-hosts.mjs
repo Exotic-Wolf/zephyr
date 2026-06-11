@@ -494,6 +494,7 @@ async function mirrorRtdbState(admin, host, state, roomId) {
     previousActivity: null,
     previousRoomId: null,
     state: state.status,
+    lastSeen: now,
     updatedAt: now,
   };
 

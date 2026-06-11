@@ -708,6 +708,7 @@ export class DemoForYouSimulatorService
         previousActivity: null,
         previousRoomId: null,
         state: state.status,
+        lastSeen: admin.database.ServerValue.TIMESTAMP,
         updatedAt: admin.database.ServerValue.TIMESTAMP,
         demo: {
           simulator: 'for_you',

@@ -246,6 +246,16 @@ describe('chat rules', () => {
     );
     await assertFails(
       setDoc(
+        doc(alice, 'chats/alice_bob/messages/image_null_url'),
+        message({
+          type: 'image',
+          imageUrl: null,
+          idempotencyKey: 'image_null_url',
+        }),
+      ),
+    );
+    await assertFails(
+      setDoc(
         doc(alice, 'chats/alice_bob/messages/text_with_url'),
         message({
           imageUrl:

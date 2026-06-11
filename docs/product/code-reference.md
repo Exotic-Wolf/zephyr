@@ -20,6 +20,7 @@ Last source check: 11 Jun 2026 against repository paths, Nest controller decorat
 | `services/device_session_service.dart` | Stable app-install device id for one-active-session enforcement |
 | `services/firebase_chat_service.dart` | Firebase facade for chat, Storage image prep/upload, and realtime module access |
 | `services/firebase_realtime_database.dart` | RTDB instance factory; do not create alternate RTDB singletons |
+| `services/rtdb_contracts.dart` | Pure RTDB contract/value-object helpers used by realtime facades to fail closed on malformed presence, profile, call-signal, and live-room payloads |
 | `services/presence_realtime.dart` | Owns `presence/{userId}` lifecycle, onDisconnect, LRU presence cache, and availability transitions |
 | `services/realtime_profiles.dart` | Owns `profiles/{userId}` writes, profile cache, and profile listener lifecycle |
 | `services/direct_call_signals.dart` | Owns direct/random call signal cells under `direct_calls/{userId}` |
@@ -211,6 +212,7 @@ Firebase Chat:
 - Storage: image uploads (5MB limit, format validation)
 - FCM: push via `POST /v1/messages/push`
 - Active-session guard: backend writes `session_controls/{userId}` in Firestore + RTDB; Firestore/RTDB/Storage rules allow pre-projection sessions during migration, then require `request.auth.token.sessionId` / `auth.token.sessionId` to match the active record once present
+- Storage IAM: because `storage.rules` reads Firestore `session_controls`, the Firebase Storage service agent must keep `roles/firebaserules.firestoreServiceAgent`
 - Features: read/delivered receipts, block/report, delete for me/everyone, translate, anti-spam, pagination
 
 ---

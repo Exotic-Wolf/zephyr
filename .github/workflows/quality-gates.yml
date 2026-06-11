@@ -31,6 +31,7 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/zephyr
       DB_SSL: 'false'
       JWT_SECRET: ci-secret
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
     steps:
       - name: Checkout
@@ -63,6 +64,10 @@ jobs:
 
       - name: Storage rules emulator suite
         run: pnpm test:storage:rules
+
+      - name: Firebase Storage IAM preflight
+        if: ${{ env.FIREBASE_TOKEN != '' }}
+        run: pnpm check:firebase:iam
 
       - name: Backend unit tests
         run: pnpm --filter zephyr-api test

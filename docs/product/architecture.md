@@ -1,12 +1,12 @@
 # Zephyr Architecture
 
-This file owns durable architecture truth: source-of-truth boundaries, module ownership, realtime contracts, and hard constraints. It is not a launch-status report or file catalog. Current launch state lives in [current-state.md](./current-state.md), source-checked paths/routes/tables live in [code-reference.md](./code-reference.md), and operational commands live in [operations.md](./operations.md).
+This file owns durable architecture truth: source-of-truth boundaries, module ownership, realtime boundaries, and hard constraints. Exact RTDB paths and fields live in [rtdb-contract.md](./rtdb-contract.md). Current launch state lives in [current-state.md](./current-state.md), source-checked paths/routes/tables live in [code-reference.md](./code-reference.md), and operational commands live in [operations.md](./operations.md).
 
 ## Update Standard
 
 - Keep architecture current, not historical.
 - Update this file when a source of truth, module owner, trust boundary, realtime contract, schema authority, or hard constraint changes.
-- Do not duplicate route maps, table lists, release records, quality grades, or UX checklists here.
+- Do not duplicate route maps, table lists, exact RTDB path/field contracts, release records, quality grades, or UX checklists here.
 - Every shared behavior must have one owner, one public contract, one source of truth, and one verification path.
 - If a fix needs raw writes or repeated conditionals across screens, stop and identify the missing module boundary before editing.
 - Architecture changes require matching tests or smoke gates in the owning layer before the change can be called proven.
@@ -19,6 +19,7 @@ This file owns durable architecture truth: source-of-truth boundaries, module ow
 | Intent over protocol | Screens call module methods such as `setBusy`, `joinAudience`, or `writeRinging`; screens do not hand-write protocol payloads. |
 | Backend owns trust | Money, sessions, gifts, IAP, refunds, moderation, and trusted fan-out are backend/Postgres/Admin-owned. |
 | Realtime owns liveness | RTDB owns presence, call signals, live-room liveness, and visible realtime events; Firestore owns message state. |
+| RTDB is never best-effort | Every RTDB path, field, listener, write contract, and permission change needs an owning module plus targeted rules/tests before reuse. |
 | Rules are contracts | Firebase rules and emulator tests must change with any client data-shape or permission change. |
 | Small reversible changes | Extract or move ownership only when a focused task proves the boundary and preserves existing behavior. |
 
@@ -31,7 +32,7 @@ This file owns durable architecture truth: source-of-truth boundaries, module ow
 | Backend API | `services/zephyr-api/src/*` Nest modules | Module routing is clean at controller/module level. `StoreService` is a large domain service and should be split carefully only when a focused change proves a boundary. |
 | Money/economy | Backend `StoreService`, `IapService`, PostgreSQL transactions | Correctly backend-owned. Any gift/IAP/call-billing change must keep idempotency and DB race tests in scope. |
 | Firebase Functions | `functions/src/index.ts` | Owns RTDB trigger glue: presence projection, stale presence reaping, and signal deletion cleanup. Keep product logic in backend where possible. |
-| Firebase rules | `database.rules.json`, `firestore.rules`, `storage.rules` | Rules are first-class contracts and have emulator suites. Any client data-shape change must update rules and tests together. |
+| Firebase rules | `database.rules.json`, `firestore.rules`, `storage.rules` | Rules are first-class contracts and have emulator suites. Storage rules read Firestore `session_controls`, so production also requires the Firebase Storage service agent to hold `roles/firebaserules.firestoreServiceAgent`. Any client data-shape change must update rules and tests together. |
 | Contracts | `packages/zephyr-contracts/openapi.yaml` | Partial public API contract for core auth/profile/room/feed flows. Nest controllers and `docs/product/code-reference.md` are the current full route map until OpenAPI is expanded. |
 
 ## Architecture
@@ -91,128 +92,17 @@ These are current architectural defaults, not eternal constraints. They stay in 
 
 ---
 
-## Canonical Realtime Availability Model
+## Realtime Contract Boundary
 
-This section is the current contract for the realtime cell. The goal is not just "show a badge"; the goal is to make inbox, direct call, random call, live, Agora, and backend matchmaking read the same authoritative availability truth.
+Exact RTDB paths, fields, allowed writers, readers, security rules, presence transitions, projection fields, and addition gates live in [rtdb-contract.md](./rtdb-contract.md).
 
-### Source-of-truth boundaries
+Architecture owns the boundary:
 
-| Domain | Canonical owner | Notes |
-|---|---|---|
-| Inbox/messages | Firestore | Message bodies, conversation metadata, read/delivered state |
-| Display identity | RTDB `profiles/{userId}` | displayName, avatarUrl, countryCode, language, birthday |
-| Realtime availability | RTDB `presence/{userId}` | Connection, current activity, routing eligibility, display status |
-| Live audience presence | RTDB `live_rooms/{roomId}/audience/{userId}` | Per-viewer visible room presence. Backend/feed counts still use Postgres `rooms.audience_count` as a projection. |
-| Media session | Agora | Audio/video transport only; Agora events may trigger presence intents, but Agora does not own availability |
-| Money/session ledger | Postgres | Wallets, call sessions, gifts, IAP, revenue, reports |
-| Gifts | Backend + reusable gift module | Same gift catalog/animation/economy pipeline reused in inbox, live, premium live, direct call, and random call |
-
-### Presence cell shape
-
-`presence/{userId}` is a canonical state cell. It should be written only through the realtime availability module, never by feature screens with raw status strings.
-
-```json
-{
-  "schemaVersion": 1,
-  "connection": "online",
-  "activity": "idle",
-  "availability": "available",
-  "routing": {
-    "directCall": true,
-    "randomCall": true
-  },
-  "displayStatus": "online",
-  "interruptible": true,
-  "roomId": null,
-  "roomMode": null,
-  "callSessionId": null,
-  "premiumRoomSessionId": null,
-  "previousActivity": null,
-  "previousRoomId": null,
-  "state": "online",
-  "updatedAt": 1234567890
-}
-```
-
-Allowed values:
-
-| Field | Values | Meaning |
-|---|---|---|
-| `connection` | `online`, `offline` | RTDB reachability. Owned by connect/onDisconnect/reaper logic. |
-| `activity` | `idle`, `away`, `free_live_host`, `free_live_viewer`, `premium_live_host`, `premium_live_viewer`, `live_paused`, `direct_call`, `random_call` | What the user is doing. Owned by facade/module methods such as `setLiveStatus`, `setPremiumLiveHostStatus`, `setPremiumLiveViewerStatus`, `setBusyStatus`, and `clearBusyStatus`. |
-| `availability` | `available`, `busy`, `unavailable` | Coarse product availability. Matchmaking must never infer this from display text. |
-| `routing.directCall` | boolean | Whether explicit paid direct call may route to this user. |
-| `routing.randomCall` | boolean | Whether automatic random matchmaking may select this user. |
-| `displayStatus` | `online`, `away`, `live`, `premium_live`, `busy`, `offline` | UI badge only. It is derived from canonical state, not used as algorithm truth. |
-| `interruptible` | boolean | Whether a higher-value flow may pause the current activity. Free live can be interruptible; premium live and calls are not. |
-| `roomId` | string/null | Present only for active or paused live/premium live context. |
-| `roomMode` | `free_live`, `premium_live`, null | Current room monetization mode. |
-| `callSessionId` | string/null | Present only during direct/random call. |
-| `premiumRoomSessionId` | string/null | Present only during metered premium live participation. |
-| `previousActivity`, `previousRoomId` | string/null | Used for live -> random/direct transitions and safe resume/end decisions. |
-| `state` | same as `displayStatus` | Temporary legacy compatibility field. New code must read/write canonical fields first. |
-| `updatedAt` | server timestamp | Last canonical state write. |
-
-### Backend projection
-
-Postgres stores only a queryable projection of RTDB presence. RTDB remains source of truth.
-
-| Postgres field | Source | Purpose |
-|---|---|---|
-| `users.status` | `displayStatus` | Legacy/UI display fallback |
-| `users.presence_connection` | `connection` | Offline/freshness projection |
-| `users.presence_activity` | `activity` | Current canonical activity |
-| `users.presence_availability` | `availability` | Backend availability guard |
-| `users.can_direct_call` | `routing.directCall` | Direct-call API routeability |
-| `users.can_random_call` | `routing.randomCall` | Random-call matchmaking routeability |
-| `users.presence_updated_at` | `updatedAt` | Last canonical RTDB write mirrored to Postgres |
-
-Backend matching and call creation must use `presence_availability`, `can_direct_call`, and `can_random_call`; they must not infer routeability from `users.status` or UI badge text.
-
-### Canonical transitions
-
-| Intent | Resulting state |
-|---|---|
-| App foreground and idle | `connection=online`, `activity=idle`, `availability=available`, `routing.directCall=true`, `routing.randomCall=true`, `displayStatus=online` |
-| App idle/away | `connection=online`, `activity=away`, `availability=available`, `routing.directCall=true`, `routing.randomCall=false`, `displayStatus=away` |
-| Start free live as host | `connection=online`, `activity=free_live_host`, `availability=available`, `routing.directCall=true`, `routing.randomCall=true`, `interruptible=true`, `displayStatus=live`, `roomId=<roomId>`, `roomMode=free_live` |
-| Join free live as viewer | `connection=online`, `activity=free_live_viewer`, `availability=available`, `routing.directCall=true`, `routing.randomCall=true`, `interruptible=true`, `displayStatus=online`, `roomId=<roomId>`, `roomMode=free_live` |
-| Upgrade free live to premium live | Host presses the premium action; backend creates premium room pricing/session; current viewers see a locked screen with entry gift/payment CTA |
-| Enter premium live as host | `connection=online`, `activity=premium_live_host`, `availability=busy`, `routing.directCall=false`, `routing.randomCall=false`, `interruptible=false`, `displayStatus=premium_live`, `roomId=<roomId>`, `roomMode=premium_live` |
-| Enter premium live as viewer | `connection=online`, `activity=premium_live_viewer`, `availability=busy`, `routing.directCall=false`, `routing.randomCall=false`, `interruptible=false`, `displayStatus=busy`, `roomId=<roomId>`, `roomMode=premium_live`, `premiumRoomSessionId=<sessionId>` |
-| Enter direct call | `connection=online`, `activity=direct_call`, `availability=busy`, `routing.directCall=false`, `routing.randomCall=false`, `interruptible=false`, `displayStatus=busy`, `callSessionId=<sessionId>` |
-| Enter random call | `connection=online`, `activity=random_call`, `availability=busy`, `routing.directCall=false`, `routing.randomCall=false`, `interruptible=false`, `displayStatus=busy`, `callSessionId=<sessionId>` |
-| Free live host pulled into random/direct call | Store `previousActivity=free_live_host` and `previousRoomId=<roomId>`, pause the free live room, then enter call state |
-| Premium live host receives call/random route | No transition. Premium live is non-interruptible; routing must skip the host. |
-| Call ends after live was paused | `connection=online`, `activity=live_paused`, `availability=unavailable`, `routing.directCall=false`, `routing.randomCall=false`, `displayStatus=busy`, `roomId=<previousRoomId>` until host explicitly resumes or ends live |
-| Resume paused free live | Return to the Start free live state |
-| End live | Clear `roomId`, return to idle/away based on foreground activity |
-| App disconnect/crash | `connection=offline`, `activity=idle`, `availability=unavailable`, `routing.directCall=false`, `routing.randomCall=false`, `displayStatus=offline`; cleanup functions end affected call/live sessions |
-
-### Module ownership
-
-Feature screens should express intent, not RTDB protocol details.
-
-Implemented modules/classes:
-
-| Module | Owns |
-|---|---|
-| `PresenceRealtime` | `presence/{userId}` fields, transitions, onDisconnect, local cache, status badge derivation |
-| `ProfilesRealtime` | `profiles/{userId}` reads/writes and profile cache |
-| `DirectCallSignals` | Direct-call signaling schema, accept/decline/cancel/timeout cleanup |
-| `LiveRoomRealtime` | Free live audience/comment/reaction/status cells and trusted gift listeners. Backend/Admin owns trusted gift fan-out. Host-owned room status is transitional and must not carry money/security trust. |
-
-Target modules/classes not yet separated:
-
-| Target | Intended owner |
-|---|---|
-| `RandomCallSignals` | Random match signaling schema, partner-left/next/end events currently routed through `DirectCallSignals` and call screens |
-| `PremiumLiveRealtime` | Premium live lock/unlock state, premium audience presence, room mode changes, and non-interruptible realtime state |
-| `GiftModule` | Reusable gift catalog, animation rendering, backend economy confirmation, and post-confirm RTDB/Firestore event fan-out currently represented by `widgets/gift_tray.dart` plus backend gift endpoints |
-
-Screens should call the current facade/module methods such as `FirebaseChatService.instance.setBusyStatus(...)`, `setLiveStatus(...)`, `clearBusyStatus()`, `clearLiveStatus()`, `directSignals.writeRinging(...)`, and `directSignals.writeStatus(...)`. Screens must not write raw `busy`, `live`, `offline`, `direct_calls/$id/status`, or `live_rooms/$id/status` values directly.
-
-RTDB rules and emulator tests must enforce the same ownership model: users can write only their own presence/profile, cannot overwrite another user's call signal, cannot end another host's room, and cannot publish trusted gift/status events without backend validation.
+- RTDB owns realtime availability, display identity, direct-call signals, live-room liveness, audience cells, comments, reactions, and backend-trusted visible gift fan-out.
+- Firestore owns chat messages/conversations.
+- Postgres/backend owns sessions, money, wallet, gift ledger, IAP, refunds, moderation, and paid call/live billing.
+- Agora owns audio/video transport only.
+- Screens must express intent through module facades; they must not hand-write RTDB protocol payloads.
 
 ---
 

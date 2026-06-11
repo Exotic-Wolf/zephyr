@@ -4,6 +4,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 
 import 'firebase_realtime_database.dart';
+import 'rtdb_contracts.dart';
 
 class PresenceRealtime {
   PresenceRealtime({FirebaseDatabase? database})
@@ -80,15 +81,10 @@ class PresenceRealtime {
       _presenceLastAccess[uid] = DateTime.now();
       _presenceSubs[uid] = _rtdb.ref('presence/$uid').onValue.listen((event) {
         final data = event.snapshot.value;
-        final String state = data is Map
-            ? ((data['displayStatus'] as String?) ??
-                  (data['state'] as String?) ??
-                  'offline')
-            : 'offline';
-        final String? roomId = data is Map ? data['roomId'] as String? : null;
-        final DateTime? demoNextRotationAt = data is Map
-            ? _demoNextRotationAtFrom(data['demo'])
-            : null;
+        final String state = RtdbPresenceContract.displayStatus(data);
+        final String? roomId = RtdbPresenceContract.liveRoomId(data);
+        final DateTime? demoNextRotationAt =
+            RtdbPresenceContract.demoNextRotationAt(data);
 
         final bool changed =
             _presenceCache[uid] != state ||
@@ -96,7 +92,7 @@ class PresenceRealtime {
             _demoNextRotationCache[uid] != demoNextRotationAt;
 
         _presenceCache[uid] = state;
-        if ((state == 'live' || state == 'premium_live') && roomId != null) {
+        if (roomId != null) {
           _presenceRoomCache[uid] = roomId;
         } else {
           _presenceRoomCache.remove(uid);
@@ -179,21 +175,6 @@ class PresenceRealtime {
       interruptible: false,
       legacyState: 'offline',
     );
-  }
-
-  Map<String, dynamic> _offlinePresenceFallback() {
-    return <String, dynamic>{
-      'schemaVersion': 1,
-      'connection': 'offline',
-      'activity': 'idle',
-      'availability': 'unavailable',
-      'routing': <String, bool>{'directCall': false, 'randomCall': false},
-      'displayStatus': 'offline',
-      'interruptible': false,
-      'state': 'offline',
-      'lastSeen': 0,
-      'updatedAt': 0,
-    };
   }
 
   Map<String, dynamic> _idlePresencePayload() {
@@ -343,9 +324,7 @@ class PresenceRealtime {
 
   Stream<Map<String, dynamic>> watch(String userId) {
     return _rtdb.ref('presence/$userId').onValue.map((DatabaseEvent event) {
-      final data = event.snapshot.value;
-      if (data == null) return _offlinePresenceFallback();
-      return Map<String, dynamic>.from(data as Map);
+      return RtdbPresenceContract.normalize(event.snapshot.value);
     });
   }
 
@@ -505,18 +484,5 @@ class PresenceRealtime {
     _busyActivity = 'direct_call';
     _isBackground = false;
     _myUserId = null;
-  }
-
-  DateTime? _demoNextRotationAtFrom(Object? value) {
-    if (value is! Map) return null;
-    if (value['simulator'] != 'for_you') return null;
-    final Object? rawNextRotationAt = value['nextRotationAt'];
-    final int? milliseconds = switch (rawNextRotationAt) {
-      int value => value,
-      double value => value.toInt(),
-      _ => null,
-    };
-    if (milliseconds == null || milliseconds <= 0) return null;
-    return DateTime.fromMillisecondsSinceEpoch(milliseconds);
   }
 }

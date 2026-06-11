@@ -711,6 +711,11 @@ class FirebaseChatService {
       otherUserId: otherUserId,
       fileName: prepared.fileName,
     );
+    await _debugLogChatImageUploadAuth(
+      phase: 'start',
+      ref: ref,
+      prepared: prepared,
+    );
     final UploadTask task = ref.putFile(
       prepared.file,
       SettableMetadata(
@@ -734,12 +739,79 @@ class FirebaseChatService {
           });
 
     try {
-      final TaskSnapshot snapshot = await task;
-      onProgress?.call(1.0);
-      return await snapshot.ref.getDownloadURL();
+      late final TaskSnapshot snapshot;
+      try {
+        snapshot = await task;
+        onProgress?.call(1.0);
+        await _debugLogChatImageUploadAuth(
+          phase: 'upload-committed',
+          ref: snapshot.ref,
+          prepared: prepared,
+        );
+      } on FirebaseException catch (error) {
+        await _debugLogChatImageUploadAuth(
+          phase: 'upload-failed:${error.plugin}/${error.code}',
+          ref: ref,
+          prepared: prepared,
+        );
+        rethrow;
+      }
+
+      try {
+        final String downloadUrl = await snapshot.ref.getDownloadURL();
+        await _debugLogChatImageUploadAuth(
+          phase: 'download-url-ok',
+          ref: snapshot.ref,
+          prepared: prepared,
+        );
+        return downloadUrl;
+      } on FirebaseException catch (error) {
+        await _debugLogChatImageUploadAuth(
+          phase: 'download-url-failed:${error.plugin}/${error.code}',
+          ref: snapshot.ref,
+          prepared: prepared,
+        );
+        rethrow;
+      }
     } finally {
       await sub?.cancel();
     }
+  }
+
+  Future<void> _debugLogChatImageUploadAuth({
+    required String phase,
+    required Reference ref,
+    required PreparedChatImageUpload prepared,
+  }) async {
+    if (!kDebugMode) return;
+    try {
+      final User? firebaseUser = FirebaseAuth.instance.currentUser;
+      final IdTokenResult? token = firebaseUser == null
+          ? null
+          : await firebaseUser.getIdTokenResult();
+      final Object? sessionClaim = token?.claims?['sessionId'];
+      final Object? deviceClaim = token?.claims?['deviceId'];
+      debugPrint(
+        'Chat image upload $phase: '
+        'appUser=${_shortDebugId(_myUserId)} '
+        'firebaseUid=${_shortDebugId(firebaseUser?.uid)} '
+        'hasSessionClaim=${sessionClaim is String && sessionClaim.isNotEmpty} '
+        'session=${_shortDebugId(sessionClaim is String ? sessionClaim : null)} '
+        'hasDeviceClaim=${deviceClaim is String && deviceClaim.isNotEmpty} '
+        'device=${_shortDebugId(deviceClaim is String ? deviceClaim : null)} '
+        'size=${prepared.byteSize} '
+        'contentType=${prepared.contentType} '
+        'path=${ref.fullPath}',
+      );
+    } catch (error) {
+      debugPrint('Chat image upload debug snapshot failed: $error');
+    }
+  }
+
+  String _shortDebugId(String? value) {
+    if (value == null || value.isEmpty) return 'none';
+    if (value.length <= 8) return value;
+    return '${value.substring(0, 8)}...';
   }
 
   Future<void> sendImage({

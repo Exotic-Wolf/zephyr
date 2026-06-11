@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 
 import 'firebase_realtime_database.dart';
+import 'rtdb_contracts.dart';
 
 class DirectCallSignals {
   DirectCallSignals({FirebaseDatabase? database})
@@ -21,15 +22,20 @@ class DirectCallSignals {
     required String sessionId,
   }) async {
     final ref = refForUser(targetUserId);
+    final Map<String, dynamic>? payload =
+        RtdbDirectCallSignalContract.ringingPayload(
+          callerId: callerId,
+          callerName: callerName,
+          callerAvatarUrl: callerAvatarUrl,
+          sessionId: sessionId,
+          timestamp: ServerValue.timestamp,
+        );
+    if (payload == null) {
+      throw ArgumentError('Invalid direct-call ringing signal');
+    }
+
     await ref.onDisconnect().remove();
-    await ref.set(<String, dynamic>{
-      'callerId': callerId,
-      'callerName': callerName,
-      'callerAvatarUrl': callerAvatarUrl,
-      'sessionId': sessionId,
-      'status': 'ringing',
-      'ts': ServerValue.timestamp,
-    });
+    await ref.set(payload);
   }
 
   Future<void> cancelOnDisconnect(String targetUserId) {
@@ -50,12 +56,7 @@ class DirectCallSignals {
     void Function(Object error)? onError,
   }) {
     return refForUser(userId).onValue.listen((DatabaseEvent event) {
-      final raw = event.snapshot.value;
-      if (raw == null) {
-        onData(null);
-      } else {
-        onData(Map<String, dynamic>.from(raw as Map));
-      }
+      onData(RtdbDirectCallSignalContract.parse(event.snapshot.value));
     }, onError: onError);
   }
 }

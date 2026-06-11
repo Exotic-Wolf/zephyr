@@ -396,6 +396,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         if (mounted) {
           setState(() => _pendingImageProgress[message.id] = 0.02);
         }
+        await _refreshFirebaseSessionForMediaUpload();
         final String uploadedUrl = await _withFirebasePermissionRecovery(
           () => FirebaseChatService.instance.uploadChatImage(
             otherUserId: widget.otherUserId,
@@ -448,6 +449,20 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         });
       }
     }
+  }
+
+  Future<void> _refreshFirebaseSessionForMediaUpload() async {
+    final api = ZephyrApiClient.instance;
+    final token = ZephyrApiClient.accessToken;
+    if (api == null || token == null || token.isEmpty) {
+      debugPrint('Chat image upload auth refresh skipped: missing API token');
+      return;
+    }
+    final String firebaseToken = await api.getFirebaseToken(token);
+    await FirebaseChatService.instance.init(
+      widget.myUserId,
+      firebaseToken: firebaseToken,
+    );
   }
 
   Future<T> _withFirebasePermissionRecovery<T>(

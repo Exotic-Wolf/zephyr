@@ -50,6 +50,7 @@ Stop immediately and do not continue toward deploy/release when any of these are
 - `DEMO_FOR_YOU_SIMULATOR_ROUTEABLE=true` is present outside an explicit fake-matchmaking test.
 - A release build version/code is not higher than the last uploaded store build.
 - Firebase rules changed without matching rules tests.
+- Storage rules use `firestore.get()` / `firestore.exists()` without the Firebase Storage service agent holding `roles/firebaserules.firestoreServiceAgent`.
 - Economy, wallet, gift, IAP, call billing, or refund behavior changed without backend tests and DB race/idempotency consideration.
 - Auth/session/push behavior changed without Firebase rules/session checks and a manual two-device smoke plan.
 - A deploy requires a secret that is missing, stale, or exposed.
@@ -132,6 +133,9 @@ pnpm check:mobile
 # Firebase rules gate
 pnpm check:realtime
 
+# Production Firebase IAM preflight
+pnpm check:firebase:iam
+
 # Postgres race/idempotency gate
 pnpm check:db:race
 
@@ -144,7 +148,7 @@ pnpm --filter zephyr-api build
 cd apps/zephyr-mobile && flutter analyze && flutter test
 ```
 
-CI parity: `.github/workflows/quality-gates.yml` runs RTDB, Firestore, Storage rules, backend unit/e2e/DB-race/build, Flutter analyze, and Flutter tests on PRs and pushes to `main`/`dev`.
+CI parity: `.github/workflows/quality-gates.yml` runs RTDB, Firestore, Storage rules, backend unit/e2e/DB-race/build, Flutter analyze, and Flutter tests on PRs and pushes to `main`/`dev`. It also runs `pnpm check:firebase:iam` when the repo has a `FIREBASE_TOKEN` secret available.
 
 ## Gate Selection Matrix
 
@@ -152,7 +156,7 @@ CI parity: `.github/workflows/quality-gates.yml` runs RTDB, Firestore, Storage r
 |---|---|---|
 | Backend route/service only | `pnpm --filter zephyr-api test` + `pnpm --filter zephyr-api build` | Shared auth/session/economy/realtime contracts changed -> `pnpm check:backend` |
 | Economy, wallet, gifts, IAP, refunds, call billing | Backend tests + `pnpm check:db:race` | Any API/mobile/rules interaction changed -> `pnpm check` |
-| Firebase RTDB/Firestore/Storage rules | `pnpm check:realtime` | Client/backend data shape changed -> `pnpm check` |
+| Firebase RTDB/Firestore/Storage rules | `pnpm check:realtime`; add `pnpm check:firebase:iam` when Storage rules use Firestore | Client/backend data shape changed -> `pnpm check` |
 | Mobile UI/navigation/profile/feed/settings | `pnpm check:mobile` | Shared models/auth/realtime/messaging changed -> `pnpm check` |
 | Auth/session/logout/push | Backend tests + Firebase rules + Flutter tests | Always plan two-device/manual smoke before launch sign-off |
 | Release build/version | `pnpm check` + direct Gradle bundle | Store upload, Firebase/Render deploy, or IAP changed -> add manual smoke |
@@ -253,7 +257,14 @@ cd functions && npm run build
 firebase deploy --only functions --project zephyr-495115
 ```
 
-Run `pnpm check:realtime` before rules deploys. After deploy, record the rules/function change in [current-state.md](./current-state.md) when it affects launch state and in [release-history.md](./release-history.md) only if it is the latest release/change record.
+Run `pnpm check:realtime` before rules deploys. Run `pnpm check:firebase:iam` before Storage deploys or media smoke when `storage.rules` uses Firestore. After deploy, record the rules/function change in [current-state.md](./current-state.md) when it affects launch state and in [release-history.md](./release-history.md) only if it is the latest release/change record.
+
+Storage rules that read Firestore are a production IAM contract, not just a rules file. If `storage.rules` uses `firestore.get()` or `firestore.exists()`, verify the Google-provided Firebase Storage service account has `roles/firebaserules.firestoreServiceAgent`:
+
+- Service account for Zephyr: `service-724639603736@gcp-sa-firebasestorage.iam.gserviceaccount.com`
+- Required role: `roles/firebaserules.firestoreServiceAgent`
+- Symptom when missing: emulator rules tests pass, but production Storage uploads fail with `firebase_storage/unauthorized` even when uid, token claims, path, size, and content type are correct.
+- Verification path: `pnpm check:firebase:iam` confirms the IAM policy includes both `roles/firebasestorage.serviceAgent` and `roles/firebaserules.firestoreServiceAgent` for the Storage service agent; then simulator/device media smoke logs upload success.
 
 ## Environment Variables (Backend)
 

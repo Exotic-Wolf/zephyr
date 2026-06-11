@@ -4,6 +4,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 
 import 'firebase_realtime_database.dart';
+import 'rtdb_contracts.dart';
 
 class ProfilesRealtime {
   ProfilesRealtime({FirebaseDatabase? database})
@@ -49,20 +50,27 @@ class ProfilesRealtime {
 
       _profileLastAccess[uid] = DateTime.now();
       _profileSubs[uid] = _rtdb.ref('profiles/$uid').onValue.listen((event) {
-        final data = event.snapshot.value;
-        if (data is Map) {
-          final profile = RtdbProfile(
-            displayName: (data['displayName'] as String?) ?? 'User',
-            avatarUrl: data['avatarUrl'] as String?,
-            countryCode: (data['countryCode'] as String?) ?? '',
-            language: (data['language'] as String?) ?? '',
-            birthday: data['birthday'] as String?,
-          );
-          final old = _profileCache[uid];
-          _profileCache[uid] = profile;
-          if (old != profile) {
+        final RtdbProfileData? parsed = RtdbProfileContract.parse(
+          event.snapshot.value,
+        );
+        final RtdbProfile? old = _profileCache[uid];
+        if (parsed == null) {
+          if (_profileCache.remove(uid) != null) {
             version.value++;
           }
+          return;
+        }
+
+        final profile = RtdbProfile(
+          displayName: parsed.displayName,
+          avatarUrl: parsed.avatarUrl,
+          countryCode: parsed.countryCode,
+          language: parsed.language,
+          birthday: parsed.birthday,
+        );
+        _profileCache[uid] = profile;
+        if (old != profile) {
+          version.value++;
         }
       });
     }

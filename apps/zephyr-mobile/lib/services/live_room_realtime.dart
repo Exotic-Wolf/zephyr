@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 
 import 'firebase_realtime_database.dart';
+import 'rtdb_contracts.dart';
 
 class LiveRoomRealtime {
   LiveRoomRealtime({FirebaseDatabase? database})
@@ -36,12 +37,7 @@ class LiveRoomRealtime {
     void Function(int count) onCount,
   ) {
     return _roomRef(roomId).child('audience').onValue.listen((event) {
-      final data = event.snapshot.value;
-      if (data is Map) {
-        onCount(data.length);
-      } else {
-        onCount(0);
-      }
+      onCount(RtdbLiveRoomContract.audienceCount(event.snapshot.value));
     });
   }
 
@@ -69,12 +65,11 @@ class LiveRoomRealtime {
         .startAt(DateTime.now().millisecondsSinceEpoch)
         .onChildAdded
         .listen((event) {
-          final data = event.snapshot.value;
-          if (data is Map) {
-            onComment(
-              (data['name'] as String?) ?? '',
-              (data['text'] as String?) ?? '',
-            );
+          final RtdbLiveComment? comment = RtdbLiveRoomContract.comment(
+            event.snapshot.value,
+          );
+          if (comment != null) {
+            onComment(comment.name, comment.text);
           }
         });
   }
@@ -98,9 +93,12 @@ class LiveRoomRealtime {
         .startAt(DateTime.now().millisecondsSinceEpoch)
         .onChildAdded
         .listen((event) {
-          final data = event.snapshot.value;
-          if (data is Map && data['userId'] != myUserId) {
-            onReaction((data['emoji'] as String?) ?? '❤️');
+          final String? emoji = RtdbLiveRoomContract.reactionEmoji(
+            event.snapshot.value,
+            myUserId,
+          );
+          if (emoji != null) {
+            onReaction(emoji);
           }
         });
   }
@@ -115,13 +113,11 @@ class LiveRoomRealtime {
         .startAt(DateTime.now().millisecondsSinceEpoch)
         .onChildAdded
         .listen((event) {
-          final data = event.snapshot.value;
-          if (data is Map) {
-            onGift(
-              (data['senderName'] as String?) ?? '',
-              (data['giftName'] as String?) ?? '',
-              (data['quantity'] as num?)?.toInt() ?? 1,
-            );
+          final RtdbLiveGift? gift = RtdbLiveRoomContract.gift(
+            event.snapshot.value,
+          );
+          if (gift != null) {
+            onGift(gift.senderName, gift.giftName, gift.quantity);
           }
         });
   }
@@ -138,7 +134,7 @@ class LiveRoomRealtime {
     void Function() onEnded,
   ) {
     return _roomRef(roomId).child('status').onValue.listen((event) {
-      if (event.snapshot.value == 'ended') {
+      if (RtdbLiveRoomContract.isEnded(event.snapshot.value)) {
         onEnded();
       }
     });

@@ -126,6 +126,10 @@ service cloud.firestore {
         return value == null || (value is string && value.size() <= maxLength);
       }
 
+      function validRequiredString(value, maxLength) {
+        return value is string && value.size() > 0 && value.size() <= maxLength;
+      }
+
       function validChatData(data) {
         let a = firstParticipant(data);
         let b = secondParticipant(data);
@@ -208,7 +212,7 @@ service cloud.firestore {
                 && !('imageUrl' in request.resource.data.keys()))
               || (request.resource.data.type == 'image'
                 && 'imageUrl' in request.resource.data.keys()
-                && validNullableString(request.resource.data.imageUrl, 1000)))
+                && validRequiredString(request.resource.data.imageUrl, 1000)))
             && (!('idempotencyKey' in request.resource.data.keys())
               || (request.resource.data.idempotencyKey is string
                 && request.resource.data.idempotencyKey.size() >= 8
