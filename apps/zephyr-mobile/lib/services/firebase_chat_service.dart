@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,11 +8,133 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import 'direct_call_signals.dart';
 import 'live_room_realtime.dart';
 import 'presence_realtime.dart';
 import 'realtime_profiles.dart';
+
+const int chatImageMaxUploadBytes = 4 * 1024 * 1024;
+const int chatImageMaxEdge = 1440;
+const int _chatImageMinEdge = 720;
+const int _chatImageInitialQuality = 82;
+const int _chatImageMinQuality = 58;
+
+class PreparedChatImageUpload {
+  const PreparedChatImageUpload({
+    required this.file,
+    required this.fileName,
+    required this.contentType,
+    required this.byteSize,
+    required this.width,
+    required this.height,
+    required this.quality,
+  });
+
+  final File file;
+  final String fileName;
+  final String contentType;
+  final int byteSize;
+  final int width;
+  final int height;
+  final int quality;
+}
+
+Future<PreparedChatImageUpload> prepareChatImageForUpload(
+  File imageFile, {
+  Directory? outputDirectory,
+  int maxBytes = chatImageMaxUploadBytes,
+  int maxEdge = chatImageMaxEdge,
+  int initialQuality = _chatImageInitialQuality,
+  int minQuality = _chatImageMinQuality,
+}) async {
+  final Uint8List sourceBytes = await imageFile.readAsBytes();
+  if (sourceBytes.isEmpty) {
+    throw Exception('Unsupported image format');
+  }
+
+  final Map<String, Object> prepared = await compute(_prepareChatImageBytes, {
+    'bytes': sourceBytes,
+    'maxBytes': maxBytes,
+    'maxEdge': maxEdge,
+    'initialQuality': initialQuality,
+    'minQuality': minQuality,
+  });
+
+  final Uint8List uploadBytes = prepared['bytes']! as Uint8List;
+  final Directory tempDir = outputDirectory ?? await getTemporaryDirectory();
+  final String fileName =
+      'chat_${DateTime.now().microsecondsSinceEpoch}_${uploadBytes.length}.jpg';
+  final File uploadFile = File(p.join(tempDir.path, fileName));
+  await uploadFile.writeAsBytes(uploadBytes, flush: false);
+
+  return PreparedChatImageUpload(
+    file: uploadFile,
+    fileName: fileName,
+    contentType: 'image/jpeg',
+    byteSize: uploadBytes.length,
+    width: prepared['width']! as int,
+    height: prepared['height']! as int,
+    quality: prepared['quality']! as int,
+  );
+}
+
+Map<String, Object> _prepareChatImageBytes(Map<String, Object> input) {
+  final Uint8List bytes = input['bytes']! as Uint8List;
+  final int maxBytes = input['maxBytes']! as int;
+  final int maxEdge = input['maxEdge']! as int;
+  final int initialQuality = input['initialQuality']! as int;
+  final int minQuality = input['minQuality']! as int;
+
+  final img.Image? decoded = img.decodeImage(bytes);
+  if (decoded == null) {
+    throw Exception('Unsupported image format');
+  }
+
+  final img.Image source = img.bakeOrientation(decoded);
+  final int sourceLongestEdge = math.max(source.width, source.height);
+  int targetEdge = math.min(sourceLongestEdge, maxEdge);
+  img.Image candidate = _resizeForLongestEdge(source, targetEdge);
+
+  while (true) {
+    int quality = initialQuality;
+    while (quality >= minQuality) {
+      final Uint8List encoded = Uint8List.fromList(
+        img.encodeJpg(candidate, quality: quality),
+      );
+      if (encoded.length <= maxBytes) {
+        return {
+          'bytes': encoded,
+          'width': candidate.width,
+          'height': candidate.height,
+          'quality': quality,
+        };
+      }
+      quality -= 6;
+    }
+
+    if (targetEdge <= _chatImageMinEdge) break;
+    targetEdge = math.max(_chatImageMinEdge, (targetEdge * 0.84).round());
+    candidate = _resizeForLongestEdge(source, targetEdge);
+  }
+
+  throw Exception('Photo is too large after compression');
+}
+
+img.Image _resizeForLongestEdge(img.Image source, int longestEdge) {
+  final int sourceLongestEdge = math.max(source.width, source.height);
+  if (sourceLongestEdge <= longestEdge) return source;
+  final double scale = longestEdge / sourceLongestEdge;
+  return img.copyResize(
+    source,
+    width: math.max(1, (source.width * scale).round()),
+    height: math.max(1, (source.height * scale).round()),
+    interpolation: img.Interpolation.average,
+  );
+}
 
 /// Isolated Firebase chat service — completely separate from existing messaging.
 /// Uses Firestore for messages and RTDB for presence (onDisconnect).
@@ -27,6 +150,8 @@ class FirebaseChatService {
 
   String? _myUserId;
   String get myUserId => _myUserId!;
+  List<FirebaseConversation> _conversationCache = const [];
+  final Map<String, List<FirebaseMessage>> _messageCacheByChatId = {};
 
   /// Callback to send a backend-verified push for a committed Firestore message.
   Future<void> Function(String recipientId, String chatId, String messageId)?
@@ -35,16 +160,24 @@ class FirebaseChatService {
   /// Initialize: sign in with custom Firebase token and set up presence.
   /// [zephyrUserId] is the app's user ID (UUID). Safe to call multiple times.
   /// [firebaseToken] is a custom token from the backend. It is required on
-  /// first init so Firebase auth.uid always equals the Zephyr user id.
+  /// first init and should be passed again whenever the API session is restored
+  /// or refreshed so Firebase Auth carries the active session claims.
   Future<void> init(String zephyrUserId, {String? firebaseToken}) async {
+    if (_myUserId != null && _myUserId != zephyrUserId) {
+      _conversationCache = const [];
+      _messageCacheByChatId.clear();
+    }
     final bool firstInit = _myUserId != zephyrUserId;
     _myUserId = zephyrUserId;
 
-    if (firstInit) {
+    if (firstInit || (firebaseToken != null && firebaseToken.isNotEmpty)) {
       if (firebaseToken == null || firebaseToken.isEmpty) {
         throw StateError('Firebase custom token required for chat init');
       }
       await FirebaseAuth.instance.signInWithCustomToken(firebaseToken);
+    }
+
+    if (firstInit) {
       profiles.bindUser(zephyrUserId);
       await presence.bindUser(zephyrUserId);
     } else {
@@ -146,6 +279,8 @@ class FirebaseChatService {
     await presence.clearSession();
     await profiles.clearSession();
     _myUserId = null;
+    _conversationCache = const [];
+    _messageCacheByChatId.clear();
 
     try {
       await FirebaseAuth.instance.signOut();
@@ -198,9 +333,10 @@ class FirebaseChatService {
   /// Returns the subscription so the caller can cancel it.
   StreamSubscription<DatabaseEvent> listenCallSignal(
     String userId,
-    void Function(Map<String, dynamic>? data) onData,
-  ) {
-    return directSignals.listen(userId, onData);
+    void Function(Map<String, dynamic>? data) onData, {
+    void Function(Object error)? onError,
+  }) {
+    return directSignals.listen(userId, onData, onError: onError);
   }
 
   // ── Chat ID ─────────────────────────────────────────────────────────────────
@@ -210,6 +346,18 @@ class FirebaseChatService {
     final List<String> sorted = [userId1, userId2]..sort();
     return '${sorted[0]}_${sorted[1]}';
   }
+
+  List<String> _participantsFor(String otherUserId) {
+    return <String>[_myUserId!, otherUserId]..sort();
+  }
+
+  Map<String, bool> _participantIdsFor(String otherUserId) {
+    return <String, bool>{
+      for (final String userId in _participantsFor(otherUserId)) userId: true,
+    };
+  }
+
+  bool isInitializedFor(String zephyrUserId) => _myUserId == zephyrUserId;
 
   // ── Conversations (Inbox) ───────────────────────────────────────────────────
 
@@ -226,7 +374,8 @@ class FirebaseChatService {
   }) async {
     final String cId = chatId(_myUserId!, otherUserId);
     await _fs.collection('chats').doc(cId).set({
-      'participants': [_myUserId, otherUserId],
+      'participants': _participantsFor(otherUserId),
+      'participantIds': _participantIdsFor(otherUserId),
       if (myDisplayName != null) 'name_$_myUserId': myDisplayName,
       if (myAvatarUrl != null) 'avatar_$_myUserId': myAvatarUrl,
       if (otherDisplayName != null) 'name_$otherUserId': otherDisplayName,
@@ -238,38 +387,73 @@ class FirebaseChatService {
   Stream<List<FirebaseConversation>> watchConversations() {
     return _fs
         .collection('chats')
-        .where('participants', arrayContains: _myUserId)
+        .where(
+          FieldPath(<String>['participantIds', _myUserId!]),
+          isEqualTo: true,
+        )
         .snapshots()
-        .map((QuerySnapshot<Map<String, dynamic>> snap) {
-          final list = snap.docs
-              .map((doc) {
-                final data = doc.data();
-                final List<String> participants = List<String>.from(
-                  data['participants'] as List,
-                );
-                final String? otherUserId = participants
-                    .cast<String?>()
-                    .firstWhere((id) => id != _myUserId, orElse: () => null);
-                if (otherUserId == null) return null; // self-chat, skip
-                final int unread = (data['unread_$_myUserId'] as int?) ?? 0;
-                return FirebaseConversation(
-                  chatId: doc.id,
-                  otherUserId: otherUserId,
-                  otherDisplayName:
-                      (data['name_$otherUserId'] as String?) ?? 'User',
-                  otherAvatarUrl: data['avatar_$otherUserId'] as String?,
-                  lastMessage: (data['lastMessage'] as String?) ?? '',
-                  lastMessageAt:
-                      (data['lastMessageAt'] as Timestamp?)?.toDate() ??
-                      DateTime.now(),
-                  unreadCount: unread,
-                );
-              })
-              .whereType<FirebaseConversation>()
-              .toList();
-          list.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
-          return list;
-        });
+        .map(_conversationsFromSnapshot);
+  }
+
+  List<FirebaseConversation> cachedConversations() => _conversationCache;
+
+  Future<List<FirebaseConversation>> loadCachedConversations() async {
+    if (_conversationCache.isNotEmpty) return _conversationCache;
+    if (_myUserId == null) return const [];
+    try {
+      final QuerySnapshot<Map<String, dynamic>> snap = await _fs
+          .collection('chats')
+          .where(
+            FieldPath(<String>['participantIds', _myUserId!]),
+            isEqualTo: true,
+          )
+          .get(const GetOptions(source: Source.cache));
+      return _conversationsFromSnapshot(snap);
+    } catch (error) {
+      debugPrint('Firestore cached conversations unavailable: $error');
+      return _conversationCache;
+    }
+  }
+
+  List<FirebaseConversation> _conversationsFromSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) {
+    final List<FirebaseConversation> list = snap.docs
+        .map(_conversationFromDoc)
+        .whereType<FirebaseConversation>()
+        .toList();
+    list.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+    _conversationCache = List<FirebaseConversation>.unmodifiable(list);
+    return list;
+  }
+
+  FirebaseConversation? _conversationFromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final Map<String, dynamic> data = doc.data();
+    final Object? participantsValue = data['participants'];
+    final Object? participantIdsValue = data['participantIds'];
+    final List<String> participants = participantsValue is List
+        ? participantsValue.whereType<String>().toList()
+        : participantIdsValue is Map
+        ? participantIdsValue.keys.whereType<String>().toList()
+        : const <String>[];
+    final String? otherUserId = participants.cast<String?>().firstWhere(
+      (String? id) => id != null && id != _myUserId,
+      orElse: () => null,
+    );
+    if (otherUserId == null) return null;
+    final int unread = (data['unread_$_myUserId'] as int?) ?? 0;
+    return FirebaseConversation(
+      chatId: doc.id,
+      otherUserId: otherUserId,
+      otherDisplayName: (data['name_$otherUserId'] as String?) ?? 'User',
+      otherAvatarUrl: data['avatar_$otherUserId'] as String?,
+      lastMessage: (data['lastMessage'] as String?) ?? '',
+      lastMessageAt:
+          (data['lastMessageAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      unreadCount: unread,
+    );
   }
 
   // ── Messages (Thread) ──────────────────────────────────────────────────────
@@ -286,36 +470,77 @@ class FirebaseChatService {
         .limitToLast(100)
         .snapshots()
         .map((QuerySnapshot<Map<String, dynamic>> snap) {
-          return snap.docs
-              .map((doc) {
-                final data = doc.data();
-                return FirebaseMessage(
-                  id: doc.id,
-                  senderId: data['senderId'] as String,
-                  body: (data['body'] as String?) ?? '',
-                  createdAt:
-                      (data['createdAt'] as Timestamp?)?.toDate() ??
-                      DateTime.now(),
-                  deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
-                  readAt: (data['readAt'] as Timestamp?)?.toDate(),
-                  type: (data['type'] as String?) ?? 'text',
-                  imageUrl: data['imageUrl'] as String?,
-                  deletedFor: data['deletedFor'],
-                );
-              })
-              .where((msg) {
-                // Filter deleted messages
-                if (msg.deletedFor == 'all') {
-                  return true; // Show "deleted" placeholder
-                }
-                if (msg.deletedFor is List &&
-                    (msg.deletedFor as List).contains(_myUserId)) {
-                  return false; // Hidden for me
-                }
-                return true;
-              })
-              .toList();
+          return _messagesFromSnapshot(cId, snap);
         });
+  }
+
+  List<FirebaseMessage> cachedMessages(String otherUserId) {
+    if (_myUserId == null) return const [];
+    final String cId = chatId(_myUserId!, otherUserId);
+    return _messageCacheByChatId[cId] ?? const [];
+  }
+
+  Future<List<FirebaseMessage>> loadCachedMessages(String otherUserId) async {
+    final List<FirebaseMessage> memory = cachedMessages(otherUserId);
+    if (memory.isNotEmpty) return memory;
+    if (_myUserId == null) return const [];
+    final String cId = chatId(_myUserId!, otherUserId);
+    try {
+      final QuerySnapshot<Map<String, dynamic>> snap = await _fs
+          .collection('chats')
+          .doc(cId)
+          .collection('messages')
+          .orderBy('createdAt', descending: false)
+          .limitToLast(100)
+          .get(const GetOptions(source: Source.cache));
+      return _messagesFromSnapshot(cId, snap);
+    } catch (error) {
+      debugPrint('Firestore cached messages unavailable for $cId: $error');
+      return memory;
+    }
+  }
+
+  List<FirebaseMessage> _messagesFromSnapshot(
+    String chatId,
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) {
+    final List<FirebaseMessage> list = snap.docs
+        .map(_messageFromDoc)
+        .whereType<FirebaseMessage>()
+        .where(_messageVisibleForMe)
+        .toList();
+    _messageCacheByChatId[chatId] = List<FirebaseMessage>.unmodifiable(list);
+    return list;
+  }
+
+  FirebaseMessage? _messageFromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final Map<String, dynamic> data = doc.data();
+    final String? senderId = data['senderId'] as String?;
+    if (senderId == null || senderId.isEmpty) return null;
+    return FirebaseMessage(
+      id: doc.id,
+      senderId: senderId,
+      body: (data['body'] as String?) ?? '',
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      deliveredAt: (data['deliveredAt'] as Timestamp?)?.toDate(),
+      readAt: (data['readAt'] as Timestamp?)?.toDate(),
+      type: (data['type'] as String?) ?? 'text',
+      imageUrl: data['imageUrl'] as String?,
+      deletedFor: data['deletedFor'],
+    );
+  }
+
+  bool _messageVisibleForMe(FirebaseMessage msg) {
+    if (msg.deletedFor == 'all') {
+      return true;
+    }
+    if (msg.deletedFor is List &&
+        (msg.deletedFor as List).contains(_myUserId)) {
+      return false;
+    }
+    return true;
   }
 
   // ── Block / Report ─────────────────────────────────────────────────────────
@@ -397,7 +622,8 @@ class FirebaseChatService {
     // Ensure chat doc exists with participants BEFORE any subcollection ops.
     // Security rules on /messages require the parent doc's participants array.
     await chatDoc.set({
-      'participants': [_myUserId, otherUserId],
+      'participants': _participantsFor(otherUserId),
+      'participantIds': _participantIdsFor(otherUserId),
     }, SetOptions(merge: true));
 
     final now = FieldValue.serverTimestamp();
@@ -414,7 +640,8 @@ class FirebaseChatService {
 
       // Keep message body, unread count, and inbox metadata in one commit.
       tx.set(chatDoc, {
-        'participants': [_myUserId, otherUserId],
+        'participants': _participantsFor(otherUserId),
+        'participantIds': _participantIdsFor(otherUserId),
         'lastMessage': preview,
         'lastMessageAt': now,
         'lastSenderId': _myUserId,
@@ -437,94 +664,182 @@ class FirebaseChatService {
     });
 
     // Push is backend-verified against the committed Firestore message.
-    if (created) {
-      onSendPush?.call(otherUserId, cId, messageId);
+    // It must never make a committed chat message look failed in the UI.
+    final push = onSendPush;
+    if (created && push != null) {
+      unawaited(
+        Future<void>.sync(() => push(otherUserId, cId, messageId)).catchError((
+          Object error,
+          StackTrace stackTrace,
+        ) {
+          debugPrint('Chat push relay failed for $messageId: $error');
+        }),
+      );
     }
   }
 
-  /// Upload an image and send it as a message.
-  /// Validates file size (max 5MB) and format before uploading.
+  Future<bool> sentMessageExists({
+    required String otherUserId,
+    required String messageId,
+  }) async {
+    final String cId = chatId(_myUserId!, otherUserId);
+    final DocumentSnapshot snapshot = await _fs
+        .collection('chats')
+        .doc(cId)
+        .collection('messages')
+        .doc(messageId)
+        .get();
+    if (!snapshot.exists) return false;
+    final data = snapshot.data() as Map<String, dynamic>?;
+    return data?['senderId'] == _myUserId;
+  }
+
+  /// Upload a normalized chat image.
+  ///
+  /// The binary is stored in Firebase Storage at
+  /// chats/{chatId}/{senderId}/{fileName}; Firestore stores only message
+  /// metadata and the returned download URL.
+  Future<String> uploadChatImage({
+    required String otherUserId,
+    required File imageFile,
+    void Function(double progress)? onProgress,
+  }) async {
+    final PreparedChatImageUpload prepared = await prepareChatImageForUpload(
+      imageFile,
+    );
+    final Reference ref = await _prepareChatImageUploadRef(
+      otherUserId: otherUserId,
+      fileName: prepared.fileName,
+    );
+    final UploadTask task = ref.putFile(
+      prepared.file,
+      SettableMetadata(
+        contentType: prepared.contentType,
+        cacheControl: 'public,max-age=31536000,immutable',
+        customMetadata: {
+          'byteSize': prepared.byteSize.toString(),
+          'width': prepared.width.toString(),
+          'height': prepared.height.toString(),
+          'quality': prepared.quality.toString(),
+        },
+      ),
+    );
+
+    final StreamSubscription<TaskSnapshot>? sub = onProgress == null
+        ? null
+        : task.snapshotEvents.listen((TaskSnapshot snapshot) {
+            final int total = snapshot.totalBytes;
+            if (total <= 0) return;
+            onProgress(snapshot.bytesTransferred / total);
+          });
+
+    try {
+      final TaskSnapshot snapshot = await task;
+      onProgress?.call(1.0);
+      return await snapshot.ref.getDownloadURL();
+    } finally {
+      await sub?.cancel();
+    }
+  }
+
   Future<void> sendImage({
     required String otherUserId,
     required File imageFile,
     required String myDisplayName,
     String? myAvatarUrl,
+    String body = '',
+    String? idempotencyKey,
   }) async {
-    // Image validation
-    final int fileSize = await imageFile.length();
-    if (fileSize > 5 * 1024 * 1024) {
-      throw Exception('Image too large (max 5 MB)');
-    }
-    final String ext = imageFile.path.split('.').last.toLowerCase();
-    if (!{'jpg', 'jpeg', 'png', 'webp', 'heic'}.contains(ext)) {
-      throw Exception('Unsupported image format');
-    }
-
-    final String cId = chatId(_myUserId!, otherUserId);
-    final String fileName =
-        '${DateTime.now().millisecondsSinceEpoch}_${imageFile.path.split('/').last}';
-    final Reference ref = FirebaseStorage.instance.ref(
-      'chats/$cId/$_myUserId/$fileName',
+    final String downloadUrl = await uploadChatImage(
+      otherUserId: otherUserId,
+      imageFile: imageFile,
     );
-
-    await ref.putFile(imageFile, SettableMetadata(contentType: 'image/$ext'));
-    final String downloadUrl = await ref.getDownloadURL();
 
     await sendMessage(
       otherUserId: otherUserId,
-      body: '',
+      body: body,
       myDisplayName: myDisplayName,
       myAvatarUrl: myAvatarUrl,
       type: 'image',
       imageUrl: downloadUrl,
+      idempotencyKey: idempotencyKey,
     );
+  }
+
+  Future<Reference> _prepareChatImageUploadRef({
+    required String otherUserId,
+    required String fileName,
+  }) async {
+    final String cId = chatId(_myUserId!, otherUserId);
+    await _fs.collection('chats').doc(cId).set({
+      'participants': _participantsFor(otherUserId),
+      'participantIds': _participantIdsFor(otherUserId),
+    }, SetOptions(merge: true));
+
+    final Reference ref = FirebaseStorage.instance.ref(
+      'chats/$cId/$_myUserId/$fileName',
+    );
+
+    return ref;
   }
 
   /// Mark all messages from the other user as delivered (app received them).
   Future<void> markDelivered(String otherUserId) async {
-    final String cId = chatId(_myUserId!, otherUserId);
-    final DocumentReference chatDoc = _fs.collection('chats').doc(cId);
+    try {
+      final String cId = chatId(_myUserId!, otherUserId);
+      final DocumentReference chatDoc = _fs.collection('chats').doc(cId);
 
-    final QuerySnapshot<Map<String, dynamic>> undelivered = await chatDoc
-        .collection('messages')
-        .where('senderId', isEqualTo: otherUserId)
-        .where('deliveredAt', isNull: true)
-        .get();
+      final QuerySnapshot<Map<String, dynamic>> undelivered = await chatDoc
+          .collection('messages')
+          .where('senderId', isEqualTo: otherUserId)
+          .where('deliveredAt', isNull: true)
+          .get();
 
-    if (undelivered.docs.isEmpty) return;
+      if (undelivered.docs.isEmpty) return;
 
-    final WriteBatch batch = _fs.batch();
-    for (final doc in undelivered.docs) {
-      batch.update(doc.reference, {
-        'deliveredAt': FieldValue.serverTimestamp(),
-      });
+      final WriteBatch batch = _fs.batch();
+      for (final doc in undelivered.docs) {
+        batch.update(doc.reference, {
+          'deliveredAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    } catch (error) {
+      debugPrint('Firestore delivery receipt skipped: $error');
     }
-    await batch.commit();
   }
 
   /// Mark all messages from the other user as read.
   Future<void> markRead(String otherUserId) async {
-    final String cId = chatId(_myUserId!, otherUserId);
-    final DocumentReference chatDoc = _fs.collection('chats').doc(cId);
+    try {
+      final String cId = chatId(_myUserId!, otherUserId);
+      final DocumentReference chatDoc = _fs.collection('chats').doc(cId);
 
-    // Reset my unread counter
-    await chatDoc.set({'unread_$_myUserId': 0}, SetOptions(merge: true));
+      // Reset my unread counter
+      await chatDoc.set({
+        'participants': _participantsFor(otherUserId),
+        'participantIds': _participantIdsFor(otherUserId),
+        'unread_$_myUserId': 0,
+      }, SetOptions(merge: true));
 
-    // Mark individual unread messages from the other user
-    final QuerySnapshot<Map<String, dynamic>> unread = await chatDoc
-        .collection('messages')
-        .where('senderId', isEqualTo: otherUserId)
-        .where('readAt', isNull: true)
-        .get();
+      // Mark individual unread messages from the other user
+      final QuerySnapshot<Map<String, dynamic>> unread = await chatDoc
+          .collection('messages')
+          .where('senderId', isEqualTo: otherUserId)
+          .where('readAt', isNull: true)
+          .get();
 
-    final WriteBatch batch = _fs.batch();
-    for (final doc in unread.docs) {
-      batch.update(doc.reference, {
-        'readAt': FieldValue.serverTimestamp(),
-        'deliveredAt': FieldValue.serverTimestamp(),
-      });
+      final WriteBatch batch = _fs.batch();
+      for (final doc in unread.docs) {
+        batch.update(doc.reference, {
+          'readAt': FieldValue.serverTimestamp(),
+          'deliveredAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    } catch (error) {
+      debugPrint('Firestore read receipt skipped: $error');
     }
-    await batch.commit();
   }
 
   /// Load older messages (pagination).

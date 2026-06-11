@@ -1,4 +1,7 @@
 const baseUrl = process.env.BASE_URL ?? 'http://localhost:3000';
+const accessToken =
+  process.env.ZEPHYR_SMOKE_ACCESS_TOKEN ?? process.env.SMOKE_ACCESS_TOKEN;
+const shouldCreateRoom = process.env.ZEPHYR_SMOKE_CREATE_ROOM === 'true';
 
 async function request(path, options = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -29,13 +32,33 @@ async function main() {
     );
   }
 
-  const login = await request('/v1/auth/guest-login', {
-    method: 'POST',
-    body: JSON.stringify({ displayName: 'db-smoke' }),
-  });
+  const listedBeforeAuth = await request('/v1/rooms', { method: 'GET' });
+  console.log(
+    `DB-backed public room list returned ${listedBeforeAuth.length} rooms.`,
+  );
 
-  const token = login.accessToken;
-  const authHeader = { authorization: `Bearer ${token}` };
+  if (!accessToken) {
+    console.log(
+      'Authenticated DB smoke skipped: set ZEPHYR_SMOKE_ACCESS_TOKEN from a real OAuth login to include /users/me or room mutations.',
+    );
+    console.log('DB smoke test passed ✅');
+    return;
+  }
+
+  const authHeader = { authorization: `Bearer ${accessToken}` };
+  const me = await request('/v1/users/me', {
+    method: 'GET',
+    headers: authHeader,
+  });
+  console.log(`Authenticated DB smoke user: ${me.id} (${me.displayName})`);
+
+  if (!shouldCreateRoom) {
+    console.log(
+      'Room mutation skipped: set ZEPHYR_SMOKE_CREATE_ROOM=true to create/list a room with the supplied token.',
+    );
+    console.log('DB smoke test passed ✅');
+    return;
+  }
 
   const room = await request('/v1/rooms', {
     method: 'POST',

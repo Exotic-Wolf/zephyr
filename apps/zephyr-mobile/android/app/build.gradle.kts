@@ -16,6 +16,33 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+data class PubspecVersion(val name: String, val code: Int)
+
+fun readPubspecVersion(): PubspecVersion? {
+    val pubspecFile = rootProject.file("../pubspec.yaml")
+    if (!pubspecFile.exists()) {
+        return null
+    }
+
+    val versionLine = pubspecFile.readLines()
+        .firstOrNull { it.trimStart().startsWith("version:") }
+        ?: return null
+    val rawVersion = versionLine
+        .substringAfter("version:")
+        .substringBefore("#")
+        .trim()
+        .trim('"', '\'')
+    val parts = rawVersion.split("+", limit = 2)
+    val name = parts.firstOrNull()?.trim().orEmpty()
+    val code = parts.getOrNull(1)?.trim()?.toIntOrNull()
+    if (name.isBlank() || code == null) {
+        return null
+    }
+    return PubspecVersion(name, code)
+}
+
+val pubspecVersion = readPubspecVersion()
+
 android {
     namespace = "com.zephyr.zephyr_mobile"
     compileSdk = flutter.compileSdkVersion
@@ -33,8 +60,8 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionCode = pubspecVersion?.code ?: flutter.versionCode
+        versionName = pubspecVersion?.name ?: flutter.versionName
     }
 
     packaging {

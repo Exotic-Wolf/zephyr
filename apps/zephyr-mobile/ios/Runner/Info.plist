@@ -3,9 +3,9 @@
 <plist version="1.0">
 	<dict>
 		<key>NSPhotoLibraryUsageDescription</key>
-		<string>Choose a photo to use as your profile picture.</string>
+		<string>Choose photos to send in chat or use on your profile.</string>
 		<key>NSCameraUsageDescription</key>
-		<string>Take a photo to use as your profile picture.</string>
+		<string>Take photos for chat, live streaming, and video calls.</string>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
@@ -62,8 +62,6 @@
 		<true/>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
-		<key>NSCameraUsageDescription</key>
-		<string>Zephyr uses your camera for live streaming and video calls.</string>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>Zephyr uses your microphone for live streaming and video calls.</string>
 		<key>UIStatusBarHidden</key>

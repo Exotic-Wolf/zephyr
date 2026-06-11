@@ -33,8 +33,9 @@ export class MessagesController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: { token: string },
   ): Promise<void> {
-    const me = await this.storeService.getUserFromAuthHeader(authorization);
-    await this.storeService.upsertDeviceToken(me.id, body.token);
+    const session =
+      await this.storeService.getAuthSessionFromAuthHeader(authorization);
+    await this.storeService.upsertDeviceToken(session, body.token);
   }
 
   @Delete('device-token')
@@ -43,8 +44,9 @@ export class MessagesController {
     @Headers('authorization') authorization: string | undefined,
     @Body() body: { token: string },
   ): Promise<void> {
-    const me = await this.storeService.getUserFromAuthHeader(authorization);
-    await this.storeService.deleteDeviceToken(me.id, body.token);
+    const session =
+      await this.storeService.getAuthSessionFromAuthHeader(authorization);
+    await this.storeService.deleteDeviceToken(session, body.token);
   }
 
   @Post('push')
@@ -55,11 +57,13 @@ export class MessagesController {
   ): Promise<void> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     if (!body.recipientId || !body.chatId || !body.messageId) {
-      throw new BadRequestException('recipientId, chatId, and messageId are required');
+      throw new BadRequestException(
+        'recipientId, chatId, and messageId are required',
+      );
     }
     const tokens = await this.storeService.getDeviceTokens(body.recipientId);
     if (tokens.length > 0) {
-      const sent = await this.fcmService.sendCommittedChatMessagePush({
+      const result = await this.fcmService.sendCommittedChatMessagePush({
         tokens,
         senderId: me.id,
         senderDisplayName: me.displayName,
@@ -67,8 +71,11 @@ export class MessagesController {
         chatId: body.chatId,
         messageId: body.messageId,
       });
-      if (!sent) {
-        throw new BadRequestException('Chat message could not be verified for push');
+      await this.storeService.deleteDeviceTokensByToken(result.invalidTokens);
+      if (!result.sent) {
+        throw new BadRequestException(
+          'Chat message could not be verified for push',
+        );
       }
     }
   }
@@ -80,19 +87,31 @@ export class MessagesController {
     @Body() body: SendMessageDto,
   ): Promise<Message> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
-    const { message, isNew } = await this.storeService.sendMessage(me.id, body.receiverId, body.body, idempotencyKey);
+    const { message, isNew } = await this.storeService.sendMessage(
+      me.id,
+      body.receiverId,
+      body.body,
+      idempotencyKey,
+    );
     if (isNew) {
       // Send FCM push to receiver
-      this.storeService.getDeviceTokens(body.receiverId).then((tokens) => {
-        if (tokens.length > 0) {
-          void this.fcmService.sendPush(
-            tokens,
-            me.displayName,
-            body.body,
-            { senderId: me.id, messageId: message.id },
-          );
-        }
-      }).catch(() => {});
+      this.storeService
+        .getDeviceTokens(body.receiverId)
+        .then((tokens) => {
+          if (tokens.length > 0) {
+            void this.fcmService
+              .sendPush(tokens, me.displayName, body.body, {
+                senderId: me.id,
+                messageId: message.id,
+              })
+              .then((result) =>
+                this.storeService.deleteDeviceTokensByToken(
+                  result.invalidTokens,
+                ),
+              );
+          }
+        })
+        .catch(() => {});
     }
     return message;
   }
@@ -116,7 +135,13 @@ export class MessagesController {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     const beforeDate = before ? new Date(before) : undefined;
     const afterDate = after ? new Date(after) : undefined;
-    return this.storeService.getThread(me.id, userId, limit, beforeDate, afterDate);
+    return this.storeService.getThread(
+      me.id,
+      userId,
+      limit,
+      beforeDate,
+      afterDate,
+    );
   }
 
   @Patch(':messageId/delivered')
@@ -126,7 +151,10 @@ export class MessagesController {
     @Param('messageId', new ParseUUIDPipe()) messageId: string,
   ): Promise<Message> {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
-    const message = await this.storeService.markMessageDelivered(messageId, me.id);
+    const message = await this.storeService.markMessageDelivered(
+      messageId,
+      me.id,
+    );
     return message;
   }
 
@@ -139,11 +167,18 @@ export class MessagesController {
     const me = await this.storeService.getUserFromAuthHeader(authorization);
     const message = await this.storeService.markMessageRead(messageId, me.id);
     // FCM: reliable fallback — reaches sender even if socket dropped
-    this.storeService.getDeviceTokens(message.senderId).then((tokens) => {
-      if (tokens.length > 0 && message.readAt) {
-        void this.fcmService.sendReadReceiptPush(tokens, message.id, message.readAt);
-      }
-    }).catch(() => {});
+    this.storeService
+      .getDeviceTokens(message.senderId)
+      .then((tokens) => {
+        if (tokens.length > 0 && message.readAt) {
+          void this.fcmService
+            .sendReadReceiptPush(tokens, message.id, message.readAt)
+            .then((result) =>
+              this.storeService.deleteDeviceTokensByToken(result.invalidTokens),
+            );
+        }
+      })
+      .catch(() => {});
     return message;
   }
 }

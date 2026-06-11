@@ -113,6 +113,14 @@ class ZephyrApiClient {
     );
   }
 
+  Future<void> logout(String accessToken) async {
+    await _request(
+      method: 'POST',
+      path: '/v1/auth/logout',
+      accessToken: accessToken,
+    );
+  }
+
   Future<UserProfile> getMe(String accessToken) async {
     final Map<String, dynamic> data = await _request(
       method: 'GET',

@@ -4,11 +4,15 @@
 
 This file is the agent operating guide. `PRODUCT.md` is the living product/architecture source of truth. The app evolves quickly: always read the latest **Current Solution Snapshot**, **Immediate next work**, and latest dated audit before treating older guidance as current.
 
+Launch-facing product name: **Zephyr Live**. Brand direction: warm summer-night breeze, glamorous live-social energy, premium dark/gold identity. The current mascot icon/splash can remain for internal testing, but launch-grade logo/splash work should follow the Zephyr Live premium identity in `PRODUCT.md`.
+
 ## Direction Protocol
 - Latest dated `PRODUCT.md` snapshot/audit supersedes older sections and older comments.
 - Hard constraints stay hard: no guest login, no new socket runtime, no client-owned economy, no presence polling, no unsafe moderation/compliance shortcuts.
 - Product bets and module boundaries may evolve. When they do, update both `PRODUCT.md` and this file in the same work slice.
 - If code and docs disagree, inspect the actual implementation/tests, then update the docs instead of copying stale assumptions forward.
+- Every uploadable mobile build must bump the store build number/code above the last uploaded value, verify generated platform metadata, and update `PRODUCT.md` with version, build number/code, command, artifact path, SHA-256, size, date, and caveats before handoff.
+- When the user asks for latest grades, answer from `PRODUCT.md` -> **Canonical Grade Dashboard**. After any implementation that changes quality/completion, update that same table's percentages/grades/notes before final handoff.
 
 ## NEVER:
 - Guest login — removed permanently. Google + Apple only.
@@ -43,7 +47,7 @@ This file is the agent operating guide. `PRODUCT.md` is the living product/archi
 - **NEVER** duplicate presence state across systems with periodic timers.
 
 ## Firebase RTDB paths:
-- `session_controls/{userId}` — backend/Admin-owned active mobile session projection. Clients never read or write it directly; RTDB/Firestore/Storage rules allow pre-projection sessions for migration safety, then use it to reject stale Firebase custom tokens once present.
+- `session_controls/{userId}` — backend/Admin-owned active mobile session projection. Clients never read or write it directly; RTDB/Firestore/Storage rules allow pre-projection sessions for migration safety, then use it to reject stale Firebase custom tokens once present. Backend may clear it on logout only when the projection still matches the current API session.
 - `presence/{userId}` — canonical availability cell owned by `PresenceRealtime`; users write only their own node.
 - `profiles/{userId}` — displayName, avatarUrl, countryCode, language, birthday (single source of truth for user identity).
 - `direct_calls/{userId}` — direct/random call signaling owned by `DirectCallSignals`; participant ownership and immutable session metadata are rules-checked.
@@ -67,10 +71,11 @@ This file is the agent operating guide. `PRODUCT.md` is the living product/archi
 2. Chat messages? -> Firestore through the existing chat service; images go through Storage rules.
 3. Media? -> Agora RTC.
 4. Validation / economy / DB write? -> REST endpoint and Postgres.
-5. Auth/realtime access? -> backend mints session-bound Firebase custom tokens; never client-write `session_controls`.
+5. Auth/realtime access? -> backend mints session-bound Firebase custom tokens; logout revokes only the current API session and clears matching session controls; never client-write `session_controls`.
 6. Never create a new Firebase or RTDB instance anywhere.
 7. Never add socket.io, web_socket_channel, or any socket library.
 8. Never poll for presence/realtime state; use listeners. Room heartbeat is the liveness exception for live hosts.
+9. Uploadable mobile build? -> bump the app-store build number first, verify the generated Android manifest or iOS export metadata, then record the artifact in `PRODUCT.md`.
 
 ## Economy:
 - Gifts: 60% receiver, 40% platform. ~5500 coins/USD.

@@ -701,7 +701,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             color: Colors.black,
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          // LiveKit video widget mounts here when wired
+                          // Agora live preview mounts here when the mini-preview is wired.
                         ),
                       ),
                     ),

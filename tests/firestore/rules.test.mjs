@@ -8,10 +8,15 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   Timestamp,
+  collection,
   doc,
   getDoc,
+  getDocs,
+  query,
   setDoc,
   updateDoc,
+  where,
+  writeBatch,
 } from 'firebase/firestore';
 
 const projectId = 'zephyr-firestore-rules-test';
@@ -36,12 +41,17 @@ const seedActiveSessions = async (...uids) => {
   });
 };
 
-const chat = (overrides = {}) => ({
-  participants: ['alice', 'bob'],
-  name_alice: 'Alice',
-  name_bob: 'Bob',
-  ...overrides,
-});
+const chat = (overrides = {}) => {
+  const participants = [...(overrides.participants ?? ['alice', 'bob'])].sort();
+  return {
+    participants,
+    participantIds: Object.fromEntries(participants.map((uid) => [uid, true])),
+    name_alice: 'Alice',
+    name_bob: 'Bob',
+    ...overrides,
+    participants,
+  };
+};
 
 const message = (overrides = {}) => ({
   senderId: 'alice',
@@ -104,6 +114,62 @@ describe('chat rules', () => {
     );
   });
 
+  test('allow metadata updates on legacy chats while rejecting new unknown fields', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'chats/alice_bob'), {
+        ...chat(),
+        createdAt: Timestamp.fromMillis(1750000000000),
+        legacyPreviewType: 'text',
+      });
+    });
+
+    const alice = db('alice');
+    const chatRef = doc(alice, 'chats/alice_bob');
+
+    await assertSucceeds(
+      updateDoc(chatRef, {
+        lastMessage: 'hello again',
+        lastMessageAt: Timestamp.fromMillis(1760000001000),
+        lastSenderId: 'alice',
+        unread_bob: 1,
+      }),
+    );
+    await assertFails(updateDoc(chatRef, { legacyEscalation: true }));
+  });
+
+  test('allow inbox conversation list query only for the active participant session', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await Promise.all([
+        setDoc(doc(context.firestore(), 'chats/alice_bob'), chat()),
+        setDoc(
+          doc(context.firestore(), 'chats/alice_charlie'),
+          chat({
+            participants: ['alice', 'charlie'],
+            name_charlie: 'Charlie',
+          }),
+        ),
+      ]);
+    });
+
+    const alice = db('alice');
+    const staleAlice = staleDb('alice');
+    const aliceInbox = query(
+      collection(alice, 'chats'),
+      where('participantIds.alice', '==', true),
+    );
+
+    await assertSucceeds(getDocs(aliceInbox));
+    await assertFails(getDocs(collection(alice, 'chats')));
+    await assertFails(
+      getDocs(
+        query(
+          collection(staleAlice, 'chats'),
+          where('participantIds.alice', '==', true),
+        ),
+      ),
+    );
+  });
+
   test('enforce immutable message bodies and receiver-only receipts', async () => {
     const alice = db('alice');
     const bob = db('bob');
@@ -127,6 +193,91 @@ describe('chat rules', () => {
       updateDoc(doc(bob, 'chats/alice_bob/messages/send_12345678'), {
         deliveredAt: Timestamp.fromMillis(1760000002000),
         readAt: Timestamp.fromMillis(1760000003000),
+      }),
+    );
+  });
+
+  test('allow atomic image message with caption and inbox metadata', async () => {
+    const alice = db('alice');
+    const chatRef = doc(alice, 'chats/alice_bob');
+    const imageMessageRef = doc(
+      alice,
+      'chats/alice_bob/messages/image_12345678',
+    );
+    const batch = writeBatch(alice);
+
+    batch.set(
+      chatRef,
+      {
+        ...chat(),
+        lastMessage: 'Photo',
+        lastMessageAt: Timestamp.fromMillis(1760000001000),
+        lastSenderId: 'alice',
+        unread_bob: 1,
+      },
+      { merge: true },
+    );
+    batch.set(
+      imageMessageRef,
+      message({
+        body: 'sunset from tonight',
+        type: 'image',
+        imageUrl:
+          'https://firebasestorage.googleapis.com/v0/b/zephyr/o/chats%2Falice_bob%2Falice%2Fimage.jpg?alt=media',
+        idempotencyKey: 'image_12345678',
+      }),
+    );
+
+    await assertSucceeds(batch.commit());
+  });
+
+  test('reject malformed image messages and text messages with image URLs', async () => {
+    const alice = db('alice');
+
+    await assertSucceeds(setDoc(doc(alice, 'chats/alice_bob'), chat()));
+    await assertFails(
+      setDoc(
+        doc(alice, 'chats/alice_bob/messages/image_missing_url'),
+        message({
+          type: 'image',
+          idempotencyKey: 'image_missing_url',
+        }),
+      ),
+    );
+    await assertFails(
+      setDoc(
+        doc(alice, 'chats/alice_bob/messages/text_with_url'),
+        message({
+          imageUrl:
+            'https://firebasestorage.googleapis.com/v0/b/zephyr/o/chats%2Falice_bob%2Falice%2Fimage.jpg?alt=media',
+          idempotencyKey: 'text_with_url',
+        }),
+      ),
+    );
+  });
+
+  test('allow receiver receipts on legacy messages with unchanged extra fields', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'chats/alice_bob'), chat());
+      await setDoc(
+        doc(context.firestore(), 'chats/alice_bob/messages/send_legacy'),
+        {
+          ...message({ idempotencyKey: 'send_legacy_1234' }),
+          status: 'sent',
+          clientCreatedAt: 1750000000000,
+        },
+      );
+    });
+
+    const bob = db('bob');
+    await assertSucceeds(
+      updateDoc(doc(bob, 'chats/alice_bob/messages/send_legacy'), {
+        deliveredAt: Timestamp.fromMillis(1760000002000),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(bob, 'chats/alice_bob/messages/send_legacy'), {
+        status: 'edited',
       }),
     );
   });

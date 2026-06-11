@@ -49,13 +49,26 @@ service cloud.firestore {
       function isParticipant() {
         return signedIn()
           && hasTwoParticipants(resource.data)
-          && request.auth.uid in resource.data.participants;
+          && (request.auth.uid in resource.data.participants
+            || resource.data.participantIds[request.auth.uid] == true);
+      }
+
+      function isParticipantForList() {
+        return signedIn()
+          && resource.data.participantIds[request.auth.uid] == true;
       }
 
       function isParticipantOnCreate() {
         return signedIn()
           && hasTwoParticipants(request.resource.data)
           && request.auth.uid in request.resource.data.participants;
+      }
+
+      function sameParticipantSet(after, before) {
+        return hasTwoParticipants(after)
+          && hasTwoParticipants(before)
+          && after.participants.hasAll(before.participants)
+          && before.participants.hasAll(after.participants);
       }
 
       function firstParticipant(data) {
@@ -82,11 +95,21 @@ service cloud.firestore {
           && !exists(/databases/$(database)/documents/blocks/$(blockId(otherId, request.auth.uid)));
       }
 
+      function hasParticipantMap(data) {
+        let a = firstParticipant(data);
+        let b = secondParticipant(data);
+        return data.participantIds is map
+          && data.participantIds.keys().hasOnly([a, b])
+          && data.participantIds[a] == true
+          && data.participantIds[b] == true;
+      }
+
       function chatKeys(data) {
         let a = firstParticipant(data);
         let b = secondParticipant(data);
         return [
           'participants',
+          'participantIds',
           'lastMessage',
           'lastMessageAt',
           'lastSenderId',
@@ -107,6 +130,7 @@ service cloud.firestore {
         let a = firstParticipant(data);
         let b = secondParticipant(data);
         return hasTwoParticipants(data)
+          && hasParticipantMap(data)
           && data.keys().hasOnly(chatKeys(data))
           && (!('lastMessage' in data.keys()) || (data.lastMessage is string && data.lastMessage.size() <= 2000))
           && (!('lastMessageAt' in data.keys()) || data.lastMessageAt is timestamp)
@@ -121,13 +145,29 @@ service cloud.firestore {
 
       function validChatUpdate() {
         return isParticipant()
-          && request.resource.data.participants == resource.data.participants
+          && sameParticipantSet(request.resource.data, resource.data)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(chatKeys(resource.data))
-          && validChatData(request.resource.data)
+          && hasParticipantMap(request.resource.data)
+          && validMutableChatFields(request.resource.data)
           && notBlocked(resource.data);
       }
 
-      allow read: if isParticipant();
+      function validMutableChatFields(data) {
+        let a = firstParticipant(data);
+        let b = secondParticipant(data);
+        return (!('lastMessage' in data.keys()) || (data.lastMessage is string && data.lastMessage.size() <= 2000))
+          && (!('lastMessageAt' in data.keys()) || data.lastMessageAt is timestamp)
+          && (!('lastSenderId' in data.keys()) || data.lastSenderId in data.participants)
+          && (!('unread_' + a in data.keys()) || (data['unread_' + a] is int && data['unread_' + a] >= 0))
+          && (!('unread_' + b in data.keys()) || (data['unread_' + b] is int && data['unread_' + b] >= 0))
+          && (!('name_' + a in data.keys()) || validNullableString(data['name_' + a], 80))
+          && (!('name_' + b in data.keys()) || validNullableString(data['name_' + b], 80))
+          && (!('avatar_' + a in data.keys()) || validNullableString(data['avatar_' + a], 1000))
+          && (!('avatar_' + b in data.keys()) || validNullableString(data['avatar_' + b], 1000));
+      }
+
+      allow get: if isParticipant();
+      allow list: if isParticipantForList();
       allow create: if isParticipantOnCreate()
         && validChatData(request.resource.data)
         && notBlocked(request.resource.data);
@@ -164,8 +204,11 @@ service cloud.firestore {
             && request.resource.data.body is string
             && request.resource.data.body.size() <= 2000
             && request.resource.data.type in ['text', 'image']
-            && (!('imageUrl' in request.resource.data.keys())
-              || validNullableString(request.resource.data.imageUrl, 1000))
+            && ((request.resource.data.type == 'text'
+                && !('imageUrl' in request.resource.data.keys()))
+              || (request.resource.data.type == 'image'
+                && 'imageUrl' in request.resource.data.keys()
+                && validNullableString(request.resource.data.imageUrl, 1000)))
             && (!('idempotencyKey' in request.resource.data.keys())
               || (request.resource.data.idempotencyKey is string
                 && request.resource.data.idempotencyKey.size() >= 8
@@ -215,17 +258,6 @@ service cloud.firestore {
 
         allow update: if isChatParticipant(chatBefore())
           && notBlocked(chatBefore())
-          && request.resource.data.keys().hasOnly([
-            'senderId',
-            'body',
-            'type',
-            'imageUrl',
-            'idempotencyKey',
-            'createdAt',
-            'deliveredAt',
-            'readAt',
-            'deletedFor',
-          ])
           && (receiptUpdateOnly() || deleteForMeOnly() || deleteForEveryoneBySender());
       }
     }

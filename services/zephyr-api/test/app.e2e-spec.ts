@@ -3,6 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
+import { StoreService } from './../src/core/store.service';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -31,12 +32,12 @@ describe('AppController (e2e)', () => {
   });
 
   it('/v1/feed/live (GET) returns swipe cards for live rooms', async () => {
-    const hostLoginResponse = await request(app.getHttpServer())
-      .post('/v1/auth/guest-login')
-      .send({ displayName: 'Host Alpha' })
-      .expect(201);
-
-    const hostAccessToken = hostLoginResponse.body.accessToken as string;
+    const storeService = app.get(StoreService);
+    const hostSession = await storeService.issueTestSession('Host Alpha');
+    await storeService.updateUser(hostSession.user.id, {
+      gender: 'Female',
+    });
+    const hostAccessToken = hostSession.accessToken;
 
     const createdRoomResponse = await request(app.getHttpServer())
       .post('/v1/rooms')
@@ -44,12 +45,8 @@ describe('AppController (e2e)', () => {
       .send({ title: 'Live Beats Room' })
       .expect(201);
 
-    const viewerLoginResponse = await request(app.getHttpServer())
-      .post('/v1/auth/guest-login')
-      .send({ displayName: 'Viewer Beta' })
-      .expect(201);
-
-    const viewerAccessToken = viewerLoginResponse.body.accessToken as string;
+    const viewerSession = await storeService.issueTestSession('Viewer Beta');
+    const viewerAccessToken = viewerSession.accessToken;
 
     const liveFeedResponse = await request(app.getHttpServer())
       .get('/v1/feed/live?limit=10')
@@ -60,17 +57,58 @@ describe('AppController (e2e)', () => {
     expect(liveFeedResponse.body.length).toBeGreaterThan(0);
 
     const matchingCard = liveFeedResponse.body.find(
-      (item: { roomId?: string }) => item.roomId === createdRoomResponse.body.id,
+      (item: { roomId?: string }) =>
+        item.roomId === createdRoomResponse.body.id,
     );
 
     expect(matchingCard).toBeDefined();
     expect(matchingCard).toEqual(
       expect.objectContaining({
-        title: 'Live Beats Room',
+        title: 'Host Alpha',
         hostDisplayName: 'Host Alpha',
+        hostStatus: 'live',
         audienceCount: expect.any(Number),
       }),
     );
+  });
+
+  it('/v1/auth/logout (POST) revokes the current bearer token', async () => {
+    const storeService = app.get(StoreService);
+    const session = await storeService.issueTestSession('Viewer Logout');
+
+    await request(app.getHttpServer())
+      .post('/v1/auth/logout')
+      .set('Authorization', `Bearer ${session.accessToken}`)
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .get('/v1/users/me')
+      .set('Authorization', `Bearer ${session.accessToken}`)
+      .expect(401);
+  });
+
+  it('/v1/auth/logout (POST) removes push eligibility for the session', async () => {
+    const storeService = app.get(StoreService);
+    const session = await storeService.issueTestSession('Viewer Push Logout');
+
+    await request(app.getHttpServer())
+      .post('/v1/messages/device-token')
+      .set('Authorization', `Bearer ${session.accessToken}`)
+      .send({ token: 'fcm-token-e2e-logout' })
+      .expect(204);
+
+    await expect(
+      storeService.getDeviceTokens(session.user.id),
+    ).resolves.toEqual(['fcm-token-e2e-logout']);
+
+    await request(app.getHttpServer())
+      .post('/v1/auth/logout')
+      .set('Authorization', `Bearer ${session.accessToken}`)
+      .expect(204);
+
+    await expect(
+      storeService.getDeviceTokens(session.user.id),
+    ).resolves.toEqual([]);
   });
 
   it('/v1/auth/google-login (POST) rejects invalid idToken', () => {

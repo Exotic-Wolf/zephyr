@@ -19,6 +19,7 @@ import 'services/firebase_chat_service.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/onboarding/profile_setup_screen.dart';
 import 'features/home/home_screen.dart';
+import 'services/api_error_messages.dart';
 import 'splash_screen.dart';
 
 const String apiBaseUrl = String.fromEnvironment(
@@ -30,6 +31,16 @@ const String googleServerClientId = String.fromEnvironment(
   'GOOGLE_SERVER_CLIENT_ID',
   defaultValue: '',
 );
+
+bool shouldSuppressSessionMovedNoticeForLogout({
+  required bool loggingOut,
+  required DateTime? suppressUntil,
+  DateTime? now,
+}) {
+  if (loggingOut) return true;
+  final DateTime? until = suppressUntil;
+  return until != null && (now ?? DateTime.now()).isBefore(until);
+}
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -75,18 +86,26 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   final ZephyrApiClient _apiClient = ZephyrApiClient(baseUrl: apiBaseUrl);
 
+  static const String _replacedSessionNotice =
+      'This account was signed in on another device. Sign in again to continue on this device.';
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   static const String _tokenKey = 'access_token';
   static const String _themeModeKey = 'theme_mode';
   static const String _localeKey = 'app_locale';
+  static const Duration _logoutNoticeSuppressionWindow = Duration(seconds: 30);
   String? _accessToken;
   String? _pendingSetupToken;
   String? _pendingSetupDisplayName;
+  String? _sessionNotice;
   bool _restoringSession = true;
+  bool _endingExpiredSession = false;
+  bool _loggingOut = false;
+  DateTime? _suppressSessionNoticeUntil;
   ThemeMode _themeMode = ThemeMode.dark;
   Locale? _locale; // null = follow device
   final ValueNotifier<int> _tabNotifier = ValueNotifier<int>(0);
   StreamSubscription<RemoteMessage>? _fcmOpenSub;
+  StreamSubscription<String>? _fcmTokenRefreshSub;
 
   @override
   void initState() {
@@ -109,11 +128,19 @@ class _MyAppState extends State<MyApp> {
     ) {
       if (mounted) _tabNotifier.value = 4;
     });
+    _fcmTokenRefreshSub = FirebaseMessaging.instance.onTokenRefresh.listen((
+      String token,
+    ) {
+      final String? accessToken = _accessToken;
+      if (accessToken == null || accessToken.isEmpty) return;
+      _apiClient.registerDeviceToken(accessToken, token).catchError((_) {});
+    });
   }
 
   @override
   void dispose() {
     _fcmOpenSub?.cancel();
+    _fcmTokenRefreshSub?.cancel();
     _tabNotifier.dispose();
     super.dispose();
   }
@@ -146,13 +173,8 @@ class _MyAppState extends State<MyApp> {
               });
             }
           }
-        } catch (_) {
-          try {
-            await FirebaseChatService.instance.clearSession().timeout(
-              const Duration(seconds: 3),
-              onTimeout: () {},
-            );
-          } catch (_) {}
+        } catch (error) {
+          await _clearAuthSessionData();
           await _storage.delete(key: _tokenKey);
           ZephyrApiClient.accessToken = null;
           if (mounted) {
@@ -160,6 +182,9 @@ class _MyAppState extends State<MyApp> {
               _accessToken = null;
               _pendingSetupToken = null;
               _pendingSetupDisplayName = null;
+              _sessionNotice = isSessionMovedToAnotherDeviceError(error)
+                  ? _replacedSessionNotice
+                  : null;
             });
           }
         }
@@ -193,8 +218,35 @@ class _MyAppState extends State<MyApp> {
       _accessToken = accessToken;
       _pendingSetupToken = null;
       _pendingSetupDisplayName = null;
+      _sessionNotice = null;
     });
     _registerFcmToken(accessToken);
+  }
+
+  Future<void> _onSessionExpired() async {
+    if (_endingExpiredSession) return;
+    _endingExpiredSession = true;
+    final bool suppressNotice = _shouldSuppressSessionNotice();
+
+    try {
+      await _clearAuthSessionData().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {},
+      );
+    } catch (_) {}
+
+    ZephyrApiClient.accessToken = null;
+    if (mounted) {
+      _tabNotifier.value = 0;
+      setState(() {
+        _accessToken = null;
+        _pendingSetupToken = null;
+        _pendingSetupDisplayName = null;
+        _sessionNotice = suppressNotice ? null : _replacedSessionNotice;
+      });
+    }
+
+    _endingExpiredSession = false;
   }
 
   Future<void> _registerFcmToken(String accessToken) async {
@@ -209,7 +261,25 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _onLogout() async {
+    if (_loggingOut) return;
+    _loggingOut = true;
+    _suppressSessionNoticeFor(_logoutNoticeSuppressionWindow);
     final token = _accessToken;
+
+    try {
+      await _storage.delete(key: _tokenKey);
+    } catch (_) {}
+
+    ZephyrApiClient.accessToken = null;
+    if (mounted) {
+      _tabNotifier.value = 0;
+      setState(() {
+        _accessToken = null;
+        _pendingSetupToken = null;
+        _pendingSetupDisplayName = null;
+        _sessionNotice = null;
+      });
+    }
 
     try {
       await FirebaseChatService.instance.setOfflineStatus().timeout(
@@ -224,6 +294,12 @@ class _MyAppState extends State<MyApp> {
           token,
         ).timeout(const Duration(seconds: 3), onTimeout: () {});
       } catch (_) {}
+
+      try {
+        await _apiClient
+            .logout(token)
+            .timeout(const Duration(seconds: 3), onTimeout: () {});
+      } catch (_) {}
     }
 
     try {
@@ -233,15 +309,27 @@ class _MyAppState extends State<MyApp> {
       );
     } catch (_) {}
 
-    await _storage.delete(key: _tokenKey);
-    ZephyrApiClient.accessToken = null;
+    _suppressSessionNoticeFor(_logoutNoticeSuppressionWindow);
     if (mounted) {
       setState(() {
         _accessToken = null;
         _pendingSetupToken = null;
         _pendingSetupDisplayName = null;
+        _sessionNotice = null;
       });
     }
+    _loggingOut = false;
+  }
+
+  void _suppressSessionNoticeFor(Duration duration) {
+    _suppressSessionNoticeUntil = DateTime.now().add(duration);
+  }
+
+  bool _shouldSuppressSessionNotice() {
+    return shouldSuppressSessionMovedNoticeForLogout(
+      loggingOut: _loggingOut,
+      suppressUntil: _suppressSessionNoticeUntil,
+    );
   }
 
   Future<void> _onDeleteAccount() async {
@@ -287,8 +375,33 @@ class _MyAppState extends State<MyApp> {
         _accessToken = null;
         _pendingSetupToken = null;
         _pendingSetupDisplayName = null;
+        _sessionNotice = null;
       });
     }
+  }
+
+  Future<void> _clearAuthSessionData() async {
+    try {
+      await FirebaseFirestore.instance.terminate().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {},
+      );
+      await FirebaseFirestore.instance.clearPersistence().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
+    } catch (_) {}
+
+    try {
+      await FirebaseChatService.instance.clearSession().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
+    } catch (_) {}
+
+    try {
+      await _storage.delete(key: _tokenKey);
+    } catch (_) {}
   }
 
   Future<void> _clearLocalAppData() async {
@@ -362,11 +475,16 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _unregisterFcmToken(String accessToken) async {
+    String? fcmToken;
     try {
-      final fcmToken = await FirebaseMessaging.instance.getToken();
+      fcmToken = await FirebaseMessaging.instance.getToken();
       if (fcmToken != null) {
         await _apiClient.unregisterDeviceToken(accessToken, fcmToken);
       }
+    } catch (_) {}
+
+    try {
+      await FirebaseMessaging.instance.deleteToken();
     } catch (_) {}
   }
 
@@ -411,12 +529,19 @@ class _MyAppState extends State<MyApp> {
                 : OnboardingScreen(
                     apiClient: _apiClient,
                     onLoginSuccess: _onLoginSuccess,
+                    sessionNotice: _sessionNotice,
+                    onSessionNoticeDismissed: () {
+                      if (mounted && _sessionNotice != null) {
+                        setState(() => _sessionNotice = null);
+                      }
+                    },
                   )
           : HomeScreen(
               apiClient: _apiClient,
               accessToken: _accessToken!,
               onLogout: _onLogout,
               onDeleteAccount: _onDeleteAccount,
+              onSessionExpired: _onSessionExpired,
               tabNotifier: _tabNotifier,
               themeMode: _themeMode,
               onThemeModeChanged: (ThemeMode mode) {

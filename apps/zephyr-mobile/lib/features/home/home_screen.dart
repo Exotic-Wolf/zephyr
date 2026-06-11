@@ -4,6 +4,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
+import '../../services/api_error_messages.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import '../../widgets/zephyr_app_header.dart';
@@ -29,6 +30,7 @@ class HomeScreen extends StatefulWidget {
     required this.accessToken,
     required this.onLogout,
     required this.onDeleteAccount,
+    required this.onSessionExpired,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.locale,
@@ -41,6 +43,7 @@ class HomeScreen extends StatefulWidget {
   final String accessToken;
   final Future<void> Function() onLogout;
   final Future<void> Function() onDeleteAccount;
+  final Future<void> Function() onSessionExpired;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Locale? locale;
@@ -73,6 +76,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _hasMoreFeedCards = true;
   bool _loadingMoreFeedCards = false;
   bool _firebaseRealtimeReady = false;
+  bool _sessionInvalidated = false;
 
   // ── Incoming call state ───────────────────────────────────────────────────
   StreamSubscription<DatabaseEvent>? _incomingCallSub;
@@ -192,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _incomingCallerAvatarUrl = null;
         });
       }
-    });
+    }, onError: _handleFirebaseRealtimeError);
   }
 
   String? _stringFromInvite(Map<String, dynamic> invite, String key) {
@@ -349,7 +353,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         );
       }
-    } catch (e) {
+    } catch (error) {
+      if (isAuthSessionInvalidError(error)) {
+        await _expireSession();
+        return;
+      }
       _endRandomInvite(invite);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -360,8 +368,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
       }
     } finally {
-      _clearRandomCallInvite();
-      if (mounted) _listenForIncomingCalls();
+      if (!_sessionInvalidated) {
+        _clearRandomCallInvite();
+        if (mounted) _listenForIncomingCalls();
+      }
     }
   }
 
@@ -384,11 +394,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     final svc = FirebaseChatService.instance;
 
-    // Update RTDB status to 'accepted' so caller knows
-    await svc.writeCallStatus(userId, 'accepted');
-
-    // Get Agora token from server
     try {
+      // Update RTDB status to 'accepted' so caller knows
+      await svc.writeCallStatus(userId, 'accepted');
+
+      // Get Agora token from server
       final rtc = await widget.apiClient.requestCallRtcToken(
         accessToken: widget.accessToken,
         sessionId: sessionId,
@@ -428,10 +438,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           )
           .then((_) {
             // Clean up the RTDB node and resume listening
-            svc.removeCallSignal(userId);
+            svc.removeCallSignal(userId).ignore();
             _listenForIncomingCalls();
           });
-    } catch (_) {
+    } catch (error) {
+      if (isAuthSessionInvalidError(error)) {
+        await _expireSession();
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _incomingCallerId = null;
@@ -449,11 +463,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final svc = FirebaseChatService.instance;
 
     // Update RTDB status so caller gets notified
-    svc.writeCallStatus(userId, 'declined');
+    svc.writeCallStatus(userId, 'declined').catchError((Object error) {
+      if (isAuthSessionInvalidError(error)) {
+        _expireSession().ignore();
+      }
+    });
 
     // Then remove the node after a short delay so caller can read it
     Future<void>.delayed(const Duration(seconds: 2), () {
-      svc.removeCallSignal(userId);
+      svc.removeCallSignal(userId).ignore();
     });
 
     setState(() {
@@ -483,18 +501,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      FirebaseChatService.instance.restoreOnlineStatus();
+      if (_firebaseRealtimeReady) {
+        FirebaseChatService.instance.restoreOnlineStatus();
+      }
       _resetIdleTimer();
-      _listenForIncomingCalls();
+      if (_firebaseRealtimeReady) {
+        _listenForIncomingCalls();
+      }
       _refreshFeed();
     } else if (state == AppLifecycleState.paused) {
       _idleTimer?.cancel();
       _declineRandomCallInvite().ignore();
-      FirebaseChatService.instance.setBackgroundOffline();
+      if (_firebaseRealtimeReady) {
+        FirebaseChatService.instance.setBackgroundOffline();
+      }
     }
   }
 
   Future<void> _loadData() async {
+    if (_sessionInvalidated) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -508,19 +533,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           limit: _forYouPageSize,
           liveOnly: true,
         ),
-        widget.apiClient.getFollowingIds(widget.accessToken),
       ]);
 
       final UserProfile me = data[0] as UserProfile;
       final List<LiveFeedCard> feedCards = data[1] as List<LiveFeedCard>;
-      final Set<String> followingIds = data[2] as Set<String>;
 
       if (!mounted) {
         return;
       }
       setState(() {
         _me = me;
-        _followingIds = followingIds;
         final incoming = <LiveFeedCard>[
           ...feedCards.where(
             (LiveFeedCard c) => _isVisibleHostCard(c, me.id) && _isLiveCard(c),
@@ -531,24 +553,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _hasMoreFeedCards = feedCards.length == _forYouPageSize;
         _loadingMoreFeedCards = false;
       });
+      _refreshFollowingIds();
       _refreshWallet().ignore();
-      // Start listening for incoming calls now that we have userId
-      _listenForIncomingCalls();
       // Initialize Firebase with custom token for secure auth BEFORE warming presence
       await _initFirebaseChat(me);
-      // Warm Firebase RTDB presence and profiles AFTER auth is ready
-      _warmFeedRealtime(_feedCards);
+      if (_sessionInvalidated || !mounted) return;
+      if (_firebaseRealtimeReady) {
+        // Start realtime work only after Firebase Auth carries the active session claims.
+        _listenForIncomingCalls();
+        _warmFeedRealtime(_feedCards);
+      }
     } catch (error) {
+      if (isAuthSessionInvalidError(error)) {
+        await _expireSession();
+        return;
+      }
+      if (!mounted) return;
       setState(() {
-        _error = error.toString();
+        _error = _homeLoadFailureMessage(error);
       });
     } finally {
-      if (mounted) {
+      if (mounted && !_sessionInvalidated) {
         setState(() {
           _loading = false;
         });
       }
     }
+  }
+
+  void _refreshFollowingIds() {
+    widget.apiClient
+        .getFollowingIds(widget.accessToken)
+        .then((Set<String> followingIds) {
+          if (!mounted || _sessionInvalidated) return;
+          setState(() => _followingIds = followingIds);
+        })
+        .catchError((Object error) {
+          if (isAuthSessionInvalidError(error)) {
+            _expireSession().ignore();
+          }
+        });
   }
 
   Future<void> _refreshWallet() async {
@@ -558,7 +602,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
       if (!mounted) return;
       setState(() => _wallet = wallet);
-    } catch (_) {
+    } catch (error) {
+      if (isAuthSessionInvalidError(error)) {
+        await _expireSession();
+      }
       // Wallet is an accessory in the root header; do not block app navigation.
     }
   }
@@ -608,19 +655,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await FirebaseChatService.instance.init(me.id, firebaseToken: token);
       _firebaseRealtimeReady = true;
     } catch (e) {
+      if (isAuthSessionInvalidError(e)) {
+        await _expireSession();
+        return;
+      }
       debugPrint('Firebase custom token failed: $e — skipping RTDB init');
       _firebaseRealtimeReady = false;
       return; // Don't use anonymous — it can't satisfy RTDB rules
     }
 
-    // Write own profile to RTDB so other users always see fresh identity
-    FirebaseChatService.instance.writeMyProfile(
-      displayName: me.displayName,
-      avatarUrl: me.avatarUrl,
-      countryCode: me.countryCode ?? '',
-      language: me.language ?? '',
-      birthday: me.birthday,
-    );
+    // Write own profile to RTDB so other users always see fresh identity.
+    // Keep it best-effort; a rules/race hiccup must not invalidate a fresh login.
+    FirebaseChatService.instance
+        .writeMyProfile(
+          displayName: me.displayName,
+          avatarUrl: me.avatarUrl,
+          countryCode: me.countryCode ?? '',
+          language: me.language ?? '',
+          birthday: me.birthday,
+        )
+        .catchError(_handleFirebaseRealtimeError);
 
     // Wire push notifications for Firebase chat
     FirebaseChatService.instance.onSendPush =
@@ -645,7 +699,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               FirebaseChatService.instance.markDelivered(c.otherUserId);
             }
           }
-        });
+        }, onError: _handleFirebaseRealtimeError);
 
     // Bottom tab badge: keep a real-time aggregate unread count.
     _inboxBadgeSub?.cancel();
@@ -659,7 +713,53 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       debugPrint('[InboxBadge] convos=${convos.length} unread=$nextTotal');
       if (!mounted || nextTotal == _inboxUnreadTotal) return;
       setState(() => _inboxUnreadTotal = nextTotal);
-    });
+    }, onError: _handleFirebaseRealtimeError);
+  }
+
+  void _handleFirebaseRealtimeError(Object error) {
+    debugPrint('Firebase realtime listener unavailable: $error');
+    if (isAuthSessionInvalidError(error)) {
+      _expireSession().ignore();
+      return;
+    }
+    if (isFirebasePermissionDeniedError(error)) {
+      _validateBackendSessionAfterRealtimeDenied().ignore();
+      return;
+    }
+    _firebaseRealtimeReady = false;
+    if (mounted && _inboxUnreadTotal != 0) {
+      setState(() => _inboxUnreadTotal = 0);
+    }
+  }
+
+  Future<void> _validateBackendSessionAfterRealtimeDenied() async {
+    if (_sessionInvalidated) return;
+    try {
+      await widget.apiClient.getMe(widget.accessToken);
+    } catch (error) {
+      if (isAuthSessionInvalidError(error)) {
+        await _expireSession();
+        return;
+      }
+    }
+
+    _firebaseRealtimeReady = false;
+    if (mounted && _inboxUnreadTotal != 0) {
+      setState(() => _inboxUnreadTotal = 0);
+    }
+  }
+
+  String _homeLoadFailureMessage(Object error) {
+    if (isAuthSessionInvalidError(error)) {
+      return 'Your session changed. Please sign in again.';
+    }
+    final String message = apiErrorMessage(error).toLowerCase();
+    if (message.contains('network') ||
+        message.contains('socket') ||
+        message.contains('connection')) {
+      return 'Could not refresh For you. Check your connection and try again.';
+    }
+    return 'Could not refresh For you. Please try again.';
   }
 
   Future<void> _refreshApiStatus() async {
@@ -675,7 +775,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Silently refreshes just the live feed cards (no loading spinner).
   Future<void> _refreshFeed() async {
-    if (!mounted) return;
+    if (!mounted || _sessionInvalidated) return;
     try {
       final List<LiveFeedCard> feedCards = await widget.apiClient.listLiveFeed(
         widget.accessToken,
@@ -695,13 +795,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _loadingMoreFeedCards = false;
       });
       _warmFeedRealtime(_feedCards);
-    } catch (_) {
+    } catch (error) {
+      if (isAuthSessionInvalidError(error)) {
+        await _expireSession();
+      }
       // ignore — next poll will retry
     }
   }
 
   Future<void> _loadMoreFeedCards() async {
-    if (_loadingMoreFeedCards || !_hasMoreFeedCards || !mounted) return;
+    if (_loadingMoreFeedCards ||
+        !_hasMoreFeedCards ||
+        !mounted ||
+        _sessionInvalidated) {
+      return;
+    }
 
     setState(() => _loadingMoreFeedCards = true);
     try {
@@ -729,9 +837,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _loadingMoreFeedCards = false;
       });
       _warmFeedRealtime(_feedCards);
-    } catch (_) {
+    } catch (error) {
+      if (isAuthSessionInvalidError(error)) {
+        await _expireSession();
+        return;
+      }
       if (mounted) setState(() => _loadingMoreFeedCards = false);
     }
+  }
+
+  Future<void> _expireSession() async {
+    if (_sessionInvalidated) return;
+    _sessionInvalidated = true;
+    _convoDeliverySub?.cancel();
+    _inboxBadgeSub?.cancel();
+    _incomingCallSub?.cancel();
+    _randomCallInviteTimer?.cancel();
+    await widget.onSessionExpired();
   }
 
   void _warmFeedRealtime(List<LiveFeedCard> cards) {
@@ -750,9 +872,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final now = DateTime.now();
 
     double score(LiveFeedCard c) {
-      final status =
+      final String cachedStatus =
           FirebaseChatService.instance.presenceStateCached(c.hostUserId) ??
           c.hostStatus;
+      final String feedStatus = c.hostStatus.trim().toLowerCase();
+      final bool hasLiveRoom = c.roomId?.trim().isNotEmpty == true;
+      final String presenceStatus = cachedStatus.trim().toLowerCase();
+      final String status =
+          hasLiveRoom && (feedStatus == 'live' || feedStatus == 'premium_live')
+          ? feedStatus
+          : hasLiveRoom &&
+                (presenceStatus.isEmpty ||
+                    presenceStatus == 'offline' ||
+                    presenceStatus == 'online' ||
+                    presenceStatus == 'away')
+          ? 'live'
+          : presenceStatus;
 
       // Base tier
       double s = switch (status) {
@@ -864,7 +999,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         roomId,
       );
       viewerCount = room.audienceCount;
-    } catch (_) {
+    } catch (error) {
+      if (isAuthSessionInvalidError(error)) {
+        await _expireSession();
+        return;
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not enter this live.')),
@@ -916,9 +1055,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Widget _buildForYouTab() {
     if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(20),
-        child: Text(_error!, style: const TextStyle(color: Colors.red)),
+      final bool isDark = Theme.of(context).brightness == Brightness.dark;
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                Icons.wifi_off_rounded,
+                size: 54,
+                color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: _loadData,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
       );
     }
     return ForYouFeed(
@@ -1145,9 +1312,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               myAvatarUrl: _me?.avatarUrl,
             ),
             4 => InboxFirebasePage(
+              apiClient: widget.apiClient,
+              accessToken: widget.accessToken,
               myUserId: _me?.id ?? '',
               myDisplayName: _me?.displayName ?? 'User',
               myAvatarUrl: _me?.avatarUrl,
+              onSessionExpired: widget.onSessionExpired,
             ),
             _ => const SizedBox.shrink(),
           };

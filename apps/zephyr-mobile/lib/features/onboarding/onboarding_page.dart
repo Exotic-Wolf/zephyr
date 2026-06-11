@@ -78,6 +78,8 @@ class OnboardingScreen extends StatefulWidget {
     this.brandHero,
     this.profileWriter,
     this.countryCodeResolver,
+    this.sessionNotice,
+    this.onSessionNoticeDismissed,
     super.key,
   });
 
@@ -88,6 +90,8 @@ class OnboardingScreen extends StatefulWidget {
   final Widget? brandHero;
   final ProfileRealtimeWriter? profileWriter;
   final CountryCodeResolver? countryCodeResolver;
+  final String? sessionNotice;
+  final VoidCallback? onSessionNoticeDismissed;
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -99,6 +103,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _appleLoading = false;
   bool _apiOffline = false;
   String? _error;
+  String? _dismissedSessionNotice;
+
+  String? get _visibleSessionNotice {
+    final notice = widget.sessionNotice?.trim();
+    if (notice == null || notice.isEmpty || notice == _dismissedSessionNotice) {
+      return null;
+    }
+    return notice;
+  }
 
   @override
   void initState() {
@@ -109,6 +122,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _checkApi();
   }
 
+  @override
+  void didUpdateWidget(covariant OnboardingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.sessionNotice != oldWidget.sessionNotice) {
+      _dismissedSessionNotice = null;
+    }
+  }
+
+  void _dismissSessionNotice() {
+    final notice = widget.sessionNotice?.trim();
+    if (notice == null || notice.isEmpty) return;
+    _dismissedSessionNotice = notice;
+    widget.onSessionNoticeDismissed?.call();
+  }
+
   Future<void> _checkApi() async {
     final bool ok = await widget.apiClient.ping();
     if (mounted) setState(() => _apiOffline = !ok);
@@ -116,6 +144,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _continueWithGoogle() async {
     final l10n = AppLocalizations.of(context)!;
+    _dismissSessionNotice();
     setState(() {
       _googleLoading = true;
       _error = null;
@@ -137,6 +166,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _continueWithApple() async {
     final l10n = AppLocalizations.of(context)!;
+    _dismissSessionNotice();
     setState(() {
       _appleLoading = true;
       _error = null;
@@ -199,6 +229,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final sessionNotice = _visibleSessionNotice;
     final double screenH = MediaQuery.of(context).size.height;
     final double bottomPad = MediaQuery.of(context).padding.bottom;
     final bool showApple = widget.showAppleSignIn ?? Platform.isIOS;
@@ -272,6 +303,39 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                   ),
                                 ),
                               ],
+                            ),
+                          ),
+
+                        if (sessionNotice != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(
+                                  0xFFFF8F00,
+                                ).withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: const Color(
+                                    0xFFFFB347,
+                                  ).withValues(alpha: 0.36),
+                                ),
+                              ),
+                              child: Text(
+                                sessionNotice,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xFFFFD7A3),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.25,
+                                ),
+                              ),
                             ),
                           ),
 

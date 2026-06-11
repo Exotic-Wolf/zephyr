@@ -18,6 +18,15 @@ import '../live/viewer_live_screen.dart';
 import '../profile/profile_page.dart';
 import 'live_preview_widget.dart';
 
+enum _MediaSourceKind { camera, gallery }
+
+class _MediaDraft {
+  const _MediaDraft({required this.file, required this.source});
+
+  final File file;
+  final _MediaSourceKind source;
+}
+
 /// Firebase-backed thread page — completely isolated from the custom thread.
 /// Uses Firestore real-time listeners for messages.
 class ThreadFirebasePage extends StatefulWidget {
@@ -48,12 +57,17 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   StreamSubscription<List<FirebaseMessage>>? _sub;
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
-  bool _sendingImage = false;
+  bool _mediaTrayOpen = false;
   bool _loadingMore = false;
   bool _hasMore = true;
   bool _streamReady = false;
+  String? _threadError;
+  _MediaDraft? _mediaDraft;
   final Map<String, FirebaseMessage> _optimisticMessages = {};
   final Map<String, String> _failedSends = {};
+  final Map<String, File> _pendingImageFiles = {};
+  final Map<String, double> _pendingImageProgress = {};
+  final Map<String, String> _pendingImageUrls = {};
   final Map<String, String> _translations = {}; // messageId -> translated text
   final Set<String> _translating = {}; // messageIds currently being translated
 
@@ -82,40 +96,104 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     // Ensure presence and profile are warmed for this user
     FirebaseChatService.instance.warmPresence([widget.otherUserId]);
     FirebaseChatService.instance.warmProfiles([widget.otherUserId]);
+    _seedCachedMessages();
     _ensureChatDocAndListen();
     _scrollCtrl.addListener(_onScroll);
     _lookupLiveRoom();
   }
 
+  void _seedCachedMessages() {
+    final service = FirebaseChatService.instance;
+    if (!service.isInitializedFor(widget.myUserId)) return;
+    final cached = service.cachedMessages(widget.otherUserId);
+    if (cached.isEmpty) return;
+    _messages = cached;
+    _streamReady = true;
+    _threadError = null;
+    _scrollToBottom(jump: true);
+  }
+
   /// Ensure the chat doc exists (with participants) before listening.
   /// Security rules on /messages require the parent doc's participants array.
-  Future<void> _ensureChatDocAndListen() async {
-    await FirebaseChatService.instance.ensureChatDoc(
-      widget.otherUserId,
-      myDisplayName: widget.myDisplayName,
-      myAvatarUrl: widget.myAvatarUrl,
-      otherDisplayName: widget.otherDisplayName,
-      otherAvatarUrl: widget.otherAvatarUrl,
-    );
-    if (!mounted) return;
-    _sub = FirebaseChatService.instance
-        .watchMessages(widget.otherUserId)
-        .listen((List<FirebaseMessage> msgs) {
-          if (mounted) {
-            final Set<String> committedIds = msgs.map((m) => m.id).toSet();
-            setState(() {
-              _messages = msgs;
-              _streamReady = true;
-              _optimisticMessages.removeWhere(
-                (id, _) => committedIds.contains(id),
-              );
-              _failedSends.removeWhere((id, _) => committedIds.contains(id));
-            });
-            _scrollToBottom();
-            // Mark incoming messages as read continuously while chat is open
-            _markIncomingRead(msgs);
-          }
+  Future<void> _ensureChatDocAndListen({bool forceTokenRefresh = false}) async {
+    try {
+      await _sub?.cancel();
+      _sub = null;
+
+      final api = ZephyrApiClient.instance;
+      final token = ZephyrApiClient.accessToken;
+      final service = FirebaseChatService.instance;
+      if (api != null &&
+          token != null &&
+          (forceTokenRefresh || !service.isInitializedFor(widget.myUserId))) {
+        final String firebaseToken = await api.getFirebaseToken(token);
+        await service.init(widget.myUserId, firebaseToken: firebaseToken);
+      }
+
+      final cached = await service.loadCachedMessages(widget.otherUserId);
+      if (mounted && cached.isNotEmpty) {
+        setState(() {
+          _messages = cached;
+          _streamReady = true;
+          _threadError = null;
         });
+        _scrollToBottom(jump: true);
+      }
+
+      await service.ensureChatDoc(
+        widget.otherUserId,
+        myDisplayName: widget.myDisplayName,
+        myAvatarUrl: widget.myAvatarUrl,
+        otherDisplayName: widget.otherDisplayName,
+        otherAvatarUrl: widget.otherAvatarUrl,
+      );
+      if (!mounted) return;
+      _sub = service
+          .watchMessages(widget.otherUserId)
+          .listen(
+            (List<FirebaseMessage> msgs) {
+              if (mounted) {
+                final Set<String> committedIds = msgs.map((m) => m.id).toSet();
+                setState(() {
+                  _threadError = null;
+                  _messages = msgs;
+                  _streamReady = true;
+                  for (final String id in committedIds) {
+                    _pendingImageFiles.remove(id);
+                    _pendingImageProgress.remove(id);
+                    _pendingImageUrls.remove(id);
+                  }
+                  _optimisticMessages.removeWhere(
+                    (id, _) => committedIds.contains(id),
+                  );
+                  _failedSends.removeWhere(
+                    (id, _) => committedIds.contains(id),
+                  );
+                });
+                _scrollToBottom();
+                // Mark incoming messages as read continuously while chat is open
+                _markIncomingRead(msgs);
+              }
+            },
+            onError: (Object error) {
+              if (!mounted) return;
+              setState(() {
+                _streamReady = true;
+                _threadError = isFirebasePermissionDeniedError(error)
+                    ? 'Messages are reconnecting. Please try again.'
+                    : apiErrorMessage(error);
+              });
+            },
+          );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _streamReady = true;
+        _threadError = isFirebasePermissionDeniedError(error)
+            ? 'Messages are reconnecting. Please try again.'
+            : apiErrorMessage(error);
+      });
+    }
   }
 
   /// Fetches roomId from live feed if presence doesn't include it.
@@ -143,7 +221,6 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     }
   }
 
-  @override
   @override
   void dispose() {
     _sub?.cancel();
@@ -207,7 +284,8 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
 
   Future<void> _send() async {
     final String text = _inputCtrl.text.trim();
-    if (text.isEmpty) return;
+    final _MediaDraft? draft = _mediaDraft;
+    if (text.isEmpty && draft == null) return;
     if (text.length > 2000) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Message too long (max 2000 characters)')),
@@ -225,8 +303,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
       return;
     }
 
-    // Duplicate message cooldown
-    if (_lastSentText == text &&
+    // Duplicate text cooldown. Media sends are allowed to share a caption.
+    if (draft == null &&
+        _lastSentText == text &&
         _sendTimestamps.isNotEmpty &&
         now.difference(_sendTimestamps.last) < _duplicateCooldown) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -236,35 +315,55 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     }
 
     _sendTimestamps.add(now);
-    _lastSentText = text;
+    if (draft == null) _lastSentText = text;
     final String key = _generateKey();
     final FirebaseMessage optimistic = FirebaseMessage(
       id: key,
       senderId: widget.myUserId,
       body: text,
       createdAt: now,
+      type: draft == null ? 'text' : 'image',
     );
 
     setState(() {
       _optimisticMessages[key] = optimistic;
+      if (draft != null) {
+        _pendingImageFiles[key] = draft.file;
+        _pendingImageProgress[key] = 0;
+        _mediaDraft = null;
+        _mediaTrayOpen = false;
+      }
       _failedSends.remove(key);
     });
     _inputCtrl.clear();
     _scrollToBottom(jump: true);
 
-    unawaited(_commitOptimisticText(optimistic));
+    if (draft == null) {
+      unawaited(_commitOptimisticText(optimistic));
+    } else {
+      unawaited(_commitOptimisticImage(optimistic, draft.file));
+    }
   }
 
   Future<void> _commitOptimisticText(FirebaseMessage message) async {
     try {
-      await FirebaseChatService.instance.sendMessage(
-        otherUserId: widget.otherUserId,
-        body: message.body,
-        myDisplayName: widget.myDisplayName,
-        myAvatarUrl: widget.myAvatarUrl,
-        idempotencyKey: message.id,
+      await _withFirebasePermissionRecovery(
+        () => FirebaseChatService.instance.sendMessage(
+          otherUserId: widget.otherUserId,
+          body: message.body,
+          myDisplayName: widget.myDisplayName,
+          myAvatarUrl: widget.myAvatarUrl,
+          idempotencyKey: message.id,
+        ),
       );
     } catch (e) {
+      debugPrint('Text message send failed for ${message.id}: $e');
+      if (await _isOptimisticMessageCommitted(message.id)) {
+        if (mounted) {
+          setState(() => _failedSends.remove(message.id));
+        }
+        return;
+      }
       if (mounted) {
         setState(() {
           if (_optimisticMessages.containsKey(message.id)) {
@@ -279,31 +378,125 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     final FirebaseMessage? message = _optimisticMessages[messageId];
     if (message == null) return;
     setState(() => _failedSends.remove(messageId));
-    unawaited(_commitOptimisticText(message));
+    final File? imageFile = _pendingImageFiles[messageId];
+    if (message.type == 'image' && imageFile != null) {
+      unawaited(_commitOptimisticImage(message, imageFile));
+    } else {
+      unawaited(_commitOptimisticText(message));
+    }
   }
 
-  Future<void> _pickAndSendImage() async {
-    final XFile? picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 70,
-    );
-    if (picked == null) return;
-    setState(() => _sendingImage = true);
+  Future<void> _commitOptimisticImage(
+    FirebaseMessage message,
+    File imageFile,
+  ) async {
     try {
-      await FirebaseChatService.instance.sendImage(
-        otherUserId: widget.otherUserId,
-        imageFile: File(picked.path),
-        myDisplayName: widget.myDisplayName,
-        myAvatarUrl: widget.myAvatarUrl,
+      String? downloadUrl = _pendingImageUrls[message.id];
+      if (downloadUrl == null) {
+        if (mounted) {
+          setState(() => _pendingImageProgress[message.id] = 0.02);
+        }
+        final String uploadedUrl = await _withFirebasePermissionRecovery(
+          () => FirebaseChatService.instance.uploadChatImage(
+            otherUserId: widget.otherUserId,
+            imageFile: imageFile,
+            onProgress: (double progress) {
+              if (!mounted) return;
+              setState(() {
+                _pendingImageProgress[message.id] = progress
+                    .clamp(0.02, 0.95)
+                    .toDouble();
+              });
+            },
+          ),
+        );
+        _pendingImageUrls[message.id] = uploadedUrl;
+        downloadUrl = uploadedUrl;
+      }
+
+      if (mounted) {
+        setState(() => _pendingImageProgress[message.id] = 0.98);
+      }
+
+      await _withFirebasePermissionRecovery(
+        () => FirebaseChatService.instance.sendMessage(
+          otherUserId: widget.otherUserId,
+          body: message.body,
+          myDisplayName: widget.myDisplayName,
+          myAvatarUrl: widget.myAvatarUrl,
+          type: 'image',
+          imageUrl: downloadUrl,
+          idempotencyKey: message.id,
+        ),
       );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Image send failed: $e')));
+      debugPrint('Image message send failed for ${message.id}: $e');
+      if (await _isOptimisticMessageCommitted(message.id)) {
+        if (mounted) {
+          setState(() {
+            _failedSends.remove(message.id);
+            _pendingImageProgress[message.id] = 1.0;
+          });
+        }
+        return;
       }
-    } finally {
-      if (mounted) setState(() => _sendingImage = false);
+      if (mounted) {
+        setState(() {
+          if (_optimisticMessages.containsKey(message.id)) {
+            _failedSends[message.id] = apiErrorMessage(e);
+          }
+        });
+      }
+    }
+  }
+
+  Future<T> _withFirebasePermissionRecovery<T>(
+    Future<T> Function() action,
+  ) async {
+    try {
+      return await action();
+    } catch (error) {
+      if (!isFirebasePermissionDeniedError(error)) rethrow;
+      await _ensureChatDocAndListen(forceTokenRefresh: true);
+      return await action();
+    }
+  }
+
+  Future<bool> _isOptimisticMessageCommitted(String messageId) async {
+    try {
+      return await FirebaseChatService.instance.sentMessageExists(
+        otherUserId: widget.otherUserId,
+        messageId: messageId,
+      );
+    } catch (e) {
+      debugPrint('Message commit lookup failed for $messageId: $e');
+      return false;
+    }
+  }
+
+  Future<void> _selectMedia(ImageSource source) async {
+    try {
+      final XFile? picked = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 76,
+        maxWidth: 1600,
+        maxHeight: 1600,
+      );
+      if (picked == null || !mounted) return;
+      setState(() {
+        _mediaDraft = _MediaDraft(
+          file: File(picked.path),
+          source: source == ImageSource.camera
+              ? _MediaSourceKind.camera
+              : _MediaSourceKind.gallery,
+        );
+        _mediaTrayOpen = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(apiErrorMessage(error))));
     }
   }
 
@@ -730,6 +923,177 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     );
   }
 
+  Widget _buildMediaTray(bool isDark) {
+    if (!_mediaTrayOpen) return const SizedBox.shrink();
+    return Container(
+      height: 104,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF171717) : const Color(0xFFF8F8FA),
+        border: Border(
+          top: BorderSide(
+            color: isDark
+                ? Colors.white10
+                : Colors.black.withValues(alpha: 0.06),
+          ),
+        ),
+      ),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _buildMediaTrayTile(
+            icon: Icons.photo_camera_rounded,
+            label: 'Camera',
+            isDark: isDark,
+            onTap: () => _selectMedia(ImageSource.camera),
+          ),
+          _buildMediaTrayTile(
+            icon: Icons.videocam_rounded,
+            label: 'Video',
+            isDark: isDark,
+            disabled: true,
+            onTap: () {},
+          ),
+          _buildMediaTrayTile(
+            icon: Icons.photo_library_rounded,
+            label: 'Photos',
+            isDark: isDark,
+            onTap: () => _selectMedia(ImageSource.gallery),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMediaTrayTile({
+    required IconData icon,
+    required String label,
+    required bool isDark,
+    required VoidCallback onTap,
+    bool disabled = false,
+  }) {
+    final Color accent = disabled ? Colors.grey : const Color(0xFFFF8F00);
+    return GestureDetector(
+      onTap: disabled ? null : onTap,
+      child: Container(
+        width: 82,
+        margin: const EdgeInsets.only(right: 10),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF242424) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: disabled
+                ? Colors.grey.withValues(alpha: 0.25)
+                : accent.withValues(alpha: 0.28),
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: accent, size: 26),
+            const SizedBox(height: 8),
+            Text(
+              disabled ? '$label soon' : label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: disabled
+                    ? Colors.grey
+                    : (isDark ? Colors.white : Colors.black87),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttachmentDraft(bool isDark) {
+    final _MediaDraft? draft = _mediaDraft;
+    if (draft == null) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+      color: isDark ? const Color(0xFF1C1C1C) : Colors.white,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(
+                draft.file,
+                width: 78,
+                height: 78,
+                fit: BoxFit.cover,
+              ),
+            ),
+            Positioned(
+              top: -8,
+              right: -8,
+              child: GestureDetector(
+                onTap: () => setState(() => _mediaDraft = null),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white : Colors.black87,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.22),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: 16,
+                    color: isDark ? Colors.black87 : Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThreadError(String message, bool isDark) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.mark_chat_unread_outlined,
+              size: 46,
+              color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () => _ensureChatDocAndListen(forceTokenRefresh: true),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double bottomPad = MediaQuery.of(context).padding.bottom;
@@ -863,7 +1227,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           Column(
             children: [
               Expanded(
-                child: !_streamReady && visibleMessages.isEmpty
+                child: _threadError != null && visibleMessages.isEmpty
+                    ? _buildThreadError(_threadError!, isDark)
+                    : !_streamReady && visibleMessages.isEmpty
                     ? const Center(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
@@ -1023,27 +1389,136 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                                   color: Colors.grey.shade500,
                                                 ),
                                               )
-                                            else if (msg.type == 'image' &&
-                                                msg.imageUrl != null)
-                                              ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                                child: CachedNetworkImage(
-                                                  imageUrl: msg.imageUrl!,
-                                                  width: 200,
-                                                  fit: BoxFit.cover,
-                                                  placeholder: (_, __) =>
-                                                      const SizedBox(
-                                                        width: 200,
-                                                        height: 150,
-                                                        child: Center(
-                                                          child:
-                                                              CircularProgressIndicator(
-                                                                strokeWidth: 2,
-                                                              ),
+                                            else if (msg.type == 'image')
+                                              Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
                                                         ),
+                                                    child: SizedBox(
+                                                      width: 210,
+                                                      height: 160,
+                                                      child: Stack(
+                                                        fit: StackFit.expand,
+                                                        children: [
+                                                          if (_pendingImageFiles
+                                                              .containsKey(
+                                                                msg.id,
+                                                              ))
+                                                            Image.file(
+                                                              _pendingImageFiles[msg
+                                                                  .id]!,
+                                                              fit: BoxFit.cover,
+                                                            )
+                                                          else if (msg
+                                                                  .imageUrl !=
+                                                              null)
+                                                            CachedNetworkImage(
+                                                              imageUrl:
+                                                                  msg.imageUrl!,
+                                                              fit: BoxFit.cover,
+                                                              placeholder:
+                                                                  (
+                                                                    _,
+                                                                    __,
+                                                                  ) => const Center(
+                                                                    child: CircularProgressIndicator(
+                                                                      strokeWidth:
+                                                                          2,
+                                                                    ),
+                                                                  ),
+                                                            )
+                                                          else
+                                                            ColoredBox(
+                                                              color: isDark
+                                                                  ? Colors
+                                                                        .black26
+                                                                  : Colors
+                                                                        .grey
+                                                                        .shade200,
+                                                              child: const Center(
+                                                                child: Icon(
+                                                                  Icons
+                                                                      .image_outlined,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          if (isOptimistic &&
+                                                              sendError == null)
+                                                            Positioned.fill(
+                                                              child: DecoratedBox(
+                                                                decoration: BoxDecoration(
+                                                                  color: Colors
+                                                                      .black
+                                                                      .withValues(
+                                                                        alpha:
+                                                                            0.24,
+                                                                      ),
+                                                                ),
+                                                                child: Center(
+                                                                  child: SizedBox(
+                                                                    width: 34,
+                                                                    height: 34,
+                                                                    child: CircularProgressIndicator(
+                                                                      strokeWidth:
+                                                                          3,
+                                                                      value:
+                                                                          _pendingImageProgress[msg
+                                                                              .id],
+                                                                      color: Colors
+                                                                          .white,
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          if (sendError != null)
+                                                            Positioned.fill(
+                                                              child: DecoratedBox(
+                                                                decoration: BoxDecoration(
+                                                                  color: Colors
+                                                                      .black
+                                                                      .withValues(
+                                                                        alpha:
+                                                                            0.46,
+                                                                      ),
+                                                                ),
+                                                                child: const Center(
+                                                                  child: Icon(
+                                                                    Icons
+                                                                        .error_outline_rounded,
+                                                                    color: Color(
+                                                                      0xFFE53935,
+                                                                    ),
+                                                                    size: 34,
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                            ),
+                                                        ],
                                                       ),
-                                                ),
+                                                    ),
+                                                  ),
+                                                  if (msg.body.isNotEmpty) ...[
+                                                    const SizedBox(height: 8),
+                                                    Text(
+                                                      msg.body,
+                                                      style: TextStyle(
+                                                        fontSize: 15,
+                                                        color: isMe
+                                                            ? Colors.black87
+                                                            : (isDark
+                                                                  ? Colors.white
+                                                                  : Colors
+                                                                        .black87),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ],
                                               )
                                             else ...[
                                               Text(
@@ -1142,6 +1617,8 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                         },
                       ),
               ),
+              _buildMediaTray(isDark),
+              _buildAttachmentDraft(isDark),
               // Input bar
               Container(
                 color: isDark ? const Color(0xFF1C1C1C) : Colors.white,
@@ -1149,30 +1626,21 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                 child: Row(
                   children: [
                     GestureDetector(
-                      onTap: _sendingImage ? null : _pickAndSendImage,
+                      onTap: () {
+                        FocusScope.of(context).unfocus();
+                        setState(() => _mediaTrayOpen = !_mediaTrayOpen);
+                      },
                       child: Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: _sendingImage
-                            ? const SizedBox(
-                                width: 26,
-                                height: 26,
-                                child: Center(
-                                  child: SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  ),
-                                ),
-                              )
-                            : Icon(
-                                Icons.image_outlined,
-                                color: isDark
-                                    ? Colors.grey.shade400
-                                    : Colors.grey.shade600,
-                                size: 26,
-                              ),
+                        child: Icon(
+                          _mediaTrayOpen
+                              ? Icons.close_rounded
+                              : Icons.add_circle_outline_rounded,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
+                          size: 28,
+                        ),
                       ),
                     ),
                     Expanded(
@@ -1189,11 +1657,15 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                           minLines: 1,
                           maxLines: 4,
                           textCapitalization: TextCapitalization.sentences,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             border: InputBorder.none,
-                            hintText: 'Message…',
+                            hintText: _mediaDraft == null
+                                ? 'Message…'
+                                : 'Add a message…',
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(vertical: 10),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 10,
+                            ),
                           ),
                           onSubmitted: (_) => _send(),
                         ),

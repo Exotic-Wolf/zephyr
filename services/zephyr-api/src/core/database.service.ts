@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { Pool, type QueryResult, type QueryResultRow } from 'pg';
 
@@ -12,13 +17,16 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) {
-      this.logger.warn('DATABASE_URL not set. Falling back to in-memory store.');
+      this.logger.warn(
+        'DATABASE_URL not set. Falling back to in-memory store.',
+      );
       return;
     }
 
     this.pool = new Pool({
       connectionString: databaseUrl,
-      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+      ssl:
+        process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     });
 
     this.pool.on('error', (err) => {
@@ -407,7 +415,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       WHERE status = 'live' AND created_at < NOW() - INTERVAL '30 minutes'
     `);
     if (startupClean.rowCount && startupClean.rowCount > 0) {
-      this.logger.log(`Startup cleanup: removed ${startupClean.rowCount} stale room(s).`);
+      this.logger.log(
+        `Startup cleanup: removed ${startupClean.rowCount} stale room(s).`,
+      );
     }
 
     // Device tokens for push notifications
@@ -415,10 +425,24 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       CREATE TABLE IF NOT EXISTS device_tokens (
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         token TEXT NOT NULL,
+        session_id TEXT,
+        device_id TEXT,
         platform TEXT NOT NULL DEFAULT 'android',
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (user_id, token)
       )
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE device_tokens
+      ADD COLUMN IF NOT EXISTS session_id TEXT,
+      ADD COLUMN IF NOT EXISTS device_id TEXT;
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS device_tokens_active_session_idx
+      ON device_tokens(user_id, session_id)
+      WHERE session_id IS NOT NULL;
     `);
 
     await this.pool.query(`
@@ -498,7 +522,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     // Seed default tiers if table is empty
-    const tierCount = await this.pool.query('SELECT count(*)::int AS cnt FROM call_rate_tiers');
+    const tierCount = await this.pool.query(
+      'SELECT count(*)::int AS cnt FROM call_rate_tiers',
+    );
     if (tierCount.rows[0].cnt === 0) {
       await this.pool.query(`
         INSERT INTO call_rate_tiers (label, min_level, coins_per_minute, spark_per_minute, sort_order)
@@ -518,7 +544,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     //  - any room older than 30 min → dead (host gone / crashed / forgot to end)
     const pool = this.pool;
     this.cleanupInterval = setInterval(() => {
-      void pool!.query(`
+      void pool!
+        .query(
+          `
         DELETE FROM rooms
         WHERE status = 'live'
           AND (
@@ -526,7 +554,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
             OR (last_heartbeat IS NOT NULL AND last_heartbeat < NOW() - INTERVAL '40 seconds')
             OR (last_heartbeat IS NULL AND created_at < NOW() - INTERVAL '2 minutes')
           )
-      `).catch(() => {});
+      `,
+        )
+        .catch(() => {});
     }, 10 * 1000);
 
     // ── IAP purchases (idempotent receipt tracking) ──────────────────────────

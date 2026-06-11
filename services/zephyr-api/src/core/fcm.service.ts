@@ -1,6 +1,25 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { admin, ensureFirebaseAdminInitialized } from './firebase-admin';
 
+export interface FcmSendResult {
+  invalidTokens: string[];
+}
+
+export interface CommittedChatPushResult extends FcmSendResult {
+  sent: boolean;
+}
+
+function isInvalidFcmTokenError(error: unknown): boolean {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code ?? '')
+      : '';
+  return (
+    code === 'messaging/registration-token-not-registered' ||
+    code === 'messaging/invalid-registration-token'
+  );
+}
+
 @Injectable()
 export class FcmService implements OnModuleInit {
   private readonly logger = new Logger(FcmService.name);
@@ -20,8 +39,10 @@ export class FcmService implements OnModuleInit {
     title: string,
     body: string,
     data?: Record<string, string>,
-  ): Promise<void> {
-    if (!this.initialized || tokens.length === 0) return;
+  ): Promise<FcmSendResult> {
+    if (!this.initialized || tokens.length === 0) {
+      return { invalidTokens: [] };
+    }
     try {
       // tag = senderId so messages from the same person replace each other (no spam)
       const tag = data?.senderId ?? 'default';
@@ -42,8 +63,13 @@ export class FcmService implements OnModuleInit {
       if (failed > 0) {
         this.logger.warn(`FCM: ${failed}/${tokens.length} tokens failed`);
       }
+      const invalidTokens = response.responses.flatMap((r, index) =>
+        !r.success && isInvalidFcmTokenError(r.error) ? [tokens[index]] : [],
+      );
+      return { invalidTokens };
     } catch (err) {
       this.logger.error('FCM sendPush error', err);
+      return { invalidTokens: [] };
     }
   }
 
@@ -51,10 +77,12 @@ export class FcmService implements OnModuleInit {
     tokens: string[],
     messageId: string,
     readAt: string,
-  ): Promise<void> {
-    if (!this.initialized || tokens.length === 0) return;
+  ): Promise<FcmSendResult> {
+    if (!this.initialized || tokens.length === 0) {
+      return { invalidTokens: [] };
+    }
     try {
-      await admin.messaging().sendEachForMulticast({
+      const response = await admin.messaging().sendEachForMulticast({
         tokens,
         data: { type: 'read_receipt', messageId, readAt },
         android: { priority: 'high' },
@@ -63,8 +91,13 @@ export class FcmService implements OnModuleInit {
           payload: { aps: { 'content-available': 1 } },
         },
       });
+      const invalidTokens = response.responses.flatMap((r, index) =>
+        !r.success && isInvalidFcmTokenError(r.error) ? [tokens[index]] : [],
+      );
+      return { invalidTokens };
     } catch (err) {
       this.logger.error('FCM sendReadReceiptPush error', err);
+      return { invalidTokens: [] };
     }
   }
 
@@ -75,8 +108,10 @@ export class FcmService implements OnModuleInit {
     recipientId: string;
     chatId: string;
     messageId: string;
-  }): Promise<boolean> {
-    if (!this.initialized || input.tokens.length === 0) return false;
+  }): Promise<CommittedChatPushResult> {
+    if (!this.initialized || input.tokens.length === 0) {
+      return { sent: false, invalidTokens: [] };
+    }
 
     try {
       const chatRef = admin.firestore().collection('chats').doc(input.chatId);
@@ -91,22 +126,24 @@ export class FcmService implements OnModuleInit {
         !participants.includes(input.senderId) ||
         !participants.includes(input.recipientId)
       ) {
-        return false;
+        return { sent: false, invalidTokens: [] };
       }
 
       const message = messageSnap.data();
       if (!message || message.senderId !== input.senderId) {
-        return false;
+        return { sent: false, invalidTokens: [] };
       }
 
       const type = typeof message.type === 'string' ? message.type : 'text';
       const body =
         type === 'image'
           ? 'Photo'
-          : String(message.body ?? '').trim().slice(0, 200);
-      if (!body) return false;
+          : String(message.body ?? '')
+              .trim()
+              .slice(0, 200);
+      if (!body) return { sent: false, invalidTokens: [] };
 
-      await this.sendPush(
+      const result = await this.sendPush(
         input.tokens,
         input.senderDisplayName,
         body,
@@ -118,10 +155,10 @@ export class FcmService implements OnModuleInit {
           messageId: input.messageId,
         },
       );
-      return true;
+      return { sent: true, invalidTokens: result.invalidTokens };
     } catch (err) {
       this.logger.error('Failed to verify/send Firestore chat push', err);
-      return false;
+      return { sent: false, invalidTokens: [] };
     }
   }
 
@@ -133,20 +170,48 @@ export class FcmService implements OnModuleInit {
     if (!this.initialized) return;
 
     await Promise.all([
-      admin
-        .firestore()
-        .collection('session_controls')
-        .doc(input.userId)
-        .set({
-          activeSessionId: input.sessionId,
-          activeDeviceId: input.deviceId,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        }),
+      admin.firestore().collection('session_controls').doc(input.userId).set({
+        activeSessionId: input.sessionId,
+        activeDeviceId: input.deviceId,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }),
       admin.database().ref(`session_controls/${input.userId}`).set({
         activeSessionId: input.sessionId,
         activeDeviceId: input.deviceId,
         updatedAt: admin.database.ServerValue.TIMESTAMP,
       }),
+    ]);
+  }
+
+  async clearActiveFirebaseSession(input: {
+    userId: string;
+    sessionId: string;
+  }): Promise<void> {
+    if (!this.initialized) return;
+
+    await Promise.all([
+      admin.firestore().runTransaction(async (transaction) => {
+        const ref = admin
+          .firestore()
+          .collection('session_controls')
+          .doc(input.userId);
+        const snapshot = await transaction.get(ref);
+        if (
+          !snapshot.exists ||
+          snapshot.get('activeSessionId') === input.sessionId
+        ) {
+          transaction.delete(ref);
+        }
+      }),
+      admin
+        .database()
+        .ref(`session_controls/${input.userId}`)
+        .transaction((current) => {
+          if (!current || current.activeSessionId === input.sessionId) {
+            return null;
+          }
+          return current;
+        }),
     ]);
   }
 
@@ -164,7 +229,10 @@ export class FcmService implements OnModuleInit {
     });
   }
 
-  async writeBlockProjection(blockerId: string, blockedId: string): Promise<void> {
+  async writeBlockProjection(
+    blockerId: string,
+    blockedId: string,
+  ): Promise<void> {
     if (!this.initialized) return;
     await admin
       .firestore()

@@ -1,4 +1,11 @@
-import { Body, Controller, Headers, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { StoreService } from '../core/store.service';
 import { FcmService } from '../core/fcm.service';
@@ -54,6 +61,19 @@ export class AuthController {
       throw new Error('Firebase Admin not initialized');
     }
     return { firebaseToken: token };
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(
+    @Headers('authorization') authorization: string | undefined,
+  ): Promise<void> {
+    const session =
+      await this.storeService.revokeAuthSessionFromAuthHeader(authorization);
+    await this.fcmService.clearActiveFirebaseSession({
+      userId: session.user.id,
+      sessionId: session.sessionId,
+    });
   }
 
   private async publishActiveFirebaseSession(session: {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/models.dart';
+import '../../services/api_error_messages.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import 'thread_firebase_page.dart';
@@ -14,13 +15,19 @@ import 'thread_firebase_page.dart';
 class InboxFirebasePage extends StatefulWidget {
   const InboxFirebasePage({
     super.key,
+    required this.apiClient,
+    required this.accessToken,
     required this.myUserId,
     required this.myDisplayName,
+    required this.onSessionExpired,
     this.myAvatarUrl,
   });
 
+  final ZephyrApiClient apiClient;
+  final String accessToken;
   final String myUserId;
   final String myDisplayName;
+  final Future<void> Function() onSessionExpired;
   final String? myAvatarUrl;
 
   @override
@@ -36,47 +43,118 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
   @override
   void initState() {
     super.initState();
+    _seedCachedConversations();
     _init();
   }
 
-  Future<void> _init() async {
+  void _seedCachedConversations() {
+    final service = FirebaseChatService.instance;
+    if (!service.isInitializedFor(widget.myUserId)) return;
+    final cached = service.cachedConversations();
+    if (cached.isEmpty) return;
+    _conversations = cached;
+    _initialized = true;
+    _primeConversationCaches(cached, markDelivered: false);
+  }
+
+  Future<void> _init({bool forceTokenRefresh = false}) async {
+    await _sub?.cancel();
+    if (!mounted) return;
+    if (mounted) {
+      setState(() {
+        _initialized = _conversations.isNotEmpty;
+        _error = null;
+      });
+    }
+
     try {
-      await FirebaseChatService.instance.init(widget.myUserId);
-      _sub = FirebaseChatService.instance.watchConversations().listen(
-        (List<FirebaseConversation> convos) {
-          if (mounted) {
-            setState(() {
-              _conversations = convos;
-              _initialized = true;
-            });
-          }
-          // Pre-warm presence and profile caches for all conversation partners
-          final userIds = convos.map((c) => c.otherUserId).toList();
-          FirebaseChatService.instance.warmPresence(userIds);
-          FirebaseChatService.instance.warmProfiles(userIds);
-          // Mark messages as delivered for all conversations with unread
-          for (final c in convos) {
-            if (c.unreadCount > 0) {
-              FirebaseChatService.instance.markDelivered(c.otherUserId);
-            }
-          }
-        },
-        onError: (e) {
-          if (mounted) {
-            setState(() {
-              _error = e.toString();
-              _initialized = true;
-            });
-          }
-        },
-      );
-    } catch (e) {
-      if (mounted) {
+      if (widget.myUserId.isEmpty) {
+        throw StateError('Inbox needs the current user before connecting.');
+      }
+      final service = FirebaseChatService.instance;
+      if (forceTokenRefresh || !service.isInitializedFor(widget.myUserId)) {
+        final String token = await widget.apiClient.getFirebaseToken(
+          widget.accessToken,
+        );
+        if (!mounted) return;
+        await service.init(widget.myUserId, firebaseToken: token);
+      }
+      if (!mounted) return;
+      final cached = await service.loadCachedConversations();
+      if (mounted && cached.isNotEmpty) {
         setState(() {
-          _error = e.toString();
+          _conversations = cached;
+          _error = null;
           _initialized = true;
         });
+        _primeConversationCaches(cached, markDelivered: false);
       }
+      if (!mounted) return;
+      _sub = service.watchConversations().listen((
+        List<FirebaseConversation> convos,
+      ) {
+        if (mounted) {
+          setState(() {
+            _conversations = convos;
+            _error = null;
+            _initialized = true;
+          });
+        }
+        _primeConversationCaches(convos, markDelivered: true);
+      }, onError: _handleInboxError);
+    } catch (e) {
+      _handleInboxError(e);
+    }
+  }
+
+  void _primeConversationCaches(
+    List<FirebaseConversation> convos, {
+    required bool markDelivered,
+  }) {
+    final userIds = convos.map((c) => c.otherUserId).toList();
+    FirebaseChatService.instance.warmPresence(userIds);
+    FirebaseChatService.instance.warmProfiles(userIds);
+    if (!markDelivered) return;
+    for (final c in convos) {
+      if (c.unreadCount > 0) {
+        FirebaseChatService.instance.markDelivered(c.otherUserId);
+      }
+    }
+  }
+
+  void _handleInboxError(Object error) {
+    if (isAuthSessionInvalidError(error)) {
+      widget.onSessionExpired().ignore();
+      return;
+    }
+    if (isFirebasePermissionDeniedError(error)) {
+      _validateBackendSessionAfterPermissionDenied(error).ignore();
+      return;
+    }
+    _showInboxUnavailable(error);
+  }
+
+  Future<void> _validateBackendSessionAfterPermissionDenied(
+    Object error,
+  ) async {
+    try {
+      await widget.apiClient.getMe(widget.accessToken);
+    } catch (apiError) {
+      if (isAuthSessionInvalidError(apiError)) {
+        widget.onSessionExpired().ignore();
+        return;
+      }
+    }
+    _showInboxUnavailable(error);
+  }
+
+  void _showInboxUnavailable(Object error) {
+    debugPrint('Firebase inbox unavailable: $error');
+    if (mounted) {
+      setState(() {
+        _error = 'Inbox is reconnecting. Please try again.';
+        _initialized = true;
+      });
     }
   }
 
@@ -134,10 +212,31 @@ class _InboxFirebasePageState extends State<InboxFirebasePage> {
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text(
-              'Firebase error:\n$_error',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.red),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  Icons.mark_chat_unread_outlined,
+                  size: 54,
+                  color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: () => _init(forceTokenRefresh: true),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Retry'),
+                ),
+              ],
             ),
           ),
         ),

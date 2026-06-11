@@ -9,8 +9,10 @@ import 'package:zephyr_mobile/features/home/widgets/follow_feed.dart';
 import 'package:zephyr_mobile/features/me/me_tab.dart';
 import 'package:zephyr_mobile/features/onboarding/onboarding_page.dart';
 import 'package:zephyr_mobile/l10n/app_localizations.dart';
+import 'package:zephyr_mobile/main.dart' as zephyr_app;
 import 'package:zephyr_mobile/models/models.dart';
 import 'package:zephyr_mobile/services/api_client.dart';
+import 'package:zephyr_mobile/services/api_error_messages.dart';
 import 'package:zephyr_mobile/widgets/zephyr_app_header.dart';
 
 void main() {
@@ -37,6 +39,67 @@ void main() {
       expect(find.text('Privacy'), findsOneWidget);
     },
   );
+
+  testWidgets('onboarding explains when another device takes the account', (
+    WidgetTester tester,
+  ) async {
+    const notice =
+        'This account was signed in on another device. Sign in again to continue on this device.';
+
+    await tester.pumpWidget(
+      _localizedHost(
+        OnboardingScreen(
+          apiClient: _FakeApiClient(),
+          authGateway: _FakeAuthGateway(),
+          showAppleSignIn: false,
+          brandHero: const SizedBox(key: Key('test-hero'), height: 120),
+          sessionNotice: notice,
+          onLoginSuccess: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text(notice), findsOneWidget);
+    expect(find.text('Continue with Google'), findsOneWidget);
+  });
+
+  testWidgets('stale-session notice does not block signing in again', (
+    WidgetTester tester,
+  ) async {
+    const notice =
+        'This account was signed in on another device. Sign in again to continue on this device.';
+    String? completedToken;
+    var noticeDismissed = false;
+
+    await tester.pumpWidget(
+      _localizedHost(
+        OnboardingScreen(
+          apiClient: _FakeApiClient(),
+          authGateway: _FakeAuthGateway(
+            googleSession: AuthSession(
+              accessToken: 'tablet-token',
+              user: _profile(onboardedAt: DateTime(2026, 6, 10)),
+            ),
+          ),
+          showAppleSignIn: false,
+          brandHero: const SizedBox(key: Key('test-hero'), height: 120),
+          sessionNotice: notice,
+          onSessionNoticeDismissed: () => noticeDismissed = true,
+          onLoginSuccess: (token) => completedToken = token,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text(notice), findsOneWidget);
+    await tester.tap(find.text('Continue with Google'));
+    await tester.pumpAndSettle();
+
+    expect(completedToken, 'tablet-token');
+    expect(noticeDismissed, isTrue);
+    expect(find.text(notice), findsNothing);
+  });
 
   testWidgets('cancelled Google sign-in shows product-safe error copy', (
     WidgetTester tester,
@@ -133,6 +196,86 @@ void main() {
         <String, dynamic>{'id': 'ignored'},
       ]),
       <String>{'host-1', 'host-2'},
+    );
+  });
+
+  test('auth session detector separates moved sessions from expired tokens', () {
+    const expired = ZephyrApiException(
+      statusCode: 401,
+      message: 'Invalid or expired token',
+      responseBody: '{}',
+    );
+    const moved = ZephyrApiException(
+      statusCode: 401,
+      message: 'Session moved to another device',
+      responseBody: '{}',
+    );
+    const forbiddenBusinessError = ZephyrApiException(
+      statusCode: 403,
+      message: 'Purchase is not allowed for this account',
+      responseBody: '{}',
+    );
+    final firestoreDenied = Exception(
+      '[cloud_firestore/permission-denied] The caller does not have permission.',
+    );
+
+    expect(isAuthSessionInvalidError(expired), isTrue);
+    expect(isSessionMovedToAnotherDeviceError(expired), isFalse);
+    expect(isAuthSessionInvalidError(moved), isTrue);
+    expect(isSessionMovedToAnotherDeviceError(moved), isTrue);
+    expect(isAuthSessionInvalidError(forbiddenBusinessError), isFalse);
+    expect(isAuthSessionInvalidError(firestoreDenied), isFalse);
+    expect(isFirebasePermissionDeniedError(firestoreDenied), isTrue);
+    expect(isSessionMovedToAnotherDeviceError(firestoreDenied), isFalse);
+    expect(isAuthSessionInvalidError(Exception('Socket closed')), isFalse);
+    expect(
+      apiErrorMessage(firestoreDenied),
+      'Your secure session changed. Please sign in again.',
+    );
+    expect(
+      apiErrorMessage(Exception('[firebase_storage/unauthorized] User denied')),
+      'Your secure session changed. Please sign in again.',
+    );
+    expect(
+      apiErrorMessage(Exception('Unsupported image format')),
+      'This photo format is not supported. Try another photo.',
+    );
+    expect(
+      apiErrorMessage(Exception('Photo is too large after compression')),
+      'This photo is too large. Choose a smaller photo.',
+    );
+    expect(
+      apiErrorMessage(Exception('Socket closed')),
+      'Connection issue. Please try again.',
+    );
+  });
+
+  test('user logout suppresses false another-device notice', () {
+    final DateTime now = DateTime(2026, 6, 11, 12);
+
+    expect(
+      zephyr_app.shouldSuppressSessionMovedNoticeForLogout(
+        loggingOut: true,
+        suppressUntil: null,
+        now: now,
+      ),
+      isTrue,
+    );
+    expect(
+      zephyr_app.shouldSuppressSessionMovedNoticeForLogout(
+        loggingOut: false,
+        suppressUntil: now.add(const Duration(seconds: 10)),
+        now: now,
+      ),
+      isTrue,
+    );
+    expect(
+      zephyr_app.shouldSuppressSessionMovedNoticeForLogout(
+        loggingOut: false,
+        suppressUntil: now.subtract(const Duration(seconds: 1)),
+        now: now,
+      ),
+      isFalse,
     );
   });
 

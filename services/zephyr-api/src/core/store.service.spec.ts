@@ -13,16 +13,18 @@ describe('StoreService', () => {
     storeService = new StoreService();
   });
 
-  it('creates guest session and resolves user from bearer token', async () => {
-    const session = await storeService.issueGuestSession('wolf');
-    const user = await storeService.getUserFromAuthHeader(`Bearer ${session.accessToken}`);
+  it('creates internal test session and resolves user from bearer token', async () => {
+    const session = await storeService.issueTestSession('wolf');
+    const user = await storeService.getUserFromAuthHeader(
+      `Bearer ${session.accessToken}`,
+    );
 
     expect(user.id).toBe(session.user.id);
     expect(user.displayName).toBe('wolf');
   });
 
   it('rejects an older token after a newer mobile session becomes active', async () => {
-    const first = await storeService.issueGuestSession('wolf', {
+    const first = await storeService.issueTestSession('wolf', {
       deviceId: 'mobile-test-device-a',
     });
     const replacement = (storeService as any).createAuthSession(first.user.id, {
@@ -41,8 +43,137 @@ describe('StoreService', () => {
     expect(current.id).toBe(first.user.id);
   });
 
+  it('revokes the current session on logout', async () => {
+    const session = await storeService.issueTestSession('wolf', {
+      deviceId: 'mobile-test-device-a',
+    });
+
+    const revoked = await storeService.revokeAuthSessionFromAuthHeader(
+      `Bearer ${session.accessToken}`,
+    );
+
+    expect(revoked.user.id).toBe(session.user.id);
+    await expect(
+      storeService.getUserFromAuthHeader(`Bearer ${session.accessToken}`),
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('returns push tokens only for the active session', async () => {
+    const session = await storeService.issueTestSession('push_active', {
+      deviceId: 'mobile-test-device-a',
+    });
+
+    await storeService.upsertDeviceToken(
+      {
+        user: session.user,
+        sessionId: session.sessionId,
+        deviceId: session.deviceId,
+      },
+      'fcm-token-active',
+    );
+
+    expect(await storeService.getDeviceTokens(session.user.id)).toEqual([
+      'fcm-token-active',
+    ]);
+
+    const replacement = (storeService as any).createAuthSession(
+      session.user.id,
+      {
+        deviceId: 'mobile-test-device-b',
+      },
+    );
+    (storeService as any).rememberInMemorySession(session.user.id, replacement);
+
+    expect(await storeService.getDeviceTokens(session.user.id)).toEqual([]);
+  });
+
+  it('removes active-session push tokens on logout', async () => {
+    const session = await storeService.issueTestSession('push_logout', {
+      deviceId: 'mobile-test-device-a',
+    });
+
+    await storeService.upsertDeviceToken(
+      {
+        user: session.user,
+        sessionId: session.sessionId,
+        deviceId: session.deviceId,
+      },
+      'fcm-token-logout',
+    );
+
+    await storeService.revokeAuthSessionFromAuthHeader(
+      `Bearer ${session.accessToken}`,
+    );
+
+    expect(await storeService.getDeviceTokens(session.user.id)).toEqual([]);
+  });
+
+  it('moves a reused app token to the latest signed-in account', async () => {
+    const first = await storeService.issueTestSession('push_account_a', {
+      deviceId: 'mobile-test-device-a',
+    });
+    const second = await storeService.issueTestSession('push_account_b', {
+      deviceId: 'mobile-test-device-b',
+    });
+
+    await storeService.upsertDeviceToken(
+      {
+        user: first.user,
+        sessionId: first.sessionId,
+        deviceId: first.deviceId,
+      },
+      'fcm-token-shared-install',
+    );
+    await storeService.upsertDeviceToken(
+      {
+        user: second.user,
+        sessionId: second.sessionId,
+        deviceId: second.deviceId,
+      },
+      'fcm-token-shared-install',
+    );
+
+    expect(await storeService.getDeviceTokens(first.user.id)).toEqual([]);
+    expect(await storeService.getDeviceTokens(second.user.id)).toEqual([
+      'fcm-token-shared-install',
+    ]);
+  });
+
+  it('prunes invalid push tokens globally', async () => {
+    const first = await storeService.issueTestSession('push_prune_a', {
+      deviceId: 'mobile-test-device-a',
+    });
+    const second = await storeService.issueTestSession('push_prune_b', {
+      deviceId: 'mobile-test-device-b',
+    });
+
+    await storeService.upsertDeviceToken(
+      {
+        user: first.user,
+        sessionId: first.sessionId,
+        deviceId: first.deviceId,
+      },
+      'fcm-token-prune-a',
+    );
+    await storeService.upsertDeviceToken(
+      {
+        user: second.user,
+        sessionId: second.sessionId,
+        deviceId: second.deviceId,
+      },
+      'fcm-token-prune-b',
+    );
+
+    await storeService.deleteDeviceTokensByToken(['fcm-token-prune-a']);
+
+    expect(await storeService.getDeviceTokens(first.user.id)).toEqual([]);
+    expect(await storeService.getDeviceTokens(second.user.id)).toEqual([
+      'fcm-token-prune-b',
+    ]);
+  });
+
   it('rejects invalid profile displayName update', async () => {
-    const session = await storeService.issueGuestSession('wolf');
+    const session = await storeService.issueTestSession('wolf');
 
     await expect(
       storeService.updateUser(session.user.id, { displayName: 'x' }),
@@ -50,8 +181,11 @@ describe('StoreService', () => {
   });
 
   it('creates and joins room', async () => {
-    const session = await storeService.issueGuestSession('wolf');
-    const room = await storeService.createRoom(session.user.id, 'Late Night Talk');
+    const session = await storeService.issueTestSession('wolf');
+    const room = await storeService.createRoom(
+      session.user.id,
+      'Late Night Talk',
+    );
     const joinedRoom = await storeService.joinRoom(room.id, session.user.id);
 
     expect(joinedRoom.audienceCount).toBe(1);
@@ -60,11 +194,19 @@ describe('StoreService', () => {
   });
 
   it('keeps only one active live room per host', async () => {
-    const session = await storeService.issueGuestSession('host_one_live');
-    const firstRoom = await storeService.createRoom(session.user.id, 'First Live');
-    const secondRoom = await storeService.createRoom(session.user.id, 'Second Live');
+    const session = await storeService.issueTestSession('host_one_live');
+    const firstRoom = await storeService.createRoom(
+      session.user.id,
+      'First Live',
+    );
+    const secondRoom = await storeService.createRoom(
+      session.user.id,
+      'Second Live',
+    );
 
-    await expect(storeService.joinRoom(firstRoom.id, session.user.id)).rejects.toThrow(NotFoundException);
+    await expect(
+      storeService.joinRoom(firstRoom.id, session.user.id),
+    ).rejects.toThrow(NotFoundException);
 
     const rooms = await storeService.listRooms();
     expect(rooms).toHaveLength(1);
@@ -72,12 +214,15 @@ describe('StoreService', () => {
   });
 
   it('keeps host feed limited to host accounts after a room ends', async () => {
-    const session = await storeService.issueGuestSession('host_end_live');
+    const session = await storeService.issueTestSession('host_end_live');
     const host = await storeService.updateUser(session.user.id, {
       gender: 'Female',
     });
-    const customer = await storeService.issueGuestSession('customer_not_feed');
-    const room = await storeService.createRoom(session.user.id, 'Temporary Live');
+    const customer = await storeService.issueTestSession('customer_not_feed');
+    const room = await storeService.createRoom(
+      session.user.id,
+      'Temporary Live',
+    );
     await storeService.createRoom(customer.user.id, 'Customer Live');
 
     await storeService.endRoom(session.user.id, room.id);
@@ -97,7 +242,9 @@ describe('StoreService', () => {
     expect(feed[0].hostStatus).toBe('offline');
     expect(rooms).toHaveLength(1);
     expect(rooms[0].hostUserId).toBe(customer.user.id);
-    await expect(storeService.joinRoom(room.id, session.user.id)).rejects.toThrow(NotFoundException);
+    await expect(
+      storeService.joinRoom(room.id, session.user.id),
+    ).rejects.toThrow(NotFoundException);
   });
 
   it('rejects missing auth header', async () => {
@@ -107,24 +254,31 @@ describe('StoreService', () => {
   });
 
   it('allows one user to be both caller and receiver', async () => {
-    const session = await storeService.issueGuestSession('wolf_dual');
+    const session = await storeService.issueTestSession('wolf_dual');
 
-    const startedSession = await storeService.startCallSession(session.user.id, {
-      mode: 'direct',
-      receiverUserId: session.user.id,
-      directRateCoinsPerMinute: 2100,
-    });
+    const startedSession = await storeService.startCallSession(
+      session.user.id,
+      {
+        mode: 'direct',
+        receiverUserId: session.user.id,
+        directRateCoinsPerMinute: 2100,
+      },
+    );
 
     expect(startedSession.callerUserId).toBe(session.user.id);
     expect(startedSession.receiverUserId).toBe(session.user.id);
 
-    const walletBeforeTick = await storeService.getWalletSummary(session.user.id);
+    const walletBeforeTick = await storeService.getWalletSummary(
+      session.user.id,
+    );
     const tickResult = await storeService.tickCallSession(
       session.user.id,
       startedSession.id,
       10,
     );
-    const walletAfterTick = await storeService.getWalletSummary(session.user.id);
+    const walletAfterTick = await storeService.getWalletSummary(
+      session.user.id,
+    );
 
     expect(tickResult.chargedCoins).toBeGreaterThan(0);
     expect(tickResult.receiverSpark).toBeGreaterThan(0);
@@ -142,19 +296,25 @@ describe('StoreService', () => {
   });
 
   it('charges caller and awards spark to receiver', async () => {
-    const callerSession = await storeService.issueGuestSession('caller_user');
-    const receiverSession = await storeService.issueGuestSession('receiver_user');
+    const callerSession = await storeService.issueTestSession('caller_user');
+    const receiverSession =
+      await storeService.issueTestSession('receiver_user');
 
-    const callerWalletBefore = await storeService.getWalletSummary(callerSession.user.id);
+    const callerWalletBefore = await storeService.getWalletSummary(
+      callerSession.user.id,
+    );
     const receiverWalletBefore = await storeService.getWalletSummary(
       receiverSession.user.id,
     );
 
-    const startedSession = await storeService.startCallSession(callerSession.user.id, {
-      mode: 'direct',
-      receiverUserId: receiverSession.user.id,
-      directRateCoinsPerMinute: 2100,
-    });
+    const startedSession = await storeService.startCallSession(
+      callerSession.user.id,
+      {
+        mode: 'direct',
+        receiverUserId: receiverSession.user.id,
+        directRateCoinsPerMinute: 2100,
+      },
+    );
 
     const tickResult = await storeService.tickCallSession(
       callerSession.user.id,
@@ -162,7 +322,9 @@ describe('StoreService', () => {
       10,
     );
 
-    const callerWalletAfter = await storeService.getWalletSummary(callerSession.user.id);
+    const callerWalletAfter = await storeService.getWalletSummary(
+      callerSession.user.id,
+    );
     const receiverWalletAfter = await storeService.getWalletSummary(
       receiverSession.user.id,
     );
@@ -173,12 +335,14 @@ describe('StoreService', () => {
     expect(receiverWalletAfter.sparkBalance).toBeGreaterThan(
       receiverWalletBefore.sparkBalance,
     );
-    expect(receiverWalletAfter.coinBalance).toBe(receiverWalletBefore.coinBalance);
+    expect(receiverWalletAfter.coinBalance).toBe(
+      receiverWalletBefore.coinBalance,
+    );
   });
 
   it('replays duplicate call tick idempotency keys without charging twice', async () => {
-    const caller = await storeService.issueGuestSession('idem_tick_caller');
-    const receiver = await storeService.issueGuestSession('idem_tick_receiver');
+    const caller = await storeService.issueTestSession('idem_tick_caller');
+    const receiver = await storeService.issueTestSession('idem_tick_receiver');
     const session = await storeService.startCallSession(caller.user.id, {
       mode: 'direct',
       receiverUserId: receiver.user.id,
@@ -208,8 +372,10 @@ describe('StoreService', () => {
   });
 
   it('rejects reusing a call tick idempotency key for different details', async () => {
-    const caller = await storeService.issueGuestSession('idem_conflict_caller');
-    const receiver = await storeService.issueGuestSession('idem_conflict_receiver');
+    const caller = await storeService.issueTestSession('idem_conflict_caller');
+    const receiver = await storeService.issueTestSession(
+      'idem_conflict_receiver',
+    );
     const session = await storeService.startCallSession(caller.user.id, {
       mode: 'direct',
       receiverUserId: receiver.user.id,
@@ -217,16 +383,26 @@ describe('StoreService', () => {
     });
     const idempotencyKey = `tick:${session.id}:conflict`;
 
-    await storeService.tickCallSession(caller.user.id, session.id, 10, idempotencyKey);
+    await storeService.tickCallSession(
+      caller.user.id,
+      session.id,
+      10,
+      idempotencyKey,
+    );
 
     await expect(
-      storeService.tickCallSession(caller.user.id, session.id, 15, idempotencyKey),
+      storeService.tickCallSession(
+        caller.user.id,
+        session.id,
+        15,
+        idempotencyKey,
+      ),
     ).rejects.toThrow(ConflictException);
   });
 
   it('replays duplicate gift idempotency keys without charging twice', async () => {
-    const caller = await storeService.issueGuestSession('idem_gift_caller');
-    const receiver = await storeService.issueGuestSession('idem_gift_receiver');
+    const caller = await storeService.issueTestSession('idem_gift_caller');
+    const receiver = await storeService.issueTestSession('idem_gift_receiver');
 
     await storeService.purchaseCoins(caller.user.id, 'pack_299');
     const session = await storeService.startCallSession(caller.user.id, {
@@ -323,15 +499,17 @@ describe('StoreService', () => {
     expect(result.chargedCoins).toBe(100);
     expect(result.callerCoinBalanceAfter).toBe(1100);
     expect(
-      client.query.mock.calls.some(([sql]) => String(sql).includes('FOR UPDATE')),
+      client.query.mock.calls.some(([sql]) =>
+        String(sql).includes('FOR UPDATE'),
+      ),
     ).toBe(true);
     expect(databaseService.query).not.toHaveBeenCalled();
   });
 
   it('prevents a busy caller from starting another live call', async () => {
-    const caller = await storeService.issueGuestSession('caller_busy');
-    const receiverOne = await storeService.issueGuestSession('receiver_one');
-    const receiverTwo = await storeService.issueGuestSession('receiver_two');
+    const caller = await storeService.issueTestSession('caller_busy');
+    const receiverOne = await storeService.issueTestSession('receiver_one');
+    const receiverTwo = await storeService.issueTestSession('receiver_two');
 
     await storeService.startCallSession(caller.user.id, {
       mode: 'direct',
@@ -349,9 +527,9 @@ describe('StoreService', () => {
   });
 
   it('prevents calling a receiver who is already in a live call', async () => {
-    const callerOne = await storeService.issueGuestSession('caller_one');
-    const callerTwo = await storeService.issueGuestSession('caller_two');
-    const busyReceiver = await storeService.issueGuestSession('busy_receiver');
+    const callerOne = await storeService.issueTestSession('caller_one');
+    const callerTwo = await storeService.issueTestSession('caller_two');
+    const busyReceiver = await storeService.issueTestSession('busy_receiver');
 
     await storeService.startCallSession(callerOne.user.id, {
       mode: 'direct',
@@ -369,12 +547,16 @@ describe('StoreService', () => {
   });
 
   it('allows caller to send gift during live call and credits receiver spark', async () => {
-    const caller = await storeService.issueGuestSession('gift_caller');
-    const receiver = await storeService.issueGuestSession('gift_receiver');
+    const caller = await storeService.issueTestSession('gift_caller');
+    const receiver = await storeService.issueTestSession('gift_receiver');
 
     await storeService.purchaseCoins(caller.user.id, 'pack_299');
-    const callerWalletBefore = await storeService.getWalletSummary(caller.user.id);
-    const receiverWalletBefore = await storeService.getWalletSummary(receiver.user.id);
+    const callerWalletBefore = await storeService.getWalletSummary(
+      caller.user.id,
+    );
+    const receiverWalletBefore = await storeService.getWalletSummary(
+      receiver.user.id,
+    );
 
     const session = await storeService.startCallSession(caller.user.id, {
       mode: 'direct',
@@ -388,19 +570,29 @@ describe('StoreService', () => {
       quantity: 1,
     });
 
-    const callerWalletAfter = await storeService.getWalletSummary(caller.user.id);
-    const receiverWalletAfter = await storeService.getWalletSummary(receiver.user.id);
+    const callerWalletAfter = await storeService.getWalletSummary(
+      caller.user.id,
+    );
+    const receiverWalletAfter = await storeService.getWalletSummary(
+      receiver.user.id,
+    );
 
     expect(giftResult.totalGiftCoins).toBe(5000);
     expect(giftResult.receiverSpark).toBe(3000);
-    expect(callerWalletAfter.coinBalance).toBe(callerWalletBefore.coinBalance - 5000);
-    expect(receiverWalletAfter.sparkBalance).toBe(receiverWalletBefore.sparkBalance + 3000);
-    expect(receiverWalletAfter.coinBalance).toBe(receiverWalletBefore.coinBalance);
+    expect(callerWalletAfter.coinBalance).toBe(
+      callerWalletBefore.coinBalance - 5000,
+    );
+    expect(receiverWalletAfter.sparkBalance).toBe(
+      receiverWalletBefore.sparkBalance + 3000,
+    );
+    expect(receiverWalletAfter.coinBalance).toBe(
+      receiverWalletBefore.coinBalance,
+    );
   });
 
   it('rejects gift send when sender is not the call caller', async () => {
-    const caller = await storeService.issueGuestSession('gift_owner');
-    const receiver = await storeService.issueGuestSession('gift_receiver_only');
+    const caller = await storeService.issueTestSession('gift_owner');
+    const receiver = await storeService.issueTestSession('gift_receiver_only');
 
     const session = await storeService.startCallSession(caller.user.id, {
       mode: 'direct',
@@ -418,8 +610,8 @@ describe('StoreService', () => {
   });
 
   it('resolves call participant role for caller and receiver', async () => {
-    const caller = await storeService.issueGuestSession('rtc_caller');
-    const receiver = await storeService.issueGuestSession('rtc_receiver');
+    const caller = await storeService.issueTestSession('rtc_caller');
+    const receiver = await storeService.issueTestSession('rtc_receiver');
 
     const session = await storeService.startCallSession(caller.user.id, {
       mode: 'direct',
@@ -431,19 +623,20 @@ describe('StoreService', () => {
       session.id,
       caller.user.id,
     );
-    const receiverParticipant = await storeService.getLiveCallSessionParticipant(
-      session.id,
-      receiver.user.id,
-    );
+    const receiverParticipant =
+      await storeService.getLiveCallSessionParticipant(
+        session.id,
+        receiver.user.id,
+      );
 
     expect(callerParticipant.role).toBe('caller');
     expect(receiverParticipant.role).toBe('receiver');
   });
 
   it('rejects non-participant RTC token access', async () => {
-    const caller = await storeService.issueGuestSession('rtc_owner');
-    const receiver = await storeService.issueGuestSession('rtc_peer');
-    const outsider = await storeService.issueGuestSession('rtc_outsider');
+    const caller = await storeService.issueTestSession('rtc_owner');
+    const receiver = await storeService.issueTestSession('rtc_peer');
+    const outsider = await storeService.issueTestSession('rtc_outsider');
 
     const session = await storeService.startCallSession(caller.user.id, {
       mode: 'direct',

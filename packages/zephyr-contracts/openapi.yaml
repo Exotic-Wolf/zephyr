@@ -1,31 +1,10 @@
 openapi: 3.1.0
 info:
-  title: Zephyr Platform API
+  title: Zephyr Live Platform API
   version: 1.0.0
 servers:
   - url: http://localhost:3000
 paths:
-  /v1/auth/guest-login:
-    post:
-      operationId: guestLogin
-      tags: [Auth]
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                displayName:
-                  type: string
-      responses:
-        '201':
-          description: Guest session created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthLoginResponse'
-
   /v1/auth/google-login:
     post:
       operationId: googleLogin
@@ -61,6 +40,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthLoginResponse'
+
+  /v1/auth/firebase-token:
+    post:
+      operationId: createFirebaseToken
+      tags: [Auth]
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Session-bound Firebase custom token created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirebaseTokenResponse'
+
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      tags: [Auth]
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Current mobile session revoked
 
   /v1/users/me:
     get:
@@ -180,17 +183,39 @@ components:
   schemas:
     User:
       type: object
-      required: [id, displayName, createdAt]
+      required: [id, displayName, isAdmin, isHost, createdAt]
       properties:
         id:
           type: string
           format: uuid
+        publicId:
+          type: [string, 'null']
         displayName:
           type: string
         avatarUrl:
           type: [string, 'null']
+        coverUrl:
+          type: [string, 'null']
         bio:
           type: [string, 'null']
+        gender:
+          type: [string, 'null']
+        birthday:
+          type: [string, 'null']
+        countryCode:
+          type: [string, 'null']
+        language:
+          type: [string, 'null']
+        isAdmin:
+          type: boolean
+        isHost:
+          type: boolean
+        callRateCoinsPerMinute:
+          type: [integer, 'null']
+          minimum: 0
+        onboardedAt:
+          type: [string, 'null']
+          format: date-time
         createdAt:
           type: string
           format: date-time
@@ -220,10 +245,10 @@ components:
     LiveFeedCard:
       type: object
       required:
-        [roomId, title, audienceCount, hostUserId, hostDisplayName, startedAt]
+        [roomId, title, audienceCount, hostUserId, hostDisplayName, hostStatus, startedAt]
       properties:
         roomId:
-          type: string
+          type: [string, 'null']
           format: uuid
         title:
           type: string
@@ -237,6 +262,17 @@ components:
           type: string
         hostAvatarUrl:
           type: [string, 'null']
+        hostCoverUrl:
+          type: [string, 'null']
+        hostCountryCode:
+          type: [string, 'null']
+        hostLanguage:
+          type: [string, 'null']
+        hostGender:
+          type: [string, 'null']
+        hostStatus:
+          type: string
+          enum: [online, away, live, premium_live, busy, offline]
         startedAt:
           type: string
           format: date-time
@@ -250,11 +286,20 @@ components:
         user:
           $ref: '#/components/schemas/User'
 
+    FirebaseTokenResponse:
+      type: object
+      required: [firebaseToken]
+      properties:
+        firebaseToken:
+          type: string
+
     GoogleLoginRequest:
       type: object
       required: [idToken]
       properties:
         idToken:
+          type: string
+        deviceId:
           type: string
 
     AppleLoginRequest:
@@ -269,6 +314,8 @@ components:
           type: string
         email:
           type: string
+        deviceId:
+          type: string
 
     UpdateMyProfileRequest:
       type: object
@@ -277,8 +324,20 @@ components:
           type: string
         avatarUrl:
           type: [string, 'null']
+        coverUrl:
+          type: [string, 'null']
         bio:
           type: [string, 'null']
+        gender:
+          type: string
+        birthday:
+          type: string
+        countryCode:
+          type: string
+        language:
+          type: string
+        callRateCoinsPerMinute:
+          type: integer
 
     CreateRoomRequest:
       type: object

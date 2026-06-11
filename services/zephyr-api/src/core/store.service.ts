@@ -38,11 +38,7 @@ function defaultHostCoverForUser(
   displayName?: string | null,
   countryCode?: string | null,
 ): string {
-  const seed = [
-    displayName?.trim(),
-    countryCode?.trim().toUpperCase(),
-    userId,
-  ]
+  const seed = [displayName?.trim(), countryCode?.trim().toUpperCase(), userId]
     .filter(Boolean)
     .join('|');
   let hash = 0x811c9dc5;
@@ -415,9 +411,11 @@ export class StoreService implements OnModuleInit {
           min_level: number;
           coins_per_minute: number;
           spark_per_minute: number;
-        }>('SELECT label, min_level, coins_per_minute, spark_per_minute FROM call_rate_tiers ORDER BY sort_order ASC');
+        }>(
+          'SELECT label, min_level, coins_per_minute, spark_per_minute FROM call_rate_tiers ORDER BY sort_order ASC',
+        );
         if (result.rows.length > 0) {
-          this.cachedCallRateTiers = result.rows.map(r => ({
+          this.cachedCallRateTiers = result.rows.map((r) => ({
             label: r.label,
             minLevel: r.min_level,
             coinsPerMinute: r.coins_per_minute,
@@ -426,18 +424,31 @@ export class StoreService implements OnModuleInit {
           return;
         }
       } catch (e) {
-        this.logger.warn('Failed to load call rate tiers from DB, using defaults', e);
+        this.logger.warn(
+          'Failed to load call rate tiers from DB, using defaults',
+          e,
+        );
       }
     }
     // Fallback defaults matching PRODUCT.md
     this.cachedCallRateTiers = [
-      { label: '≤Lv3', minLevel: 1, coinsPerMinute: 2100, sparkPerMinute: 1260 },
+      {
+        label: '≤Lv3',
+        minLevel: 1,
+        coinsPerMinute: 2100,
+        sparkPerMinute: 1260,
+      },
       { label: 'Lv4', minLevel: 4, coinsPerMinute: 3200, sparkPerMinute: 1920 },
       { label: 'Lv5', minLevel: 5, coinsPerMinute: 4200, sparkPerMinute: 2520 },
       { label: 'Lv6', minLevel: 6, coinsPerMinute: 5400, sparkPerMinute: 3240 },
       { label: 'Lv7', minLevel: 7, coinsPerMinute: 6400, sparkPerMinute: 3840 },
       { label: 'Lv8', minLevel: 8, coinsPerMinute: 8000, sparkPerMinute: 4800 },
-      { label: 'Lv9+', minLevel: 9, coinsPerMinute: 27000, sparkPerMinute: 16200 },
+      {
+        label: 'Lv9+',
+        minLevel: 9,
+        coinsPerMinute: 27000,
+        sparkPerMinute: 16200,
+      },
     ];
   }
 
@@ -472,7 +483,10 @@ export class StoreService implements OnModuleInit {
     return createHash('sha256').update(stableJson(payload)).digest('hex');
   }
 
-  private inMemoryIdempotencyKey(userId: string, idempotencyKey: string): string {
+  private inMemoryIdempotencyKey(
+    userId: string,
+    idempotencyKey: string,
+  ): string {
     return `${userId}:${idempotencyKey}`;
   }
 
@@ -621,6 +635,10 @@ export class StoreService implements OnModuleInit {
   private readonly userRevenueUsd = new Map<string, number>();
   private readonly userSparkBalances = new Map<string, number>();
   private readonly callSessions = new Map<string, CallSession>();
+  private readonly deviceTokens = new Map<
+    string,
+    { userId: string; sessionId: string; deviceId: string }
+  >();
 
   private normalizeDeviceId(deviceId?: string | null): string {
     const normalized = deviceId?.trim();
@@ -715,10 +733,18 @@ export class StoreService implements OnModuleInit {
         `,
         [userId, session.token],
       );
+      await client.query(
+        `
+          DELETE FROM device_tokens
+          WHERE user_id = $1
+            AND (session_id IS NULL OR session_id <> $2)
+        `,
+        [userId, session.sessionId],
+      );
     });
   }
 
-  async issueGuestSession(
+  async issueTestSession(
     displayName?: string,
     options: AuthDeviceOptions = {},
   ): Promise<IssuedAuthSession> {
@@ -749,7 +775,14 @@ export class StoreService implements OnModuleInit {
           INSERT INTO users (id, display_name, avatar_url, bio, public_id, created_at)
           VALUES ($1, $2, $3, $4, $5, $6)
         `,
-        [user.id, user.displayName, user.avatarUrl, user.bio, await this.uniquePublicId(user.id), user.createdAt],
+        [
+          user.id,
+          user.displayName,
+          user.avatarUrl,
+          user.bio,
+          await this.uniquePublicId(user.id),
+          user.createdAt,
+        ],
       );
       await this.activateDatabaseSession(user.id, session);
 
@@ -951,15 +984,18 @@ export class StoreService implements OnModuleInit {
       typeof payload.email === 'string'
         ? payload.email
         : (profileHints?.email ?? null);
-    const hintFullName =
-      [profileHints?.givenName, profileHints?.familyName]
-        .filter((value): value is string => Boolean(value && value.trim().length > 0))
-        .join(' ')
-        .trim();
+    const hintFullName = [profileHints?.givenName, profileHints?.familyName]
+      .filter((value): value is string =>
+        Boolean(value && value.trim().length > 0),
+      )
+      .join(' ')
+      .trim();
     const displayName =
       hintFullName.length > 0
         ? hintFullName
-        : (email ? email.split('@')[0] : `apple_${appleSubject.slice(0, 8)}`);
+        : email
+          ? email.split('@')[0]
+          : `apple_${appleSubject.slice(0, 8)}`;
 
     if (this.databaseService?.isEnabled()) {
       const existingUserResult = await this.databaseService.query<{
@@ -1097,11 +1133,7 @@ export class StoreService implements OnModuleInit {
   async getAuthSessionFromAuthHeader(
     authorization?: string,
   ): Promise<AuthenticatedAuthSession> {
-    if (!authorization || !authorization.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing bearer token');
-    }
-
-    const token = authorization.replace('Bearer ', '').trim();
+    const token = this.bearerTokenFromAuthHeader(authorization);
     const tokenPayload = this.verifyJwt(token);
 
     if (this.databaseService?.isEnabled()) {
@@ -1115,15 +1147,15 @@ export class StoreService implements OnModuleInit {
         birthday: string | null;
         country_code: string | null;
         language: string | null;
-	        is_admin: boolean;
-	        call_rate_coins_per_minute: number | null;
-	        onboarded_at: string | null;
-	        created_at: string;
-	        session_id: string | null;
-	        device_id: string | null;
-	        active_session_id: string | null;
-	      }>(
-	        `
+        is_admin: boolean;
+        call_rate_coins_per_minute: number | null;
+        onboarded_at: string | null;
+        created_at: string;
+        session_id: string | null;
+        device_id: string | null;
+        active_session_id: string | null;
+      }>(
+        `
 	          SELECT u.id, u.public_id, u.display_name, u.avatar_url, u.cover_url, u.bio, u.gender, u.birthday,
 	                 u.country_code, u.language, u.is_admin, u.is_host, u.call_rate_coins_per_minute, u.onboarded_at, u.created_at,
 	                 s.session_id, s.device_id, u.active_session_id
@@ -1158,12 +1190,12 @@ export class StoreService implements OnModuleInit {
     const session = this.sessions.get(token);
 
     if (
-	      !session ||
-	      session.expiresAt < Date.now() ||
-	      session.userId !== tokenPayload.sub ||
-	      (this.activeSessionIds.has(session.userId) &&
-	        this.activeSessionIds.get(session.userId) !== session.sessionId)
-	    ) {
+      !session ||
+      session.expiresAt < Date.now() ||
+      session.userId !== tokenPayload.sub ||
+      (this.activeSessionIds.has(session.userId) &&
+        this.activeSessionIds.get(session.userId) !== session.sessionId)
+    ) {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
@@ -1184,6 +1216,67 @@ export class StoreService implements OnModuleInit {
     return session.user;
   }
 
+  async revokeAuthSessionFromAuthHeader(
+    authorization?: string,
+  ): Promise<AuthenticatedAuthSession> {
+    const token = this.bearerTokenFromAuthHeader(authorization);
+    const session = await this.getAuthSessionFromAuthHeader(authorization);
+
+    if (this.databaseService?.isEnabled()) {
+      await this.databaseService.transaction(async (client) => {
+        await client.query(
+          `
+            DELETE FROM sessions
+            WHERE token = $1
+              AND user_id = $2
+              AND session_id = $3
+          `,
+          [token, session.user.id, session.sessionId],
+        );
+        await client.query(
+          `
+            DELETE FROM device_tokens
+            WHERE user_id = $1
+              AND session_id = $2
+          `,
+          [session.user.id, session.sessionId],
+        );
+        await client.query(
+          `
+            UPDATE users
+            SET active_session_id = NULL,
+                active_device_id = NULL,
+                active_session_started_at = NULL
+            WHERE id = $1
+              AND active_session_id = $2
+          `,
+          [session.user.id, session.sessionId],
+        );
+      });
+
+      return session;
+    }
+
+    this.sessions.delete(token);
+    if (this.activeSessionIds.get(session.user.id) === session.sessionId) {
+      this.activeSessionIds.delete(session.user.id);
+    }
+    this.deleteInMemoryDeviceTokensForSession(
+      session.user.id,
+      session.sessionId,
+    );
+
+    return session;
+  }
+
+  private bearerTokenFromAuthHeader(authorization?: string): string {
+    if (!authorization || !authorization.startsWith('Bearer ')) {
+      throw new UnauthorizedException('Missing bearer token');
+    }
+
+    return authorization.replace('Bearer ', '').trim();
+  }
+
   async updateUser(
     userId: string,
     updates: {
@@ -1199,8 +1292,13 @@ export class StoreService implements OnModuleInit {
       publicId?: string | null;
     },
   ): Promise<UserProfile> {
-    if (updates.displayName !== undefined && updates.displayName.trim().length < 2) {
-      throw new BadRequestException('displayName must be at least 2 characters');
+    if (
+      updates.displayName !== undefined &&
+      updates.displayName.trim().length < 2
+    ) {
+      throw new BadRequestException(
+        'displayName must be at least 2 characters',
+      );
     }
 
     if (this.databaseService?.isEnabled()) {
@@ -1235,25 +1333,48 @@ export class StoreService implements OnModuleInit {
       }
 
       const currentUser = this.toUserProfile(currentResult.rows[0]);
-      const nextDisplayName = updates.displayName?.trim() || currentUser.displayName;
-      const nextAvatarUrl = updates.avatarUrl !== undefined ? updates.avatarUrl : currentUser.avatarUrl;
+      const nextDisplayName =
+        updates.displayName?.trim() || currentUser.displayName;
+      const nextAvatarUrl =
+        updates.avatarUrl !== undefined
+          ? updates.avatarUrl
+          : currentUser.avatarUrl;
       const nextBio = updates.bio !== undefined ? updates.bio : currentUser.bio;
-      const nextGender = updates.gender !== undefined ? updates.gender : currentUser.gender;
-      const nextCountryCode = updates.countryCode !== undefined ? updates.countryCode : currentUser.countryCode;
+      const nextGender =
+        updates.gender !== undefined ? updates.gender : currentUser.gender;
+      const nextCountryCode =
+        updates.countryCode !== undefined
+          ? updates.countryCode
+          : currentUser.countryCode;
       const nextCoverUrl = hostCoverOrDefault(
         userId,
         nextGender,
-        updates.coverUrl !== undefined ? updates.coverUrl : currentUser.coverUrl,
+        updates.coverUrl !== undefined
+          ? updates.coverUrl
+          : currentUser.coverUrl,
         nextDisplayName,
         nextCountryCode,
       );
-      const nextBirthday = updates.birthday !== undefined ? updates.birthday : currentUser.birthday;
-      const nextLanguage = updates.language !== undefined ? updates.language : currentUser.language;
-      const nextCallRate = updates.callRateCoinsPerMinute !== undefined ? updates.callRateCoinsPerMinute : currentUser.callRateCoinsPerMinute;
-      const nextPublicId = updates.publicId !== undefined ? updates.publicId : currentUser.publicId;
+      const nextBirthday =
+        updates.birthday !== undefined
+          ? updates.birthday
+          : currentUser.birthday;
+      const nextLanguage =
+        updates.language !== undefined
+          ? updates.language
+          : currentUser.language;
+      const nextCallRate =
+        updates.callRateCoinsPerMinute !== undefined
+          ? updates.callRateCoinsPerMinute
+          : currentUser.callRateCoinsPerMinute;
+      const nextPublicId =
+        updates.publicId !== undefined
+          ? updates.publicId
+          : currentUser.publicId;
 
       // Auto-set is_host based on gender: Female = host by default
-      const shouldSetHost = updates.gender !== undefined ? updates.gender === 'Female' : undefined;
+      const shouldSetHost =
+        updates.gender !== undefined ? updates.gender === 'Female' : undefined;
 
       const updatedResult = await this.databaseService.query<{
         id: string;
@@ -1284,8 +1405,33 @@ export class StoreService implements OnModuleInit {
                     country_code, language, is_admin, is_host, call_rate_coins_per_minute, onboarded_at, created_at
         `,
         shouldSetHost !== undefined
-          ? [userId, nextDisplayName, nextAvatarUrl, nextCoverUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate, nextPublicId, shouldSetHost]
-          : [userId, nextDisplayName, nextAvatarUrl, nextCoverUrl, nextBio, nextGender, nextBirthday, nextCountryCode, nextLanguage, nextCallRate, nextPublicId],
+          ? [
+              userId,
+              nextDisplayName,
+              nextAvatarUrl,
+              nextCoverUrl,
+              nextBio,
+              nextGender,
+              nextBirthday,
+              nextCountryCode,
+              nextLanguage,
+              nextCallRate,
+              nextPublicId,
+              shouldSetHost,
+            ]
+          : [
+              userId,
+              nextDisplayName,
+              nextAvatarUrl,
+              nextCoverUrl,
+              nextBio,
+              nextGender,
+              nextBirthday,
+              nextCountryCode,
+              nextLanguage,
+              nextCallRate,
+              nextPublicId,
+            ],
       );
 
       return this.toUserProfile(updatedResult.rows[0]);
@@ -1295,28 +1441,44 @@ export class StoreService implements OnModuleInit {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    const nextGender = updates.gender !== undefined ? updates.gender : user.gender;
+    const nextGender =
+      updates.gender !== undefined ? updates.gender : user.gender;
     const nextCoverUrl = hostCoverOrDefault(
       userId,
       nextGender,
       updates.coverUrl !== undefined ? updates.coverUrl : user.coverUrl,
       updates.displayName?.trim() || user.displayName,
-      updates.countryCode !== undefined ? updates.countryCode : user.countryCode,
+      updates.countryCode !== undefined
+        ? updates.countryCode
+        : user.countryCode,
     );
 
     const nextUser: UserProfile = {
       ...user,
       displayName: updates.displayName?.trim() || user.displayName,
-      avatarUrl: updates.avatarUrl !== undefined ? updates.avatarUrl : user.avatarUrl,
+      avatarUrl:
+        updates.avatarUrl !== undefined ? updates.avatarUrl : user.avatarUrl,
       coverUrl: nextCoverUrl,
       bio: updates.bio !== undefined ? updates.bio : user.bio,
       gender: nextGender,
-      isHost: updates.gender !== undefined ? updates.gender === 'Female' : user.isHost,
-      birthday: updates.birthday !== undefined ? updates.birthday : user.birthday,
-      countryCode: updates.countryCode !== undefined ? updates.countryCode : user.countryCode,
-      language: updates.language !== undefined ? updates.language : user.language,
-      callRateCoinsPerMinute: updates.callRateCoinsPerMinute !== undefined ? updates.callRateCoinsPerMinute : user.callRateCoinsPerMinute,
-      publicId: updates.publicId !== undefined ? updates.publicId : user.publicId,
+      isHost:
+        updates.gender !== undefined
+          ? updates.gender === 'Female'
+          : user.isHost,
+      birthday:
+        updates.birthday !== undefined ? updates.birthday : user.birthday,
+      countryCode:
+        updates.countryCode !== undefined
+          ? updates.countryCode
+          : user.countryCode,
+      language:
+        updates.language !== undefined ? updates.language : user.language,
+      callRateCoinsPerMinute:
+        updates.callRateCoinsPerMinute !== undefined
+          ? updates.callRateCoinsPerMinute
+          : user.callRateCoinsPerMinute,
+      publicId:
+        updates.publicId !== undefined ? updates.publicId : user.publicId,
       onboardedAt: user.onboardedAt ?? new Date().toISOString(),
     };
 
@@ -1373,7 +1535,10 @@ export class StoreService implements OnModuleInit {
     }
 
     for (const [sessionId, session] of this.callSessions.entries()) {
-      if (session.callerUserId === userId || session.receiverUserId === userId) {
+      if (
+        session.callerUserId === userId ||
+        session.receiverUserId === userId
+      ) {
         this.callSessions.delete(sessionId);
       }
     }
@@ -1384,7 +1549,10 @@ export class StoreService implements OnModuleInit {
       }
     }
 
-    for (const [subject, mappedUserId] of this.googleSubjectToUserId.entries()) {
+    for (const [
+      subject,
+      mappedUserId,
+    ] of this.googleSubjectToUserId.entries()) {
       if (mappedUserId === userId) {
         this.googleSubjectToUserId.delete(subject);
       }
@@ -1532,7 +1700,7 @@ export class StoreService implements OnModuleInit {
           hostGender: u.gender ?? null,
           hostCountryCode: u.countryCode ?? 'PH',
           hostLanguage: u.language ?? 'English',
-          hostStatus: room ? 'live' : (u as any).status ?? 'offline',
+          hostStatus: room ? 'live' : ((u as any).status ?? 'offline'),
           hostCallRateCoinsPerMinute: u.callRateCoinsPerMinute ?? null,
           startedAt: room?.createdAt ?? new Date().toISOString(),
         };
@@ -1590,7 +1758,14 @@ export class StoreService implements OnModuleInit {
           VALUES ($1, $2, $3, $4, $5, $6)
           RETURNING id, host_user_id, title, audience_count, status, created_at
         `,
-        [room.id, room.hostUserId, room.title, room.audienceCount, room.status, room.createdAt],
+        [
+          room.id,
+          room.hostUserId,
+          room.title,
+          room.audienceCount,
+          room.status,
+          room.createdAt,
+        ],
       );
 
       return this.toRoom(result.rows[0]);
@@ -1598,7 +1773,8 @@ export class StoreService implements OnModuleInit {
 
     const existingLiveRoom = [...this.rooms.values()].find(
       (existingRoom) =>
-        existingRoom.hostUserId === hostUserId && existingRoom.status === 'live',
+        existingRoom.hostUserId === hostUserId &&
+        existingRoom.status === 'live',
     );
     if (existingLiveRoom) {
       this.rooms.delete(existingLiveRoom.id);
@@ -1852,7 +2028,7 @@ export class StoreService implements OnModuleInit {
       return this.toUserProfile(result.rows[0]);
     }
 
-    const user = [...this.users.values()].find(u => u.publicId === publicId);
+    const user = [...this.users.values()].find((u) => u.publicId === publicId);
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
@@ -1889,14 +2065,13 @@ export class StoreService implements OnModuleInit {
         `,
         [`%${q}%`, q],
       );
-      return result.rows.map(row => this.toUserProfile(row));
+      return result.rows.map((row) => this.toUserProfile(row));
     }
 
     const lower = q.toLowerCase();
     return [...this.users.values()]
-      .filter(u =>
-        u.displayName.toLowerCase().includes(lower) ||
-        u.publicId === q,
+      .filter(
+        (u) => u.displayName.toLowerCase().includes(lower) || u.publicId === q,
       )
       .slice(0, 30);
   }
@@ -2053,7 +2228,6 @@ export class StoreService implements OnModuleInit {
     return new Set(result.rows.map((r) => r.other_id));
   }
 
-
   async getFollowing(userId: string): Promise<string[]> {
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{ following_id: string }>(
@@ -2112,7 +2286,10 @@ export class StoreService implements OnModuleInit {
       .slice(0, normalizedLimit);
   }
 
-  async getTransactionHistory(userId: string, limit = 50): Promise<WalletTransaction[]> {
+  async getTransactionHistory(
+    userId: string,
+    limit = 50,
+  ): Promise<WalletTransaction[]> {
     const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 200);
 
     if (!this.databaseService?.isEnabled()) {
@@ -2151,34 +2328,145 @@ export class StoreService implements OnModuleInit {
 
   private readonly inMemoryMessages = new Map<string, Message>();
 
-  async upsertDeviceToken(userId: string, token: string): Promise<void> {
-    if (!this.databaseService?.isEnabled()) return;
+  async upsertDeviceToken(
+    session: AuthenticatedAuthSession,
+    token: string,
+  ): Promise<void> {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) {
+      throw new BadRequestException('Device token is required');
+    }
+
+    if (!this.databaseService?.isEnabled()) {
+      this.deviceTokens.delete(normalizedToken);
+      this.deviceTokens.set(normalizedToken, {
+        userId: session.user.id,
+        sessionId: session.sessionId,
+        deviceId: session.deviceId,
+      });
+      return;
+    }
+
+    await this.databaseService.transaction(async (client) => {
+      await client.query(`DELETE FROM device_tokens WHERE token = $1`, [
+        normalizedToken,
+      ]);
+      await client.query(
+        `
+          INSERT INTO device_tokens (
+            user_id,
+            token,
+            session_id,
+            device_id,
+            updated_at
+          )
+          VALUES ($1, $2, $3, $4, NOW())
+          ON CONFLICT (user_id, token)
+          DO UPDATE SET
+            session_id = EXCLUDED.session_id,
+            device_id = EXCLUDED.device_id,
+            updated_at = NOW()
+        `,
+        [session.user.id, normalizedToken, session.sessionId, session.deviceId],
+      );
+    });
+  }
+
+  async deleteDeviceToken(
+    session: AuthenticatedAuthSession,
+    token: string,
+  ): Promise<void> {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) return;
+
+    if (!this.databaseService?.isEnabled()) {
+      const existing = this.deviceTokens.get(normalizedToken);
+      if (
+        existing?.userId === session.user.id &&
+        existing.sessionId === session.sessionId
+      ) {
+        this.deviceTokens.delete(normalizedToken);
+      }
+      return;
+    }
+
     await this.databaseService.query(
-      `INSERT INTO device_tokens (user_id, token, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (user_id, token) DO UPDATE SET updated_at = NOW()`,
-      [userId, token],
+      `
+        DELETE FROM device_tokens
+        WHERE user_id = $1
+          AND token = $2
+          AND session_id = $3
+      `,
+      [session.user.id, normalizedToken, session.sessionId],
     );
   }
 
-  async deleteDeviceToken(userId: string, token: string): Promise<void> {
-    if (!this.databaseService?.isEnabled()) return;
+  async deleteDeviceTokensByToken(tokens: string[]): Promise<void> {
+    const normalizedTokens = [
+      ...new Set(tokens.map((token) => token.trim()).filter(Boolean)),
+    ];
+    if (normalizedTokens.length === 0) return;
+
+    if (!this.databaseService?.isEnabled()) {
+      for (const token of normalizedTokens) {
+        this.deviceTokens.delete(token);
+      }
+      return;
+    }
+
     await this.databaseService.query(
-      `DELETE FROM device_tokens WHERE user_id = $1 AND token = $2`,
-      [userId, token],
+      `DELETE FROM device_tokens WHERE token = ANY($1::text[])`,
+      [normalizedTokens],
     );
   }
 
   async getDeviceTokens(userId: string): Promise<string[]> {
-    if (!this.databaseService?.isEnabled()) return [];
+    if (!this.databaseService?.isEnabled()) {
+      const activeSessionId = this.activeSessionIds.get(userId);
+      if (!activeSessionId) return [];
+      return [...this.deviceTokens.entries()]
+        .filter(
+          ([, entry]) =>
+            entry.userId === userId && entry.sessionId === activeSessionId,
+        )
+        .map(([token]) => token);
+    }
+
     const result = await this.databaseService.query<{ token: string }>(
-      `SELECT token FROM device_tokens WHERE user_id = $1`,
+      `
+        SELECT dt.token
+        FROM device_tokens dt
+        INNER JOIN users u
+          ON u.id = dt.user_id
+        INNER JOIN sessions s
+          ON s.user_id = dt.user_id
+         AND s.session_id = dt.session_id
+        WHERE dt.user_id = $1
+          AND dt.session_id = u.active_session_id
+          AND s.expires_at > NOW()
+      `,
       [userId],
     );
     return result.rows.map((r) => r.token);
   }
 
-  async sendMessage(senderId: string, receiverId: string, body: string, idempotencyKey?: string): Promise<{ message: Message; isNew: boolean }> {
+  private deleteInMemoryDeviceTokensForSession(
+    userId: string,
+    sessionId: string,
+  ): void {
+    for (const [token, entry] of this.deviceTokens.entries()) {
+      if (entry.userId === userId && entry.sessionId === sessionId) {
+        this.deviceTokens.delete(token);
+      }
+    }
+  }
+
+  async sendMessage(
+    senderId: string,
+    receiverId: string,
+    body: string,
+    idempotencyKey?: string,
+  ): Promise<{ message: Message; isNew: boolean }> {
     if (!body?.trim()) {
       throw new BadRequestException('Message body cannot be empty');
     }
@@ -2188,8 +2476,13 @@ export class StoreService implements OnModuleInit {
 
     if (idempotencyKey && this.databaseService?.isEnabled()) {
       const existing = await this.databaseService.query<{
-        id: string; sender_id: string; receiver_id: string;
-        body: string; delivered_at: string | null; read_at: string | null; created_at: string;
+        id: string;
+        sender_id: string;
+        receiver_id: string;
+        body: string;
+        delivered_at: string | null;
+        read_at: string | null;
+        created_at: string;
       }>(
         `SELECT id, sender_id, receiver_id, body, delivered_at, read_at, created_at
          FROM messages
@@ -2199,7 +2492,15 @@ export class StoreService implements OnModuleInit {
       if (existing.rows.length > 0) {
         const r = existing.rows[0];
         return {
-          message: { id: r.id, senderId: r.sender_id, receiverId: r.receiver_id, body: r.body, deliveredAt: r.delivered_at, readAt: r.read_at, createdAt: r.created_at },
+          message: {
+            id: r.id,
+            senderId: r.sender_id,
+            receiverId: r.receiver_id,
+            body: r.body,
+            deliveredAt: r.delivered_at,
+            readAt: r.read_at,
+            createdAt: r.created_at,
+          },
           isNew: false,
         };
       }
@@ -2221,7 +2522,14 @@ export class StoreService implements OnModuleInit {
           INSERT INTO messages (id, sender_id, receiver_id, body, created_at, idempotency_key)
           VALUES ($1, $2, $3, $4, $5, $6)
         `,
-        [msg.id, msg.senderId, msg.receiverId, msg.body, msg.createdAt, idempotencyKey ?? null],
+        [
+          msg.id,
+          msg.senderId,
+          msg.receiverId,
+          msg.body,
+          msg.createdAt,
+          idempotencyKey ?? null,
+        ],
       );
       return { message: msg, isNew: true };
     }
@@ -2279,7 +2587,9 @@ export class StoreService implements OnModuleInit {
         lastMessage: row.last_message,
         lastMessageAt: new Date(row.last_message_at).toISOString(),
         unreadCount: parseInt(row.unread_count, 10),
-        lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null,
+        lastSeenAt: row.last_seen_at
+          ? new Date(row.last_seen_at).toISOString()
+          : null,
       }));
     }
 
@@ -2318,7 +2628,9 @@ export class StoreService implements OnModuleInit {
       }
     }
 
-    return convos.sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
+    return convos.sort((a, b) =>
+      b.lastMessageAt.localeCompare(a.lastMessageAt),
+    );
   }
 
   async getThread(
@@ -2388,7 +2700,9 @@ export class StoreService implements OnModuleInit {
           senderId: row.sender_id,
           receiverId: row.receiver_id,
           body: row.body,
-          deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : null,
+          deliveredAt: row.delivered_at
+            ? new Date(row.delivered_at).toISOString()
+            : null,
           readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
           createdAt: new Date(row.created_at).toISOString(),
         })),
@@ -2412,7 +2726,10 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  async markMessageDelivered(messageId: string, userId: string): Promise<Message> {
+  async markMessageDelivered(
+    messageId: string,
+    userId: string,
+  ): Promise<Message> {
     if (this.databaseService?.isEnabled()) {
       const result = await this.databaseService.query<{
         id: string;
@@ -2442,7 +2759,9 @@ export class StoreService implements OnModuleInit {
         senderId: row.sender_id,
         receiverId: row.receiver_id,
         body: row.body,
-        deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : null,
+        deliveredAt: row.delivered_at
+          ? new Date(row.delivered_at).toISOString()
+          : null,
         readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
       };
@@ -2487,7 +2806,9 @@ export class StoreService implements OnModuleInit {
         senderId: row.sender_id,
         receiverId: row.receiver_id,
         body: row.body,
-        deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : null,
+        deliveredAt: row.delivered_at
+          ? new Date(row.delivered_at).toISOString()
+          : null,
         readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
         createdAt: new Date(row.created_at).toISOString(),
       };
@@ -2497,7 +2818,11 @@ export class StoreService implements OnModuleInit {
     if (!msg || msg.receiverId !== userId) {
       throw new NotFoundException('Message not found');
     }
-    const updated = { ...msg, deliveredAt: msg.deliveredAt ?? new Date().toISOString(), readAt: new Date().toISOString() };
+    const updated = {
+      ...msg,
+      deliveredAt: msg.deliveredAt ?? new Date().toISOString(),
+      readAt: new Date().toISOString(),
+    };
     this.inMemoryMessages.set(messageId, updated);
     return updated;
   }
@@ -2543,7 +2868,9 @@ export class StoreService implements OnModuleInit {
     const normalizedRandomRate = Number.isFinite(randomCallRateRaw)
       ? Math.max(randomCallRateRaw, 1)
       : 600;
-    const normalizedCoinsPerUsdReceiver = Number.isFinite(coinsPerUsdReceiverRaw)
+    const normalizedCoinsPerUsdReceiver = Number.isFinite(
+      coinsPerUsdReceiverRaw,
+    )
       ? Math.max(coinsPerUsdReceiverRaw, 1)
       : 10000;
     const normalizedReceiverShareBps = Number.isFinite(receiverShareBpsRaw)
@@ -2678,7 +3005,9 @@ export class StoreService implements OnModuleInit {
   }
 
   async purchaseCoins(userId: string, packId: string): Promise<WalletSummary> {
-    const selectedPack = this.listCoinPacks().find((pack) => pack.id === packId);
+    const selectedPack = this.listCoinPacks().find(
+      (pack) => pack.id === packId,
+    );
     if (!selectedPack) {
       throw new BadRequestException('Unknown coin pack id');
     }
@@ -2787,7 +3116,9 @@ export class StoreService implements OnModuleInit {
     const blockedArr = [...blockedIds];
 
     // Step 1: longest live + respect 4h cooldown
-    const withCooldown = await this.databaseService.query<{ host_user_id: string }>(
+    const withCooldown = await this.databaseService.query<{
+      host_user_id: string;
+    }>(
       `SELECT r.host_user_id FROM rooms r
        JOIN users u ON u.id = r.host_user_id
        WHERE r.status = 'live'
@@ -2931,7 +3262,9 @@ export class StoreService implements OnModuleInit {
     const receiverUserId = options.receiverUserId?.trim() || undefined;
 
     if (mode === 'direct' && !receiverUserId) {
-      throw new BadRequestException('receiverUserId is required for direct call');
+      throw new BadRequestException(
+        'receiverUserId is required for direct call',
+      );
     }
 
     const callerBusy = await this.hasLiveCallSessionForUser(callerUserId);
@@ -2970,7 +3303,10 @@ export class StoreService implements OnModuleInit {
 
       // Block check: either direction
       const callerBlocked = await this.isBlocked(receiverUserId, callerUserId);
-      const receiverBlocked = await this.isBlocked(callerUserId, receiverUserId);
+      const receiverBlocked = await this.isBlocked(
+        callerUserId,
+        receiverUserId,
+      );
       if (callerBlocked || receiverBlocked) {
         throw new BadRequestException('Cannot call this user');
       }
@@ -3286,8 +3622,7 @@ export class StoreService implements OnModuleInit {
         `,
         [callerUserId],
       );
-      const callerCoinBalanceBefore =
-        walletResult.rows[0]?.coin_balance ?? 0;
+      const callerCoinBalanceBefore = walletResult.rows[0]?.coin_balance ?? 0;
 
       if (session.status === 'ended') {
         return this.saveDatabaseLedgerResponse(
@@ -3558,18 +3893,26 @@ export class StoreService implements OnModuleInit {
 
     const session = await this.getCallSessionById(input.sessionId);
     if (session.status !== 'live') {
-      throw new BadRequestException('Gifts can only be sent during a live call');
+      throw new BadRequestException(
+        'Gifts can only be sent during a live call',
+      );
     }
 
     if (session.callerUserId !== senderUserId) {
-      throw new BadRequestException('Only the caller can send gifts during a call');
+      throw new BadRequestException(
+        'Only the caller can send gifts during a call',
+      );
     }
 
     if (!session.receiverUserId) {
-      throw new BadRequestException('Receiver is not available for gift delivery');
+      throw new BadRequestException(
+        'Receiver is not available for gift delivery',
+      );
     }
 
-    const gift = this.listGiftCatalog().find((item) => item.id === input.giftId);
+    const gift = this.listGiftCatalog().find(
+      (item) => item.id === input.giftId,
+    );
     if (!gift) {
       throw new BadRequestException('Unknown gift id');
     }
@@ -3592,7 +3935,8 @@ export class StoreService implements OnModuleInit {
     const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
     this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
 
-    const receiverRevenue = this.userRevenueUsd.get(session.receiverUserId) ?? 0;
+    const receiverRevenue =
+      this.userRevenueUsd.get(session.receiverUserId) ?? 0;
     const receiverSparkBalance =
       this.userSparkBalances.get(session.receiverUserId) ?? 0;
     this.userRevenueUsd.set(
@@ -3711,7 +4055,9 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('Host cannot send gifts to themselves');
     }
 
-    const gift = this.listGiftCatalog().find((item) => item.id === input.giftId);
+    const gift = this.listGiftCatalog().find(
+      (item) => item.id === input.giftId,
+    );
     if (!gift) {
       throw new BadRequestException('Unknown gift id');
     }
@@ -3728,7 +4074,9 @@ export class StoreService implements OnModuleInit {
     const coinsPerUsdReceiver = config.coinsPerUsdReceiver;
     const sparkPerUsd = config.sparkPerUsd;
 
-    const receiverCoins = Math.floor((totalGiftCoins * receiverShareBps) / 10000);
+    const receiverCoins = Math.floor(
+      (totalGiftCoins * receiverShareBps) / 10000,
+    );
     const platformCoins = totalGiftCoins - receiverCoins;
     const receiverUsd = receiverCoins / coinsPerUsdReceiver;
     const receiverSpark = Math.floor(receiverUsd * sparkPerUsd);
@@ -3740,7 +4088,10 @@ export class StoreService implements OnModuleInit {
     const receiverRevenue = this.userRevenueUsd.get(hostUserId) ?? 0;
     const receiverSparkBalance = this.userSparkBalances.get(hostUserId) ?? 0;
     this.userRevenueUsd.set(hostUserId, receiverRevenue + receiverUsd);
-    this.userSparkBalances.set(hostUserId, receiverSparkBalance + receiverSpark);
+    this.userSparkBalances.set(
+      hostUserId,
+      receiverSparkBalance + receiverSpark,
+    );
 
     await this.writeWalletTransaction({
       userId: senderUserId,
@@ -3810,7 +4161,9 @@ export class StoreService implements OnModuleInit {
     idempotencyKey: string | null,
     requestHash: string,
   ): Promise<GiftSendResult> {
-    const gift = this.listGiftCatalog().find((item) => item.id === input.giftId);
+    const gift = this.listGiftCatalog().find(
+      (item) => item.id === input.giftId,
+    );
     if (!gift) {
       throw new BadRequestException('Unknown gift id');
     }
@@ -3847,13 +4200,19 @@ export class StoreService implements OnModuleInit {
 
       const session = this.mapCallSessionRow(sessionResult.rows[0]);
       if (session.status !== 'live') {
-        throw new BadRequestException('Gifts can only be sent during a live call');
+        throw new BadRequestException(
+          'Gifts can only be sent during a live call',
+        );
       }
       if (session.callerUserId !== senderUserId) {
-        throw new BadRequestException('Only the caller can send gifts during a call');
+        throw new BadRequestException(
+          'Only the caller can send gifts during a call',
+        );
       }
       if (!session.receiverUserId) {
-        throw new BadRequestException('Receiver is not available for gift delivery');
+        throw new BadRequestException(
+          'Receiver is not available for gift delivery',
+        );
       }
 
       await this.ensureWalletAndRevenueRows(senderUserId, client);
@@ -3972,7 +4331,9 @@ export class StoreService implements OnModuleInit {
     idempotencyKey: string | null,
     requestHash: string,
   ): Promise<GiftSendResult> {
-    const gift = this.listGiftCatalog().find((item) => item.id === input.giftId);
+    const gift = this.listGiftCatalog().find(
+      (item) => item.id === input.giftId,
+    );
     if (!gift) {
       throw new BadRequestException('Unknown gift id');
     }
@@ -4183,7 +4544,7 @@ export class StoreService implements OnModuleInit {
 
   private getDirectCallAllowedRates(): number[] {
     if (this.cachedCallRateTiers.length > 0) {
-      return this.cachedCallRateTiers.map(t => t.coinsPerMinute);
+      return this.cachedCallRateTiers.map((t) => t.coinsPerMinute);
     }
     return [2100, 3200, 4200, 5400, 6400, 8000, 27000];
   }
@@ -4334,7 +4695,8 @@ export class StoreService implements OnModuleInit {
         sparkPerUsd: row.spark_per_usd,
         totalBilledCoins: row.total_billed_coins,
         totalReceiverCoins: row.total_receiver_coins,
-        totalReceiverUsd: Number.parseFloat(String(row.total_receiver_usd)) || 0,
+        totalReceiverUsd:
+          Number.parseFloat(String(row.total_receiver_usd)) || 0,
         totalReceiverSpark: row.total_receiver_spark,
         status: row.status,
         endReason: row.end_reason,
@@ -4373,7 +4735,8 @@ export class StoreService implements OnModuleInit {
     for (const session of this.callSessions.values()) {
       if (
         session.status === 'live' &&
-        (session.callerUserId === userId || session.receiverUserId === userId) &&
+        (session.callerUserId === userId ||
+          session.receiverUserId === userId) &&
         new Date(session.updatedAt).getTime() > staleThreshold
       ) {
         return true;
@@ -4485,7 +4848,9 @@ export class StoreService implements OnModuleInit {
       coverUrl: row.cover_url ?? null,
       bio: row.bio,
       gender: row.gender ?? null,
-      birthday: row.birthday ? new Date(row.birthday).toISOString().split('T')[0] : null,
+      birthday: row.birthday
+        ? new Date(row.birthday).toISOString().split('T')[0]
+        : null,
       countryCode: row.country_code ?? null,
       language: row.language ?? null,
       isAdmin: row.is_admin ?? false,
@@ -4493,7 +4858,9 @@ export class StoreService implements OnModuleInit {
       callRateCoinsPerMinute: row.call_rate_coins_per_minute ?? null,
       followerCount: Number(row.follower_count ?? 0),
       followingCount: Number(row.following_count ?? 0),
-      onboardedAt: row.onboarded_at ? new Date(row.onboarded_at).toISOString() : null,
+      onboardedAt: row.onboarded_at
+        ? new Date(row.onboarded_at).toISOString()
+        : null,
       createdAt: new Date(row.created_at).toISOString(),
     };
   }
@@ -4557,20 +4924,27 @@ export class StoreService implements OnModuleInit {
   }
 
   private getGoogleAudiences(): string[] {
-    const rawAudiences = process.env.GOOGLE_CLIENT_IDS ?? process.env.GOOGLE_CLIENT_ID ?? '';
+    const rawAudiences =
+      process.env.GOOGLE_CLIENT_IDS ?? process.env.GOOGLE_CLIENT_ID ?? '';
     const audiences = rawAudiences
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
 
     if (audiences.length === 0) {
-      throw new UnauthorizedException('Google OAuth audience is not configured');
+      throw new UnauthorizedException(
+        'Google OAuth audience is not configured',
+      );
     }
 
     return audiences;
   }
 
-  private signJwt(userId: string, sessionId?: string, deviceId?: string): string {
+  private signJwt(
+    userId: string,
+    sessionId?: string,
+    deviceId?: string,
+  ): string {
     const secret = this.getJwtSecret();
 
     return sign(
@@ -4614,20 +4988,26 @@ export class StoreService implements OnModuleInit {
         throw new UnauthorizedException('JWT secret is not configured');
       }
 
-      this.logger.warn('JWT_SECRET not set. Using development fallback secret.');
+      this.logger.warn(
+        'JWT_SECRET not set. Using development fallback secret.',
+      );
       return 'zephyr-dev-secret-change-me';
     }
 
     return secret;
   }
 
-  private async verifyAppleIdToken(idToken: string): Promise<JWTPayload & { email?: string }> {
+  private async verifyAppleIdToken(
+    idToken: string,
+  ): Promise<JWTPayload & { email?: string }> {
     const appleClientId = process.env.APPLE_CLIENT_ID;
     if (!appleClientId) {
       throw new BadRequestException('APPLE_CLIENT_ID is not configured');
     }
 
-    const jwks = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'));
+    const jwks = createRemoteJWKSet(
+      new URL('https://appleid.apple.com/auth/keys'),
+    );
 
     try {
       const { payload } = await jwtVerify(idToken, jwks, {
@@ -4692,5 +5072,4 @@ export class StoreService implements OnModuleInit {
       );
     }
   }
-
 }

@@ -46,8 +46,9 @@ class DirectCallSignals {
 
   StreamSubscription<DatabaseEvent> listen(
     String userId,
-    void Function(Map<String, dynamic>? data) onData,
-  ) {
+    void Function(Map<String, dynamic>? data) onData, {
+    void Function(Object error)? onError,
+  }) {
     return refForUser(userId).onValue.listen((DatabaseEvent event) {
       final raw = event.snapshot.value;
       if (raw == null) {
@@ -55,6 +56,6 @@ class DirectCallSignals {
       } else {
         onData(Map<String, dynamic>.from(raw as Map));
       }
-    });
+    }, onError: onError);
   }
 }

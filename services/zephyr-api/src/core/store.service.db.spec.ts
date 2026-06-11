@@ -47,8 +47,8 @@ describeDatabaseRace('StoreService Postgres ledger race tests', () => {
   }
 
   it('replays concurrent duplicate call ticks without double charging', async () => {
-    const caller = await storeService.issueGuestSession('db_tick_caller');
-    const receiver = await storeService.issueGuestSession('db_tick_receiver');
+    const caller = await storeService.issueTestSession('db_tick_caller');
+    const receiver = await storeService.issueTestSession('db_tick_receiver');
     await makeAvailable(receiver.user.id);
     const session = await storeService.startCallSession(caller.user.id, {
       mode: 'direct',
@@ -59,8 +59,18 @@ describeDatabaseRace('StoreService Postgres ledger race tests', () => {
     const idempotencyKey = `tick:${session.id}:race-duplicate`;
 
     const [first, second] = await Promise.all([
-      storeService.tickCallSession(caller.user.id, session.id, 10, idempotencyKey),
-      storeService.tickCallSession(caller.user.id, session.id, 10, idempotencyKey),
+      storeService.tickCallSession(
+        caller.user.id,
+        session.id,
+        10,
+        idempotencyKey,
+      ),
+      storeService.tickCallSession(
+        caller.user.id,
+        session.id,
+        10,
+        idempotencyKey,
+      ),
     ]);
 
     const walletAfter = await storeService.getWalletSummary(caller.user.id);
@@ -83,8 +93,8 @@ describeDatabaseRace('StoreService Postgres ledger race tests', () => {
   });
 
   it('serializes concurrent call ticks so balance never goes negative', async () => {
-    const caller = await storeService.issueGuestSession('db_tick_low_balance');
-    const receiver = await storeService.issueGuestSession('db_tick_host');
+    const caller = await storeService.issueTestSession('db_tick_low_balance');
+    const receiver = await storeService.issueTestSession('db_tick_host');
     await makeAvailable(receiver.user.id);
     const session = await storeService.startCallSession(caller.user.id, {
       mode: 'random',
@@ -133,8 +143,8 @@ describeDatabaseRace('StoreService Postgres ledger race tests', () => {
   });
 
   it('replays concurrent duplicate gifts without double charging', async () => {
-    const caller = await storeService.issueGuestSession('db_gift_caller');
-    const receiver = await storeService.issueGuestSession('db_gift_receiver');
+    const caller = await storeService.issueTestSession('db_gift_caller');
+    const receiver = await storeService.issueTestSession('db_gift_receiver');
     await makeAvailable(receiver.user.id);
 
     await storeService.purchaseCoins(caller.user.id, 'pack_299');

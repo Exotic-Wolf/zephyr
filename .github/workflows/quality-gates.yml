@@ -67,8 +67,38 @@ jobs:
       - name: Backend unit tests
         run: pnpm --filter zephyr-api test
 
+      - name: Backend e2e tests
+        run: pnpm --filter zephyr-api test:e2e
+
       - name: Backend DB race tests
         run: pnpm --filter zephyr-api test:db:race
 
       - name: Backend build
         run: pnpm --filter zephyr-api build
+
+  mobile:
+    name: Flutter Mobile
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+
+      - name: Install mobile dependencies
+        working-directory: apps/zephyr-mobile
+        run: flutter pub get
+
+      - name: Flutter analyze
+        working-directory: apps/zephyr-mobile
+        run: flutter analyze
+
+      - name: Flutter tests
+        working-directory: apps/zephyr-mobile
+        run: flutter test

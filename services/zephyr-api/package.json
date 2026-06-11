@@ -21,7 +21,7 @@
     "demo:for-you": "node scripts/demo-for-you-hosts.mjs",
     "smoke": "node scripts/smoke.mjs",
     "smoke:db": "node scripts/smoke-db.mjs",
-    "test:db:race": "ZEPHYR_RUN_DB_RACE_TESTS=true jest core/store.service.db.spec.ts --runInBand",
+    "test:db:race": "DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/zephyr} DB_SSL=${DB_SSL:-false} ZEPHYR_RUN_DB_RACE_TESTS=true jest core/store.service.db.spec.ts --runInBand",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
