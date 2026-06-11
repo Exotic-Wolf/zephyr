@@ -2,6 +2,13 @@
 
 This file owns screen and interaction contracts only. It does not own completion status, grades, blockers, or release history. Current launch state lives in [current-state.md](./current-state.md), and current quality grades live in [audit-log.md](./audit-log.md).
 
+## Global Flutter UI Contract
+
+- Zephyr UI must be responsive by default across iOS phones, Android phones, iPad, and Android tablets.
+- Use standard Flutter adaptive layout tools: `SafeArea`, `MediaQuery` insets, `LayoutBuilder`, constraints, flexible sizing, scrollable overflow protection, and platform-safe touch targets.
+- Do not approve phone-only fixed layouts unless the screen contract explicitly limits the surface.
+- UI handoff must state which device classes were smoked and which remain unproven.
+
 ## Onboarding
 
 ### Login
@@ -107,6 +114,7 @@ Target: Tango-style live discovery feed at real supply scale, not a filtered use
 - Plus tray shows only supported media actions: Camera and Photos. Do not show disabled or "soon" media actions.
 - Tapping any sent or received chat image opens a full-screen image viewer with pinch/pan zoom and a clear close control.
 - Presence and identity display use RTDB cache through `FirebaseChatService`.
+- Thread call action uses a compact highlighted top-bar affordance and opens a bottom sheet with only supported call modes; current supported mode is `Video Call` with the receiver's backend-fetched price as `2100 [coin]/min`. If the receiver is offline, busy, or in premium live, tapping the affordance must show product-safe availability copy instead of silently doing nothing. Do not fetch prices for every Inbox row by default, and do not show unsupported call modes as disabled/"soon" actions.
 - Text and media sends are optimistic but must be verified by committed Firestore message state.
 - Push relay is best-effort after Firestore commit.
 - Permission recovery must refresh the session-bound Firebase token before retrying.
@@ -120,6 +128,7 @@ Target: Tango-style live discovery feed at real supply scale, not a filtered use
 - Uses Agora for media and backend/Postgres for billing.
 - Signaling goes through `DirectCallSignals`.
 - Presence transitions go through `PresenceRealtime`.
+- Incoming call overlay must be safe-area aware and responsive across iPhone, Android phones, and tablets; accept/decline controls must remain reachable without RenderFlex overflow.
 - In-call report entry and post-call Message/Report/Done actions remain part of the safety UX.
 
 ### Random Call

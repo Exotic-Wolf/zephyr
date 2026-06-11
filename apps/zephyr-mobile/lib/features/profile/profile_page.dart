@@ -252,19 +252,21 @@ class _ProfilePageState extends State<ProfilePage> {
 
     final svc = FirebaseChatService.instance;
 
+    CallSession? session;
     try {
       debugPrint(
         '[DirectCall] startCallSession: receiverUserId=${_card.hostUserId}, rate=$_callRate',
       );
       // 1. Create call session on backend
-      final session = await api.startCallSession(
+      final CallSession startedSession = await api.startCallSession(
         accessToken: token,
         mode: 'direct',
         receiverUserId: _card.hostUserId,
         directRateCoinsPerMinute: _callRate,
       );
-      debugPrint('[DirectCall] session created: ${session.id}');
-      _callSessionId = session.id;
+      session = startedSession;
+      debugPrint('[DirectCall] session created: ${startedSession.id}');
+      _callSessionId = startedSession.id;
 
       // 2. Write signaling node to RTDB
       await svc.writeRinging(
@@ -272,7 +274,7 @@ class _ProfilePageState extends State<ProfilePage> {
         callerId: userId,
         callerName: widget.myDisplayName ?? 'User',
         callerAvatarUrl: widget.myAvatarUrl,
-        sessionId: session.id,
+        sessionId: startedSession.id,
       );
 
       // 3. Listen for status changes (accepted / declined)
@@ -287,7 +289,7 @@ class _ProfilePageState extends State<ProfilePage> {
         }
         final status = data['status'] as String?;
         if (status == 'accepted') {
-          _onCallAccepted(session.id);
+          _onCallAccepted(startedSession.id);
         } else if (status == 'declined') {
           _cleanupCall();
           _showErrorSnack('Call declined');
@@ -304,12 +306,23 @@ class _ProfilePageState extends State<ProfilePage> {
         api
             .endCallSession(
               accessToken: token,
-              sessionId: session.id,
+              sessionId: startedSession.id,
               reason: 'no_answer',
             )
             .ignore();
       });
     } catch (e) {
+      final CallSession? startedSession = session;
+      if (startedSession != null) {
+        svc.removeCallSignal(_card.hostUserId).ignore();
+        api
+            .endCallSession(
+              accessToken: token,
+              sessionId: startedSession.id,
+              reason: 'setup_failed',
+            )
+            .ignore();
+      }
       if (!mounted) return;
       setState(() => _calling = false);
       debugPrint('[DirectCall] error: ${apiErrorMessage(e)}');

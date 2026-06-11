@@ -101,11 +101,11 @@ Core gates:
 - Flutter analyze/tests: `cd apps/zephyr-mobile && flutter analyze && flutter test`
 
 Default proof:
-
 - unit test for every module or component that contains logic
 - dedicated rule/emulator test for every Firebase, Firestore, RTDB, or Storage path, field, listener, write contract, or permission change
 - backend test for API, database, economy, session, push, or projection behavior
 - Flutter test for UI state, navigation, lifecycle, or client module behavior
+- Flutter UI changes must be adaptive across iOS phone, Android phone, iPad, and Android tablet: use standard Flutter constraints/insets, avoid phone-only fixed layout assumptions, protect text/keyboard/notch/nav overflow, and state any unsmoked surface as unproven
 - manual smoke or profiling when real devices, third-party SDKs, payments, push, calls, live video, performance, or lifecycle transitions cannot be proven by automation
 
 Run the smallest useful gate while iterating. Run broader gates when the change touches shared contracts, auth/session, realtime, economy, navigation, Firebase rules, release behavior, or cross-module boundaries.

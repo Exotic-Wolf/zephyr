@@ -161,6 +161,8 @@ Admin writes bypass client security rules by design. Admin-only fields are allow
 
 `presence/{userId}` is the canonical realtime availability cell. Screens must express intent through `PresenceRealtime`; they must not hand-write raw RTDB status values.
 
+Mobile writes `Away` after 2 minutes of foreground inactivity. Away is still online and direct-call reachable, but it is not eligible for random-call routing.
+
 | Intent | Required state |
 |---|---|
 | Offline/disconnected | `connection=offline`, `activity=idle`, `availability=unavailable`, `routing.directCall=false`, `routing.randomCall=false`, `displayStatus=offline`, `interruptible=false` |
@@ -183,6 +185,8 @@ RTDB failures must fail closed:
 - Missing, denied, stale, or malformed `presence/{userId}` means the user is unavailable for routing until fresh canonical data is read.
 - Missing `profiles/{userId}` may use safe display fallback only; it must not create a second identity source.
 - Missing `direct_calls/{userId}` means no active signal. Do not infer a call from UI state alone.
+- Direct-call setup must write the `direct_calls/{receiverUserId}` signal before scheduling `onDisconnect().remove()`, because delete permission is valid only after the caller-owned signal exists.
+- If direct-call setup creates a backend call session and any later RTDB signaling step fails, the caller must end that backend session with `setup_failed` and remove any partial signal.
 - Missing `live_rooms/{roomId}` means the live surface should exit or show ended/unavailable. Do not continue paid/live lifecycle from a stale screen.
 - Missing `live_rooms/{roomId}/gifts/{giftEventId}` affects only visible animation. Gift spend/refund truth remains Postgres/backend.
 - RTDB permission-denied must be handled as a session/auth state problem, not hidden behind generic UI retry loops.

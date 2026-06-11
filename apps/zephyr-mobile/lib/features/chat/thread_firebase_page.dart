@@ -13,6 +13,7 @@ import '../../services/api_error_messages.dart';
 import '../../services/api_client.dart';
 import '../../services/firebase_chat_service.dart';
 import '../../services/translation_service.dart';
+import '../../widgets/coin_icon.dart';
 import '../call/direct_call_screen.dart';
 import '../live/viewer_live_screen.dart';
 import '../profile/profile_page.dart';
@@ -85,11 +86,20 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
 
   // Direct call
   bool _calling = false;
+  int? _callRateCoinsPerMinute;
   StreamSubscription<DatabaseEvent>? _callSub;
   Timer? _callTimeout;
+  static const int _fallbackDirectCallRateCoinsPerMinute = 2100;
 
   String _generateKey() =>
       '${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(999999)}';
+
+  void _debugDirectCall(String message) {
+    assert(() {
+      debugPrint('[ThreadDirectCall] $message');
+      return true;
+    }());
+  }
 
   @override
   void initState() {
@@ -101,6 +111,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     _ensureChatDocAndListen();
     _scrollCtrl.addListener(_onScroll);
     _lookupLiveRoom();
+    _loadCallRate();
   }
 
   void _seedCachedMessages() {
@@ -606,7 +617,203 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     );
   }
 
-  void _initiateCall() async {
+  Future<int?> _fetchCallRate() async {
+    final api = ZephyrApiClient.instance;
+    if (api == null) return _callRateCoinsPerMinute;
+    final UserProfile user = await api.getUserById(widget.otherUserId);
+    return user.callRateCoinsPerMinute ?? _fallbackDirectCallRateCoinsPerMinute;
+  }
+
+  Future<void> _loadCallRate() async {
+    try {
+      final int? rate = await _fetchCallRate();
+      if (!mounted || rate == null) return;
+      setState(() => _callRateCoinsPerMinute = rate);
+    } catch (_) {
+      // Price preview is optional; backend still owns final call billing.
+    }
+  }
+
+  Future<int?> _refreshCallRateForCall() async {
+    try {
+      final int? rate = await _fetchCallRate();
+      if (mounted && rate != null) {
+        setState(() => _callRateCoinsPerMinute = rate);
+      }
+      return rate;
+    } catch (_) {
+      return _callRateCoinsPerMinute;
+    }
+  }
+
+  Future<void> _openCallOptionsSheet() async {
+    final api = ZephyrApiClient.instance;
+    final token = ZephyrApiClient.accessToken;
+    if (api == null || token == null || _calling) return;
+
+    final svc = FirebaseChatService.instance;
+    final status = svc.presenceStateCached(widget.otherUserId) ?? 'offline';
+    if (status == 'offline' || status == 'busy' || status == 'premium_live') {
+      _showSnack('User is not available');
+      return;
+    }
+
+    final int? callRateCoinsPerMinute =
+        _callRateCoinsPerMinute ?? await _refreshCallRateForCall();
+    if (!mounted) return;
+
+    final int? selectedRate = await showModalBottomSheet<int?>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (BuildContext sheetContext) {
+        final bool sheetIsDark =
+            Theme.of(sheetContext).brightness == Brightness.dark;
+        final Color tileColor = sheetIsDark
+            ? const Color(0xFF1F1F22)
+            : const Color(0xFFF7F7F9);
+        final Color borderColor = sheetIsDark
+            ? const Color(0xFFFF8F00).withValues(alpha: 0.24)
+            : const Color(0xFFFF8F00).withValues(alpha: 0.18);
+        final bool canStartVideoCall = callRateCoinsPerMinute != null;
+        final double bottomLift =
+            max(MediaQuery.of(sheetContext).viewPadding.bottom, 16) + 28;
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 0, 20, bottomLift),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: canStartVideoCall
+                      ? () {
+                          Navigator.of(
+                            sheetContext,
+                          ).pop(callRateCoinsPerMinute);
+                        }
+                      : null,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: tileColor,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: borderColor),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(
+                            0xFFFF8F00,
+                          ).withValues(alpha: sheetIsDark ? 0.10 : 0.08),
+                          blurRadius: 16,
+                          offset: const Offset(0, 7),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 15,
+                        vertical: 14,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFFFF8F00,
+                              ).withValues(alpha: 0.22),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.videocam_rounded,
+                              color: Color(0xFFFF8F00),
+                              size: 25,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Video Call',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Charged after answer',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: sheetIsDark
+                                        ? Colors.white60
+                                        : Colors.black54,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (callRateCoinsPerMinute != null)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '$callRateCoinsPerMinute',
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const CoinIcon(size: 15),
+                                Text(
+                                  '/min',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: sheetIsDark
+                                        ? Colors.white60
+                                        : Colors.black54,
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            Text(
+                              'Price unavailable',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: sheetIsDark
+                                    ? Colors.white60
+                                    : Colors.black54,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selectedRate == null) return;
+    _initiateCall(callRateCoinsPerMinute: selectedRate);
+  }
+
+  void _initiateCall({int? callRateCoinsPerMinute}) async {
     final api = ZephyrApiClient.instance;
     final token = ZephyrApiClient.accessToken;
     if (api == null || token == null || _calling) return;
@@ -620,32 +827,49 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
 
     setState(() => _calling = true);
 
+    CallSession? session;
     try {
-      final session = await api.startCallSession(
+      final int? currentRate =
+          callRateCoinsPerMinute ?? await _refreshCallRateForCall();
+      _debugDirectCall(
+        'start-session receiver=${widget.otherUserId} rate=$currentRate',
+      );
+      final CallSession startedSession = await api.startCallSession(
         accessToken: token,
         mode: 'direct',
         receiverUserId: widget.otherUserId,
+        directRateCoinsPerMinute: currentRate,
       );
+      session = startedSession;
+      _debugDirectCall('session-created session=${startedSession.id}');
 
       await svc.writeRinging(
         targetUserId: widget.otherUserId,
         callerId: widget.myUserId,
         callerName: widget.myDisplayName,
         callerAvatarUrl: widget.myAvatarUrl,
-        sessionId: session.id,
+        sessionId: startedSession.id,
+      );
+      _debugDirectCall(
+        'ringing-written receiver=${widget.otherUserId} session=${startedSession.id}',
       );
 
+      _debugDirectCall('caller-listen receiver=${widget.otherUserId}');
       _callSub = svc.listenCallSignal(widget.otherUserId, (
         Map<String, dynamic>? data,
       ) {
         if (!mounted) return;
         if (data == null) {
+          _debugDirectCall('caller-listen event=null');
           _cleanupCall();
           return;
         }
         final s = data['status'] as String?;
+        _debugDirectCall(
+          'caller-listen event status=$s session=${data['sessionId']}',
+        );
         if (s == 'accepted') {
-          _onCallAccepted(session.id);
+          _onCallAccepted(startedSession.id);
         } else if (s == 'declined') {
           _cleanupCall();
           _showSnack('Call declined');
@@ -654,20 +878,34 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
 
       _callTimeout = Timer(const Duration(seconds: 30), () {
         if (!mounted || !_calling) return;
+        _debugDirectCall('timeout-no-answer session=${startedSession.id}');
         svc.removeCallSignal(widget.otherUserId);
         _cleanupCall();
         _showSnack('No answer');
         api
             .endCallSession(
               accessToken: token,
-              sessionId: session.id,
+              sessionId: startedSession.id,
               reason: 'no_answer',
             )
             .ignore();
       });
     } catch (e) {
+      final CallSession? startedSession = session;
+      if (startedSession != null) {
+        _debugDirectCall('setup-failed rollback session=${startedSession.id}');
+        svc.removeCallSignal(widget.otherUserId).ignore();
+        api
+            .endCallSession(
+              accessToken: token,
+              sessionId: startedSession.id,
+              reason: 'setup_failed',
+            )
+            .ignore();
+      }
       if (!mounted) return;
       setState(() => _calling = false);
+      _debugDirectCall('error ${directCallFailureMessage(e)}');
       _showSnack(directCallFailureMessage(e));
     }
   }
@@ -854,6 +1092,83 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     final String h = local.hour.toString().padLeft(2, '0');
     final String m = local.minute.toString().padLeft(2, '0');
     return '$h:$m';
+  }
+
+  Widget _buildCallActionButton({
+    required String status,
+    required bool isDark,
+  }) {
+    const Color accent = Color(0xFFFF8F00);
+    final bool unavailable =
+        status == 'offline' || status == 'busy' || status == 'premium_live';
+    final bool enabled = !_calling && !unavailable;
+    final Color disabledForeground = isDark
+        ? Colors.white.withValues(alpha: 0.34)
+        : Colors.black.withValues(alpha: 0.32);
+    final Color foreground = enabled ? accent : disabledForeground;
+    final Color background = enabled
+        ? accent.withValues(alpha: 0.16)
+        : (isDark
+              ? Colors.white.withValues(alpha: 0.05)
+              : Colors.black.withValues(alpha: 0.04));
+    final Color border = enabled
+        ? accent.withValues(alpha: 0.28)
+        : foreground.withValues(alpha: 0.16);
+
+    return Tooltip(
+      message: enabled
+          ? 'Video call'
+          : _calling
+          ? 'Starting call'
+          : _callUnavailableMessage(status),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Material(
+          color: background,
+          shape: CircleBorder(side: BorderSide(color: border)),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: _calling
+                ? null
+                : enabled
+                ? _openCallOptionsSheet
+                : () => _showSnack(_callUnavailableMessage(status)),
+            child: SizedBox(
+              width: 38,
+              height: 38,
+              child: Center(
+                child: _calling
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: foreground,
+                        ),
+                      )
+                    : Icon(Icons.videocam_rounded, color: foreground, size: 23),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _callUnavailableMessage(String status) {
+    final String name = widget.otherDisplayName.trim().isEmpty
+        ? 'User'
+        : widget.otherDisplayName.trim();
+    switch (status) {
+      case 'offline':
+        return '$name is offline';
+      case 'busy':
+        return '$name is busy right now';
+      case 'premium_live':
+        return '$name is in premium live';
+      default:
+        return '$name is not available for video call';
+    }
   }
 
   bool _isDifferentDay(DateTime a, DateTime b) {
@@ -1409,20 +1724,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                     widget.otherUserId,
                   ) ??
                   'offline';
-              final unavailable =
-                  status == 'offline' ||
-                  status == 'busy' ||
-                  status == 'premium_live';
-              return IconButton(
-                icon: _calling
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.videocam_outlined),
-                onPressed: _calling || unavailable ? null : _initiateCall,
-              );
+              return _buildCallActionButton(status: status, isDark: isDark);
             },
           ),
           PopupMenuButton<String>(

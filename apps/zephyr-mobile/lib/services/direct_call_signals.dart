@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 
 import 'firebase_realtime_database.dart';
 import 'rtdb_contracts.dart';
@@ -14,6 +15,13 @@ class DirectCallSignals {
   DatabaseReference refForUser(String userId) =>
       _rtdb.ref('direct_calls/$userId');
 
+  void _debugLog(String message) {
+    assert(() {
+      debugPrint('[DirectCallSignals] $message');
+      return true;
+    }());
+  }
+
   Future<void> writeRinging({
     required String targetUserId,
     required String callerId,
@@ -22,6 +30,9 @@ class DirectCallSignals {
     required String sessionId,
   }) async {
     final ref = refForUser(targetUserId);
+    _debugLog(
+      'writeRinging start target=$targetUserId caller=$callerId session=$sessionId',
+    );
     final Map<String, dynamic>? payload =
         RtdbDirectCallSignalContract.ringingPayload(
           callerId: callerId,
@@ -34,8 +45,20 @@ class DirectCallSignals {
       throw ArgumentError('Invalid direct-call ringing signal');
     }
 
-    await ref.onDisconnect().remove();
     await ref.set(payload);
+    _debugLog('writeRinging set-ok target=$targetUserId session=$sessionId');
+    try {
+      await ref.onDisconnect().remove();
+      _debugLog(
+        'writeRinging onDisconnect-ok target=$targetUserId session=$sessionId',
+      );
+    } catch (_) {
+      _debugLog(
+        'writeRinging onDisconnect-failed target=$targetUserId session=$sessionId',
+      );
+      await ref.remove().catchError((_) {});
+      rethrow;
+    }
   }
 
   Future<void> cancelOnDisconnect(String targetUserId) {
@@ -55,8 +78,15 @@ class DirectCallSignals {
     void Function(Map<String, dynamic>? data) onData, {
     void Function(Object error)? onError,
   }) {
+    _debugLog('listen attach user=$userId');
     return refForUser(userId).onValue.listen((DatabaseEvent event) {
-      onData(RtdbDirectCallSignalContract.parse(event.snapshot.value));
+      final Map<String, dynamic>? data = RtdbDirectCallSignalContract.parse(
+        event.snapshot.value,
+      );
+      _debugLog(
+        'listen event user=$userId status=${data?['status']} caller=${data?['callerId']} session=${data?['sessionId']}',
+      );
+      onData(data);
     }, onError: onError);
   }
 }

@@ -130,6 +130,14 @@ String directCallFailureMessage(Object error) {
   if (normalized.contains('insufficient')) {
     return 'Not enough coins for this call';
   }
+  if (normalized.contains('invalid direct call rate')) {
+    return 'This call price is unavailable. Please try again.';
+  }
+  if (normalized.contains('secure session changed') ||
+      normalized.contains('sign in again') ||
+      normalized.contains('connection issue')) {
+    return message;
+  }
 
-  return message.isEmpty ? 'Call failed' : message;
+  return 'Call failed. Please try again.';
 }

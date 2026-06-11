@@ -254,7 +254,7 @@ class FirebaseChatService {
   /// Clear premium live state and return to normal availability.
   void clearPremiumLiveStatus() => presence.clearPremiumLive();
 
-  /// Mark current user as "away" (idle in foreground for 60s, no touches).
+  /// Mark current user as "away" (idle in foreground for 2 min, no touches).
   void setAwayStatus() => presence.setAway();
 
   /// Mark current user as offline (app backgrounded / screen locked).

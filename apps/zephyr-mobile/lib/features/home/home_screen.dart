@@ -88,9 +88,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _randomCallInviteTimer;
   bool _acceptingRandomCallInvite = false;
 
-  // ── Idle detection (away after 60s no touch) ──────────────────────────────
+  // ── Idle detection (away after 2 min no touch) ────────────────────────────
+  static const Duration _awayIdleTimeout = Duration(minutes: 2);
   Timer? _idleTimer;
   bool _isIdle = false;
+
+  void _debugDirectCall(String message) {
+    assert(() {
+      debugPrint('[HomeDirectCall] $message');
+      return true;
+    }());
+  }
 
   @override
   void initState() {
@@ -124,7 +132,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _isIdle = false;
       FirebaseChatService.instance.restoreOnlineStatus();
     }
-    _idleTimer = Timer(const Duration(seconds: 60), _onIdleTimeout);
+    _idleTimer = Timer(_awayIdleTimeout, _onIdleTimeout);
   }
 
   void _onIdleTimeout() {
@@ -150,12 +158,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     _incomingCallSub?.cancel();
     final svc = FirebaseChatService.instance;
+    _debugDirectCall('listen attach user=$userId');
 
     _incomingCallSub = svc.listenCallSignal(userId, (
       Map<String, dynamic>? data,
     ) {
       if (!mounted) return;
       if (data == null) {
+        _debugDirectCall('listen event=null user=$userId');
         // Node deleted — call cancelled or cleaned up
         if (_incomingCallerId != null) {
           setState(() {
@@ -180,8 +190,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final status = data['status'] as String?;
       final callerId = data['callerId'] as String?;
       final sessionId = data['sessionId'] as String?;
+      _debugDirectCall(
+        'listen event user=$userId status=$status caller=$callerId session=$sessionId',
+      );
 
       if (status == 'ringing' && callerId != null && sessionId != null) {
+        _debugDirectCall('incoming-ringing show-overlay session=$sessionId');
         setState(() {
           _incomingCallerId = callerId;
           _incomingSessionId = sessionId;
@@ -395,6 +409,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final svc = FirebaseChatService.instance;
 
     try {
+      _debugDirectCall('accept session=$sessionId caller=$callerId');
       // Update RTDB status to 'accepted' so caller knows
       await svc.writeCallStatus(userId, 'accepted');
 
@@ -462,6 +477,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     final svc = FirebaseChatService.instance;
 
+    _debugDirectCall('reject user=$userId');
     // Update RTDB status so caller gets notified
     svc.writeCallStatus(userId, 'declined').catchError((Object error) {
       if (isAuthSessionInvalidError(error)) {
