@@ -104,6 +104,8 @@ Target: Tango-style live discovery feed at real supply scale, not a filtered use
   - `features/chat/live_preview_widget.dart`
 - Conversations and messages are Firestore-owned.
 - Chat images are Storage-owned and uploaded only after bounded JPEG preparation.
+- Plus tray shows only supported media actions: Camera and Photos. Do not show disabled or "soon" media actions.
+- Tapping any sent or received chat image opens a full-screen image viewer with pinch/pan zoom and a clear close control.
 - Presence and identity display use RTDB cache through `FirebaseChatService`.
 - Text and media sends are optimistic but must be verified by committed Firestore message state.
 - Push relay is best-effort after Firestore commit.
@@ -154,7 +156,6 @@ These are product ideas, not current completion claims:
 - mini-live after room exit
 - message reactions
 - typing indicator
-- video send
 - reusable gift picker across inbox, calls, random calls, normal live, and premium live
 - deeper revenue/payout statement
 - persisted notification preferences

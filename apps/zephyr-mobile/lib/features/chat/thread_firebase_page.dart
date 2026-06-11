@@ -61,6 +61,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   bool _loadingMore = false;
   bool _hasMore = true;
   bool _streamReady = false;
+  String? _pressedMediaAction;
   String? _threadError;
   _MediaDraft? _mediaDraft;
   final Map<String, FirebaseMessage> _optimisticMessages = {};
@@ -939,86 +940,150 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   }
 
   Widget _buildMediaTray(bool isDark) {
-    if (!_mediaTrayOpen) return const SizedBox.shrink();
-    return Container(
-      height: 104,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF171717) : const Color(0xFFF8F8FA),
-        border: Border(
-          top: BorderSide(
-            color: isDark
-                ? Colors.white10
-                : Colors.black.withValues(alpha: 0.06),
-          ),
-        ),
-      ),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          _buildMediaTrayTile(
-            icon: Icons.photo_camera_rounded,
-            label: 'Camera',
-            isDark: isDark,
-            onTap: () => _selectMedia(ImageSource.camera),
-          ),
-          _buildMediaTrayTile(
-            icon: Icons.videocam_rounded,
-            label: 'Video',
-            isDark: isDark,
-            disabled: true,
-            onTap: () {},
-          ),
-          _buildMediaTrayTile(
-            icon: Icons.photo_library_rounded,
-            label: 'Photos',
-            isDark: isDark,
-            onTap: () => _selectMedia(ImageSource.gallery),
-          ),
-        ],
-      ),
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 180),
+      reverseDuration: const Duration(milliseconds: 140),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return SizeTransition(
+          sizeFactor: animation,
+          axisAlignment: -1,
+          child: FadeTransition(opacity: animation, child: child),
+        );
+      },
+      child: !_mediaTrayOpen
+          ? const SizedBox.shrink(key: ValueKey('media-tray-closed'))
+          : Container(
+              key: const ValueKey('media-tray-open'),
+              height: 96,
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF171717)
+                    : const Color(0xFFF8F8FA),
+                border: Border(
+                  top: BorderSide(
+                    color: isDark
+                        ? Colors.white10
+                        : Colors.black.withValues(alpha: 0.06),
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildMediaTrayTile(
+                      actionId: 'camera',
+                      icon: Icons.photo_camera_rounded,
+                      label: 'Camera',
+                      isDark: isDark,
+                      onTap: () => _selectMedia(ImageSource.camera),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildMediaTrayTile(
+                      actionId: 'photos',
+                      icon: Icons.photo_library_rounded,
+                      label: 'Photos',
+                      isDark: isDark,
+                      onTap: () => _selectMedia(ImageSource.gallery),
+                    ),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 
   Widget _buildMediaTrayTile({
+    required String actionId,
     required IconData icon,
     required String label,
     required bool isDark,
     required VoidCallback onTap,
-    bool disabled = false,
   }) {
-    final Color accent = disabled ? Colors.grey : const Color(0xFFFF8F00);
-    return GestureDetector(
-      onTap: disabled ? null : onTap,
-      child: Container(
-        width: 82,
-        margin: const EdgeInsets.only(right: 10),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF242424) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: disabled
-                ? Colors.grey.withValues(alpha: 0.25)
-                : accent.withValues(alpha: 0.28),
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: accent, size: 26),
-            const SizedBox(height: 8),
-            Text(
-              disabled ? '$label soon' : label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: disabled
-                    ? Colors.grey
-                    : (isDark ? Colors.white : Colors.black87),
+    final bool pressed = _pressedMediaAction == actionId;
+    const Color accent = Color(0xFFFF8F00);
+    final Color base = isDark ? const Color(0xFF242424) : Colors.white;
+    final Color textColor = isDark ? Colors.white : Colors.black87;
+    final Color shadowColor = Colors.black.withValues(
+      alpha: isDark ? 0.22 : 0.08,
+    );
+
+    void setPressed(bool value) {
+      if (_pressedMediaAction == (value ? actionId : null)) return;
+      setState(() => _pressedMediaAction = value ? actionId : null);
+    }
+
+    return AnimatedScale(
+      scale: pressed ? 0.97 : 1,
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOutCubic,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          onTapDown: (_) => setPressed(true),
+          onTapCancel: () => setPressed(false),
+          onTapUp: (_) => setPressed(false),
+          borderRadius: BorderRadius.circular(8),
+          splashColor: accent.withValues(alpha: 0.16),
+          highlightColor: accent.withValues(alpha: 0.08),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: pressed ? accent.withValues(alpha: 0.10) : base,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: pressed
+                    ? accent.withValues(alpha: 0.82)
+                    : accent.withValues(alpha: 0.28),
               ),
+              boxShadow: pressed
+                  ? const []
+                  : [
+                      BoxShadow(
+                        color: shadowColor,
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
             ),
-          ],
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOutCubic,
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: pressed ? 0.24 : 0.14),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: accent, size: 22),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1071,6 +1136,139 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageImageThumbnail({
+    required FirebaseMessage message,
+    required bool isDark,
+    required bool isOptimistic,
+    required String? sendError,
+  }) {
+    final File? localFile = _pendingImageFiles[message.id];
+    final String? imageUrl = message.imageUrl?.trim();
+    final bool canOpen =
+        localFile != null || (imageUrl != null && imageUrl.isNotEmpty);
+
+    final Widget thumbnail = ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 210,
+        height: 160,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (localFile != null)
+              Image.file(localFile, fit: BoxFit.cover)
+            else if (imageUrl != null && imageUrl.isNotEmpty)
+              CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else
+              ColoredBox(
+                color: isDark ? Colors.black26 : Colors.grey.shade200,
+                child: const Center(child: Icon(Icons.image_outlined)),
+              ),
+            if (canOpen)
+              Positioned(
+                right: 8,
+                top: 8,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.38),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.all(5),
+                    child: Icon(
+                      Icons.open_in_full_rounded,
+                      color: Colors.white,
+                      size: 13,
+                    ),
+                  ),
+                ),
+              ),
+            if (isOptimistic && sendError == null)
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.24),
+                  ),
+                  child: Center(
+                    child: SizedBox(
+                      width: 34,
+                      height: 34,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        value: _pendingImageProgress[message.id],
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (sendError != null)
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.46),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.error_outline_rounded,
+                      color: Color(0xFFE53935),
+                      size: 34,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    final Widget hero = canOpen
+        ? Hero(tag: _imageHeroTag(message.id), child: thumbnail)
+        : thumbnail;
+
+    if (!canOpen) return hero;
+
+    return Semantics(
+      button: true,
+      label: 'Open photo',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _openImageViewer(
+          messageId: message.id,
+          file: localFile,
+          imageUrl: imageUrl,
+        ),
+        child: hero,
+      ),
+    );
+  }
+
+  String _imageHeroTag(String messageId) => 'chat-image-$messageId';
+
+  void _openImageViewer({
+    required String messageId,
+    File? file,
+    String? imageUrl,
+  }) {
+    if (file == null && (imageUrl == null || imageUrl.isEmpty)) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => _ChatImageViewer(
+          file: file,
+          imageUrl: imageUrl,
+          heroTag: _imageHeroTag(messageId),
         ),
       ),
     );
@@ -1409,114 +1607,11 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                                 crossAxisAlignment:
                                                     CrossAxisAlignment.start,
                                                 children: [
-                                                  ClipRRect(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          12,
-                                                        ),
-                                                    child: SizedBox(
-                                                      width: 210,
-                                                      height: 160,
-                                                      child: Stack(
-                                                        fit: StackFit.expand,
-                                                        children: [
-                                                          if (_pendingImageFiles
-                                                              .containsKey(
-                                                                msg.id,
-                                                              ))
-                                                            Image.file(
-                                                              _pendingImageFiles[msg
-                                                                  .id]!,
-                                                              fit: BoxFit.cover,
-                                                            )
-                                                          else if (msg
-                                                                  .imageUrl !=
-                                                              null)
-                                                            CachedNetworkImage(
-                                                              imageUrl:
-                                                                  msg.imageUrl!,
-                                                              fit: BoxFit.cover,
-                                                              placeholder:
-                                                                  (
-                                                                    _,
-                                                                    __,
-                                                                  ) => const Center(
-                                                                    child: CircularProgressIndicator(
-                                                                      strokeWidth:
-                                                                          2,
-                                                                    ),
-                                                                  ),
-                                                            )
-                                                          else
-                                                            ColoredBox(
-                                                              color: isDark
-                                                                  ? Colors
-                                                                        .black26
-                                                                  : Colors
-                                                                        .grey
-                                                                        .shade200,
-                                                              child: const Center(
-                                                                child: Icon(
-                                                                  Icons
-                                                                      .image_outlined,
-                                                                ),
-                                                              ),
-                                                            ),
-                                                          if (isOptimistic &&
-                                                              sendError == null)
-                                                            Positioned.fill(
-                                                              child: DecoratedBox(
-                                                                decoration: BoxDecoration(
-                                                                  color: Colors
-                                                                      .black
-                                                                      .withValues(
-                                                                        alpha:
-                                                                            0.24,
-                                                                      ),
-                                                                ),
-                                                                child: Center(
-                                                                  child: SizedBox(
-                                                                    width: 34,
-                                                                    height: 34,
-                                                                    child: CircularProgressIndicator(
-                                                                      strokeWidth:
-                                                                          3,
-                                                                      value:
-                                                                          _pendingImageProgress[msg
-                                                                              .id],
-                                                                      color: Colors
-                                                                          .white,
-                                                                    ),
-                                                                  ),
-                                                                ),
-                                                              ),
-                                                            ),
-                                                          if (sendError != null)
-                                                            Positioned.fill(
-                                                              child: DecoratedBox(
-                                                                decoration: BoxDecoration(
-                                                                  color: Colors
-                                                                      .black
-                                                                      .withValues(
-                                                                        alpha:
-                                                                            0.46,
-                                                                      ),
-                                                                ),
-                                                                child: const Center(
-                                                                  child: Icon(
-                                                                    Icons
-                                                                        .error_outline_rounded,
-                                                                    color: Color(
-                                                                      0xFFE53935,
-                                                                    ),
-                                                                    size: 34,
-                                                                  ),
-                                                                ),
-                                                              ),
-                                                            ),
-                                                        ],
-                                                      ),
-                                                    ),
+                                                  _buildMessageImageThumbnail(
+                                                    message: msg,
+                                                    isDark: isDark,
+                                                    isOptimistic: isOptimistic,
+                                                    sendError: sendError,
                                                   ),
                                                   if (msg.body.isNotEmpty) ...[
                                                     const SizedBox(height: 8),
@@ -1799,5 +1894,64 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     );
     // Bump generation so preview rebuilds fresh with a new engine
     if (mounted) setState(() => _previewGen++);
+  }
+}
+
+class _ChatImageViewer extends StatelessWidget {
+  const _ChatImageViewer({this.file, this.imageUrl, required this.heroTag});
+
+  final File? file;
+  final String? imageUrl;
+  final String heroTag;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget image = file != null
+        ? Image.file(file!, fit: BoxFit.contain)
+        : CachedNetworkImage(
+            imageUrl: imageUrl!,
+            fit: BoxFit.contain,
+            placeholder: (_, __) =>
+                const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            errorWidget: (_, __, ___) => const Center(
+              child: Icon(
+                Icons.broken_image_outlined,
+                color: Colors.white70,
+                size: 44,
+              ),
+            ),
+          );
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Center(
+                child: InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  clipBehavior: Clip.none,
+                  child: Hero(tag: heroTag, child: image),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton.filled(
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.14),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
