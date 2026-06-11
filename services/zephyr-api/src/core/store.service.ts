@@ -430,7 +430,7 @@ export class StoreService implements OnModuleInit {
         );
       }
     }
-    // Fallback defaults matching PRODUCT.md
+    // Fallback defaults matching docs/product/product-model.md
     this.cachedCallRateTiers = [
       {
         label: '≤Lv3',

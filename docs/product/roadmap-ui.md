@@ -1,0 +1,161 @@
+# Zephyr UX Reference
+
+This file owns screen and interaction contracts only. It does not own completion status, grades, blockers, or release history. Current launch state lives in [current-state.md](./current-state.md), and current quality grades live in [audit-log.md](./audit-log.md).
+
+## Onboarding
+
+### Login
+
+- File: `apps/zephyr-mobile/lib/features/onboarding/onboarding_page.dart`
+- Dark premium visual direction with mascot branding for internal testing.
+- Apple Sign-In on iOS and Google Sign-In everywhere supported.
+- No guest login.
+- API offline warning checks `/v1/health/live`.
+- Buttons disable during loading.
+- User-facing errors must use product-safe copy, not raw exception strings.
+- Legal links open Terms of Service and Privacy Policy.
+- Success route: incomplete profile goes to profile setup; completed profile enters home.
+
+### Profile Setup
+
+- File: `apps/zephyr-mobile/lib/features/onboarding/profile_setup_screen.dart`
+- Two-step flow: gender, then language.
+- Gender/language display text must map to stable backend values.
+- Female host onboarding may persist a default host cover only when `coverUrl` is empty.
+- Save path must update backend profile and RTDB `profiles/{userId}` before entering home.
+- Profile setup must be idempotent for incomplete saved sessions.
+
+## App Shell
+
+- Root file: `apps/zephyr-mobile/lib/features/home/home_screen.dart`
+- Shared Zephyr header owns avatar/profile entry plus wallet/spark context.
+- Footer destinations:
+
+| Index | Label | Primary file |
+|---|---|---|
+| 0 | For you | `features/home/widgets/for_you_feed.dart` |
+| 1 | Following | `features/home/widgets/follow_feed.dart` |
+| 2 | Live | `features/live/go_live_countdown_page.dart` -> `features/live/host_live_screen.dart` |
+| 3 | Explore | `features/explore/explore_page.dart` |
+| 4 | Inbox | `features/chat/inbox_firebase_page.dart` |
+
+Inbox badge displays unread count with a 99+ cap.
+
+## For You
+
+Target: Tango-style live discovery feed at real supply scale, not a filtered user directory.
+
+- Shared Zephyr header plus dense `HostCardGrid`.
+- Two columns, thin gutters, mostly rectangular cards.
+- No visible user filter.
+- Feed should scale to hundreds/thousands of live host cards per day; the visible grid is only the viewport.
+- Requests live-only paged feed data; offline hosts must not appear as normal For you cards.
+- Uses persisted host `coverUrl` first.
+- Female hosts get one identity-seeded default local cover during onboarding when empty.
+- Uploaded covers override default covers.
+- Card shows viewer count.
+- Main card/image tap enters the host live room when a live `roomId` exists.
+- Avatar/name/flag identity strip opens the host profile.
+- Pull-to-refresh reloads the live set.
+- Infinite scroll/lazy loading uses `limit` + `offset`.
+- Empty state shows customer Random match CTA rather than fake suggested cards.
+- Later polish: short live preview while scrolling, header/footer hide-on-scroll, and mini-live after leaving a room.
+
+## Following
+
+- Reuses the `HostCardGrid` visual pattern.
+- Filters to followed users only.
+- Empty state tells users to follow someone.
+- Customer accounts may see a Random match entry from this tab, including empty states.
+
+## Live
+
+### Go Live Entry
+
+- File: `features/live/go_live_countdown_page.dart`
+- Shows a focused live-start CTA and 3-2-1 countdown before host screen.
+
+### Host Screen
+
+- File: `features/live/host_live_screen.dart`
+- Agora broadcaster role.
+- Host controls: flip camera, mute, end.
+- Uses `LiveRoomRealtime` for room realtime events.
+- Presence intent goes through `PresenceRealtime`, not raw RTDB writes.
+
+### Viewer Screen
+
+- File: `features/live/viewer_live_screen.dart`
+- Agora audience role.
+- Shows remote video, comments, reactions, gifts, and viewer context.
+- Viewer audience state uses per-viewer RTDB cells.
+
+## Explore
+
+- File: `features/explore/explore_page.dart`
+- Search users by display name or 8-digit public ID.
+- Profile entry must use the same profile/call/follow contracts as feed cards.
+
+## Inbox
+
+- Files:
+  - `features/chat/inbox_firebase_page.dart`
+  - `features/chat/thread_firebase_page.dart`
+  - `features/chat/live_preview_widget.dart`
+- Conversations and messages are Firestore-owned.
+- Chat images are Storage-owned and uploaded only after bounded JPEG preparation.
+- Presence and identity display use RTDB cache through `FirebaseChatService`.
+- Text and media sends are optimistic but must be verified by committed Firestore message state.
+- Push relay is best-effort after Firestore commit.
+- Permission recovery must refresh the session-bound Firebase token before retrying.
+- Product-safe error copy only; never show raw Firebase/Storage/network text.
+
+## Calls
+
+### Direct Call
+
+- File: `features/call/direct_call_screen.dart`
+- Uses Agora for media and backend/Postgres for billing.
+- Signaling goes through `DirectCallSignals`.
+- Presence transitions go through `PresenceRealtime`.
+- In-call report entry and post-call Message/Report/Done actions remain part of the safety UX.
+
+### Random Call
+
+- Files:
+  - `features/call/random_call_screen.dart`
+  - `features/call/random_call_invite_ribbon.dart`
+- Customer starts seek through backend REST.
+- Host receives invite ribbon outside the random-call screen.
+- Accept routes into shared direct-call engine in random mode.
+- Decline, timeout, partner-left, next, and end must clean up through backend/realtime contracts.
+
+## Me, Profile, Wallet, Settings
+
+- Files:
+  - `features/me/me_tab.dart`
+  - `features/profile/my_profile_page.dart`
+  - `features/profile/profile_page.dart`
+  - `features/me/balance_page.dart`
+  - `features/me/call_price_page.dart`
+  - `features/me/level_page.dart`
+  - `features/me/revenue_page.dart`
+  - `features/me/settings_page.dart`
+- Me dashboard surfaces wallet, sparks, revenue, and call-price context.
+- Profile avatar/cover edits must preserve full returned profile state.
+- Wallet uses store-localized IAP prices when available and explicit catalog status when not.
+- Settings subpages should not be dead rows; unavailable platform controls should deep-link or show honest product-safe copy.
+
+## Deferred UX
+
+These are product ideas, not current completion claims:
+
+- short live preview while scrolling
+- mini-live after room exit
+- message reactions
+- typing indicator
+- video send
+- reusable gift picker across inbox, calls, random calls, normal live, and premium live
+- deeper revenue/payout statement
+- persisted notification preferences
+- admin/moderation panel
