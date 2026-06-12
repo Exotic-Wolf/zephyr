@@ -7,10 +7,19 @@ import 'firebase_realtime_database.dart';
 import 'rtdb_contracts.dart';
 
 class PresenceRealtime {
-  PresenceRealtime({FirebaseDatabase? database})
-    : _rtdb = database ?? createZephyrRealtimeDatabase();
+  PresenceRealtime({
+    FirebaseDatabase? database,
+    PresenceRealtimeStore? store,
+    Duration listenerRetryDelay = const Duration(seconds: 2),
+  }) : _store =
+           store ??
+           FirebasePresenceRealtimeStore(
+             database ?? createZephyrRealtimeDatabase(),
+           ),
+       _listenerRetryDelay = listenerRetryDelay;
 
-  final FirebaseDatabase _rtdb;
+  final PresenceRealtimeStore _store;
+  final Duration _listenerRetryDelay;
   String? _myUserId;
 
   bool _isLive = false;
@@ -28,9 +37,10 @@ class PresenceRealtime {
   final Map<String, String> _presenceCache = {};
   final Map<String, String> _presenceRoomCache = {};
   final Map<String, DateTime> _demoNextRotationCache = {};
-  final Map<String, StreamSubscription<DatabaseEvent>> _presenceSubs = {};
+  final Map<String, StreamSubscription<Object?>> _presenceSubs = {};
   final Map<String, DateTime> _presenceLastAccess = {};
-  StreamSubscription<DatabaseEvent>? _connectedSub;
+  final Map<String, Timer> _presenceRetryTimers = {};
+  StreamSubscription<Object?>? _connectedSub;
 
   static const int _maxPresenceSubs = 50;
 
@@ -78,50 +88,93 @@ class PresenceRealtime {
         _presenceLastAccess.remove(evict);
       }
 
+      _presenceRetryTimers.remove(uid)?.cancel();
       _presenceLastAccess[uid] = DateTime.now();
-      _presenceSubs[uid] = _rtdb.ref('presence/$uid').onValue.listen((event) {
-        final data = event.snapshot.value;
-        final String state = RtdbPresenceContract.displayStatus(data);
-        final String? roomId = RtdbPresenceContract.liveRoomId(data);
-        final DateTime? demoNextRotationAt =
-            RtdbPresenceContract.demoNextRotationAt(data);
-
-        final bool changed =
-            _presenceCache[uid] != state ||
-            _presenceRoomCache[uid] != roomId ||
-            _demoNextRotationCache[uid] != demoNextRotationAt;
-
-        _presenceCache[uid] = state;
-        if (roomId != null) {
-          _presenceRoomCache[uid] = roomId;
-        } else {
-          _presenceRoomCache.remove(uid);
-        }
-        if (demoNextRotationAt != null) {
-          _demoNextRotationCache[uid] = demoNextRotationAt;
-        } else {
-          _demoNextRotationCache.remove(uid);
-        }
-
-        if (changed) {
-          version.value++;
-        }
-      });
+      _presenceSubs[uid] = _store
+          .watchValue('presence/$uid')
+          .listen(
+            (data) => _handlePresenceValue(uid, data),
+            onError: (Object error) => _handlePresenceError(uid, error),
+          );
     }
   }
 
+  void _handlePresenceValue(String uid, Object? data) {
+    final String state = RtdbPresenceContract.displayStatus(data);
+    final String? roomId = RtdbPresenceContract.liveRoomId(data);
+    final DateTime? demoNextRotationAt =
+        RtdbPresenceContract.demoNextRotationAt(data);
+
+    final bool changed =
+        _presenceCache[uid] != state ||
+        _presenceRoomCache[uid] != roomId ||
+        _demoNextRotationCache[uid] != demoNextRotationAt;
+
+    _presenceCache[uid] = state;
+    if (roomId != null) {
+      _presenceRoomCache[uid] = roomId;
+    } else {
+      _presenceRoomCache.remove(uid);
+    }
+    if (demoNextRotationAt != null) {
+      _demoNextRotationCache[uid] = demoNextRotationAt;
+    } else {
+      _demoNextRotationCache.remove(uid);
+    }
+
+    if (changed) {
+      version.value++;
+    }
+  }
+
+  void _handlePresenceError(String uid, Object error) {
+    assert(() {
+      debugPrint('[PresenceRealtime] listener error user=$uid error=$error');
+      return true;
+    }());
+    _presenceSubs.remove(uid)?.cancel();
+    _presenceLastAccess.remove(uid);
+
+    final bool removedPresence = _presenceCache.remove(uid) != null;
+    final bool removedRoom = _presenceRoomCache.remove(uid) != null;
+    final bool removedDemoRotation = _demoNextRotationCache.remove(uid) != null;
+    final bool removedCachedState =
+        removedPresence || removedRoom || removedDemoRotation;
+    if (removedCachedState) {
+      version.value++;
+    }
+
+    _presenceRetryTimers.remove(uid)?.cancel();
+    _presenceRetryTimers[uid] = Timer(_listenerRetryDelay, () {
+      _presenceRetryTimers.remove(uid);
+      warm(<String>[uid]);
+    });
+  }
+
   void _setupPresence(String userId) {
-    final DatabaseReference presenceRef = _rtdb.ref('presence/$userId');
-    final DatabaseReference connectedRef = _rtdb.ref('.info/connected');
+    final String presencePath = 'presence/$userId';
 
     _connectedSub?.cancel();
-    _connectedSub = connectedRef.onValue.listen((DatabaseEvent event) {
-      final bool connected = event.snapshot.value as bool? ?? false;
+    _connectedSub = _store.watchValue('.info/connected').listen((value) {
+      final bool connected = value as bool? ?? false;
       if (!connected) return;
 
-      presenceRef.onDisconnect().set(_offlinePresencePayload());
-      presenceRef.set(_currentPresencePayload());
+      unawaited(_writeConnectedPresence(presencePath));
     });
+  }
+
+  Future<void> _writeConnectedPresence(String presencePath) async {
+    try {
+      await _store.onDisconnectSet(presencePath, _offlinePresencePayload());
+      await _store.set(presencePath, _currentPresencePayload());
+    } catch (error) {
+      assert(() {
+        debugPrint(
+          '[PresenceRealtime] connected presence write failed path=$presencePath error=$error',
+        );
+        return true;
+      }());
+    }
   }
 
   Map<String, dynamic> _presencePayload({
@@ -319,13 +372,13 @@ class PresenceRealtime {
   Future<void> writeCurrent() {
     final uid = _myUserId;
     if (uid == null) return Future<void>.value();
-    return _rtdb.ref('presence/$uid').set(_currentPresencePayload());
+    return _store.set('presence/$uid', _currentPresencePayload());
   }
 
   Stream<Map<String, dynamic>> watch(String userId) {
-    return _rtdb.ref('presence/$userId').onValue.map((DatabaseEvent event) {
-      return RtdbPresenceContract.normalize(event.snapshot.value);
-    });
+    return _store
+        .watchValue('presence/$userId')
+        .map(RtdbPresenceContract.normalize);
   }
 
   void setLive({String? roomId}) {
@@ -408,7 +461,7 @@ class PresenceRealtime {
     }
     final uid = _myUserId;
     if (uid == null) return;
-    _rtdb.ref('presence/$uid').set(_awayPresencePayload());
+    _store.set('presence/$uid', _awayPresencePayload());
   }
 
   void setBackgroundOffline() {
@@ -452,9 +505,9 @@ class PresenceRealtime {
   Future<void> setOffline() async {
     final uid = _myUserId;
     if (uid == null) return;
-    final ref = _rtdb.ref('presence/$uid');
-    await ref.onDisconnect().cancel();
-    await ref.set(_offlinePresencePayload());
+    final String path = 'presence/$uid';
+    await _store.onDisconnectCancel(path);
+    await _store.set(path, _offlinePresencePayload());
     await _connectedSub?.cancel();
     _connectedSub = null;
   }
@@ -468,6 +521,10 @@ class PresenceRealtime {
     }
     _presenceSubs.clear();
     _presenceLastAccess.clear();
+    for (final timer in _presenceRetryTimers.values) {
+      timer.cancel();
+    }
+    _presenceRetryTimers.clear();
     _presenceCache.clear();
     _presenceRoomCache.clear();
     _demoNextRotationCache.clear();
@@ -484,5 +541,40 @@ class PresenceRealtime {
     _busyActivity = 'direct_call';
     _isBackground = false;
     _myUserId = null;
+  }
+}
+
+abstract class PresenceRealtimeStore {
+  Stream<Object?> watchValue(String path);
+  Future<void> set(String path, Object? value);
+  Future<void> onDisconnectSet(String path, Object? value);
+  Future<void> onDisconnectCancel(String path);
+}
+
+class FirebasePresenceRealtimeStore implements PresenceRealtimeStore {
+  FirebasePresenceRealtimeStore(this._rtdb);
+
+  final FirebaseDatabase _rtdb;
+
+  @override
+  Stream<Object?> watchValue(String path) {
+    return _rtdb.ref(path).onValue.map((DatabaseEvent event) {
+      return event.snapshot.value;
+    });
+  }
+
+  @override
+  Future<void> set(String path, Object? value) {
+    return _rtdb.ref(path).set(value);
+  }
+
+  @override
+  Future<void> onDisconnectSet(String path, Object? value) {
+    return _rtdb.ref(path).onDisconnect().set(value);
+  }
+
+  @override
+  Future<void> onDisconnectCancel(String path) {
+    return _rtdb.ref(path).onDisconnect().cancel();
   }
 }

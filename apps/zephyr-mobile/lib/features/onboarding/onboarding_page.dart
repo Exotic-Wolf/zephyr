@@ -269,7 +269,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final sessionNotice = _visibleSessionNotice;
-    final double screenH = MediaQuery.of(context).size.height;
     final double bottomPad = MediaQuery.of(context).padding.bottom;
     final bool showApple = widget.showAppleSignIn ?? Platform.isIOS;
 
@@ -297,181 +296,244 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
           // ── Content ───────────────────────────────────────────────────────
           SafeArea(
-            child: Column(
-              children: <Widget>[
-                // ── Top: mascot branding (60% of screen) ─────────────────
-                SizedBox(
-                  height: screenH * 0.58,
-                  child: Center(
-                    child:
-                        widget.brandHero ??
-                        Image.asset(
-                          'assets/images/zephyr_mascot.png',
-                          width: MediaQuery.of(context).size.width * 0.85,
-                          fit: BoxFit.contain,
-                        ),
-                  ),
-                ),
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final bool needsCompactHero =
+                    constraints.maxHeight < 720 ||
+                    sessionNotice != null ||
+                    _apiOffline ||
+                    _error != null;
+                final double heroFraction = needsCompactHero ? 0.48 : 0.58;
+                final double minHeroHeight = constraints.maxHeight < 640
+                    ? 200
+                    : 240;
+                final double naturalMaxHeroHeight =
+                    constraints.maxHeight * 0.58;
+                final double maxHeroHeight =
+                    naturalMaxHeroHeight < minHeroHeight
+                    ? minHeroHeight
+                    : naturalMaxHeroHeight;
+                final double heroHeight = (constraints.maxHeight * heroFraction)
+                    .clamp(minHeroHeight, maxHeroHeight)
+                    .toDouble();
 
-                // ── Bottom: buttons ───────────────────────────────────────
-                Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(28, 0, 28, bottomPad + 24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: <Widget>[
-                        // Offline warning
-                        if (_apiOffline)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: <Widget>[
-                                const Icon(
-                                  Icons.wifi_off_rounded,
-                                  color: Colors.orange,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  l10n.apiOffline,
-                                  style: const TextStyle(
-                                    color: Colors.orange,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
+                return Column(
+                  children: <Widget>[
+                    // ── Top: mascot branding ──────────────────────────────
+                    SizedBox(
+                      height: heroHeight,
+                      child: Center(
+                        child:
+                            widget.brandHero ??
+                            Image.asset(
+                              'assets/images/zephyr_mascot.png',
+                              width: MediaQuery.of(context).size.width * 0.85,
+                              height: heroHeight * 0.9,
+                              fit: BoxFit.contain,
                             ),
-                          ),
-
-                        if (sessionNotice != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(
-                                  0xFFFF8F00,
-                                ).withValues(alpha: 0.16),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: const Color(
-                                    0xFFFFB347,
-                                  ).withValues(alpha: 0.36),
-                                ),
-                              ),
-                              child: Text(
-                                sessionNotice,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Color(0xFFFFD7A3),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.25,
-                                ),
-                              ),
-                            ),
-                          ),
-
-                        // Apple button (iOS only, shown first)
-                        if (showApple) ...<Widget>[
-                          _SignInButton(
-                            onTap: _googleLoading || _appleLoading
-                                ? null
-                                : _continueWithApple,
-                            loading: _appleLoading,
-                            semanticLabel: l10n.continueWithApple,
-                            backgroundColor: Colors.black,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: <Widget>[
-                                if (!_appleLoading)
-                                  const Icon(
-                                    Icons.apple,
-                                    color: Colors.white,
-                                    size: 22,
-                                  ),
-                                if (!_appleLoading) const SizedBox(width: 8),
-                                Text(
-                                  _appleLoading
-                                      ? l10n.signingIn
-                                      : l10n.continueWithApple,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-
-                        // Google button
-                        _SignInButton(
-                          onTap: _googleLoading || _appleLoading
-                              ? null
-                              : _continueWithGoogle,
-                          loading: _googleLoading,
-                          semanticLabel: l10n.continueWithGoogle,
-                          backgroundColor: const Color(0xFF2A2A2A),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: <Widget>[
-                              // Google "G" logo colours
-                              if (!_googleLoading) const _GoogleLogo(),
-                              if (!_googleLoading) const SizedBox(width: 10),
-                              Text(
-                                _googleLoading
-                                    ? l10n.signingIn
-                                    : l10n.continueWithGoogle,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Error
-                        if (_error != null) ...<Widget>[
-                          const SizedBox(height: 16),
-                          Text(
-                            _error!,
-                            style: const TextStyle(
-                              color: Colors.redAccent,
-                              fontSize: 13,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-
-                        // Legal links
-                        const SizedBox(height: 16),
-                        Text(
-                          l10n.ageGateNotice,
-                          style: const TextStyle(
-                            color: Color(0xB3FFFFFF),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 4),
-                        _LegalLinks(l10n: l10n),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-              ],
+
+                    // ── Bottom: buttons ───────────────────────────────────
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder:
+                            (
+                              BuildContext context,
+                              BoxConstraints bottomConstraints,
+                            ) {
+                              final double bottomInset = bottomPad + 24;
+                              final double minBottomHeight =
+                                  bottomConstraints.maxHeight > bottomInset
+                                  ? bottomConstraints.maxHeight - bottomInset
+                                  : 0;
+
+                              return SingleChildScrollView(
+                                padding: EdgeInsets.fromLTRB(
+                                  28,
+                                  0,
+                                  28,
+                                  bottomInset,
+                                ),
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    minHeight: minBottomHeight,
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: <Widget>[
+                                      // Offline warning
+                                      if (_apiOffline)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 16,
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: <Widget>[
+                                              const Icon(
+                                                Icons.wifi_off_rounded,
+                                                color: Colors.orange,
+                                                size: 16,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                l10n.apiOffline,
+                                                style: const TextStyle(
+                                                  color: Colors.orange,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+
+                                      if (sessionNotice != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 16,
+                                          ),
+                                          child: Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 14,
+                                              vertical: 12,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(
+                                                0xFFFF8F00,
+                                              ).withValues(alpha: 0.16),
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              border: Border.all(
+                                                color: const Color(
+                                                  0xFFFFB347,
+                                                ).withValues(alpha: 0.36),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              sessionNotice,
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                color: Color(0xFFFFD7A3),
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w700,
+                                                height: 1.25,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+
+                                      // Apple button (iOS only, shown first)
+                                      if (showApple) ...<Widget>[
+                                        _SignInButton(
+                                          onTap: _googleLoading || _appleLoading
+                                              ? null
+                                              : _continueWithApple,
+                                          loading: _appleLoading,
+                                          semanticLabel: l10n.continueWithApple,
+                                          backgroundColor: Colors.black,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: <Widget>[
+                                              if (!_appleLoading)
+                                                const Icon(
+                                                  Icons.apple,
+                                                  color: Colors.white,
+                                                  size: 22,
+                                                ),
+                                              if (!_appleLoading)
+                                                const SizedBox(width: 8),
+                                              Text(
+                                                _appleLoading
+                                                    ? l10n.signingIn
+                                                    : l10n.continueWithApple,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                      ],
+
+                                      // Google button
+                                      _SignInButton(
+                                        onTap: _googleLoading || _appleLoading
+                                            ? null
+                                            : _continueWithGoogle,
+                                        loading: _googleLoading,
+                                        semanticLabel: l10n.continueWithGoogle,
+                                        backgroundColor: const Color(
+                                          0xFF2A2A2A,
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: <Widget>[
+                                            // Google "G" logo colours
+                                            if (!_googleLoading)
+                                              const _GoogleLogo(),
+                                            if (!_googleLoading)
+                                              const SizedBox(width: 10),
+                                            Text(
+                                              _googleLoading
+                                                  ? l10n.signingIn
+                                                  : l10n.continueWithGoogle,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
+                                      // Error
+                                      if (_error != null) ...<Widget>[
+                                        const SizedBox(height: 16),
+                                        Text(
+                                          _error!,
+                                          style: const TextStyle(
+                                            color: Colors.redAccent,
+                                            fontSize: 13,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
+
+                                      // Legal links
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        l10n.ageGateNotice,
+                                        style: const TextStyle(
+                                          color: Color(0xB3FFFFFF),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      _LegalLinks(l10n: l10n),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -513,16 +575,19 @@ class _SignInButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             onTap: onTap,
             child: Center(
-              child: loading
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: Colors.white,
-                      ),
-                    )
-                  : child,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: loading
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white,
+                        ),
+                      )
+                    : FittedBox(fit: BoxFit.scaleDown, child: child),
+              ),
             ),
           ),
         ),

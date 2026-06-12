@@ -750,9 +750,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     if (api == null || token == null || _calling) return;
 
     final svc = FirebaseChatService.instance;
-    final status = svc.presenceStateCached(widget.otherUserId) ?? 'offline';
-    if (status == 'offline' || status == 'busy' || status == 'premium_live') {
-      _showSnack('User is not available');
+    final status = svc.presenceStateCached(widget.otherUserId) ?? 'checking';
+    if (_isUnavailableForCall(status)) {
+      _showSnack(_callUnavailableMessage(status));
       return;
     }
 
@@ -917,9 +917,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     if (api == null || token == null || _calling) return;
 
     final svc = FirebaseChatService.instance;
-    final status = svc.presenceStateCached(widget.otherUserId) ?? 'offline';
-    if (status == 'offline' || status == 'busy' || status == 'premium_live') {
-      _showSnack('User is not available');
+    final status = svc.presenceStateCached(widget.otherUserId) ?? 'checking';
+    if (_isUnavailableForCall(status)) {
+      _showSnack(_callUnavailableMessage(status));
       return;
     }
 
@@ -1197,8 +1197,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     required bool isDark,
   }) {
     const Color accent = Color(0xFFFF8F00);
-    final bool unavailable =
-        status == 'offline' || status == 'busy' || status == 'premium_live';
+    final bool unavailable = _isUnavailableForCall(status);
     final bool enabled = !_calling && !unavailable;
     final Color disabledForeground = isDark
         ? Colors.white.withValues(alpha: 0.34)
@@ -1253,6 +1252,13 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     );
   }
 
+  bool _isUnavailableForCall(String status) {
+    return status == 'offline' ||
+        status == 'busy' ||
+        status == 'premium_live' ||
+        status == 'checking';
+  }
+
   String _callUnavailableMessage(String status) {
     final String name = widget.otherDisplayName.trim().isEmpty
         ? 'User'
@@ -1264,6 +1270,8 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
         return '$name is busy right now';
       case 'premium_live':
         return '$name is in premium live';
+      case 'checking':
+        return 'Checking $name availability';
       default:
         return '$name is not available for video call';
     }
@@ -1776,7 +1784,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                             final String state =
                                 FirebaseChatService.instance
                                     .presenceStateCached(widget.otherUserId) ??
-                                'offline';
+                                'checking';
                             final String label;
                             final Color color;
                             switch (state) {
@@ -1795,6 +1803,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                               case 'away':
                                 label = 'away';
                                 color = const Color(0xFFFFCC00);
+                              case 'checking':
+                                label = 'checking';
+                                color = Colors.grey.shade500;
                               default:
                                 label = 'offline';
                                 color = Colors.grey.shade500;
@@ -1821,7 +1832,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                   FirebaseChatService.instance.presenceStateCached(
                     widget.otherUserId,
                   ) ??
-                  'offline';
+                  'checking';
               return _buildCallActionButton(status: status, isDark: isDark);
             },
           ),

@@ -64,6 +64,48 @@ void main() {
     expect(find.text('Continue with Google'), findsOneWidget);
   });
 
+  testWidgets('onboarding stale-session notice fits compact safe-area phones', (
+    WidgetTester tester,
+  ) async {
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    const notice =
+        'This account was signed in on another device. Sign in again to continue on this device.';
+    const viewportSize = Size(402, 700);
+
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = viewportSize;
+
+    await tester.pumpWidget(
+      _localizedHost(
+        MediaQuery(
+          data: const MediaQueryData(
+            size: viewportSize,
+            padding: EdgeInsets.only(top: 59, bottom: 34),
+          ),
+          child: OnboardingScreen(
+            apiClient: _FakeApiClient(),
+            authGateway: _FakeAuthGateway(),
+            showAppleSignIn: true,
+            brandHero: const SizedBox(key: Key('test-hero'), height: 120),
+            sessionNotice: notice,
+            onLoginSuccess: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text(notice), findsOneWidget);
+    expect(find.text('Continue with Apple'), findsOneWidget);
+    expect(find.text('Continue with Google'), findsOneWidget);
+    expect(find.text('You must be 17+ to use Zephyr.'), findsOneWidget);
+  });
+
   testWidgets('stale-session notice does not block signing in again', (
     WidgetTester tester,
   ) async {

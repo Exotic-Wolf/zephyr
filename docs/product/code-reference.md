@@ -6,7 +6,7 @@ This file is a source-checked reference, not a launch-status report or architect
 
 When code changes a path, controller route, table, column, package, or generated contract, update this file in the same work slice.
 
-Last source check: 13 Jun 2026 against repository paths, Nest controller decorators, `DatabaseService` table creation, gift catalog/send/delivery-outbox contracts, `apps/zephyr-mobile/pubspec.yaml`, and package manifests.
+Last source check: 13 Jun 2026 against repository paths, Nest controller decorators, `DatabaseService` table creation, gift catalog/send/delivery-outbox contracts, mobile presence listener recovery, `apps/zephyr-mobile/pubspec.yaml`, and package manifests.
 
 ## Flutter App Structure (`apps/zephyr-mobile/lib/`)
 
@@ -21,7 +21,7 @@ Last source check: 13 Jun 2026 against repository paths, Nest controller decorat
 | `services/firebase_chat_service.dart` | Firebase facade for chat, Storage image prep/upload, and realtime module access |
 | `services/firebase_realtime_database.dart` | RTDB instance factory; do not create alternate RTDB singletons |
 | `services/rtdb_contracts.dart` | Pure RTDB contract/value-object helpers used by realtime facades to fail closed on malformed presence, profile, call-signal, and live-room payloads |
-| `services/presence_realtime.dart` | Owns `presence/{userId}` lifecycle, onDisconnect, LRU presence cache, and availability transitions |
+| `services/presence_realtime.dart` | Owns `presence/{userId}` lifecycle, onDisconnect-before-online writes, LRU presence cache, listener-error stale-cache invalidation/reattach, and availability transitions |
 | `services/realtime_profiles.dart` | Owns `profiles/{userId}` writes, profile cache, and profile listener lifecycle |
 | `services/direct_call_signals.dart` | Owns direct/random call signal cells under `direct_calls/{userId}` |
 | `services/live_room_realtime.dart` | Owns live-room RTDB audience, comments, reactions, status, and trusted gift listeners |

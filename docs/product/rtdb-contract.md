@@ -184,6 +184,8 @@ Mobile writes `Away` after 2 minutes of foreground inactivity across the app nav
 RTDB failures must fail closed:
 
 - Missing, denied, stale, or malformed `presence/{userId}` means the user is unavailable for routing until fresh canonical data is read.
+- `PresenceRealtime` must clear any cached `presence/{userId}` value, notify UI listeners, and reattach the RTDB listener after a presence listener error. Screens may show a transient `checking` state while the canonical value is unknown, but they must not keep rendering stale `offline`, `online`, `away`, `busy`, or live state as truth after the listener has failed.
+- Own-presence online writes must queue `onDisconnect` offline cleanup before writing the current online payload, matching Firebase's presence ordering guidance.
 - Missing `profiles/{userId}` may use safe display fallback only; it must not create a second identity source.
 - Missing `direct_calls/{userId}` means no active signal. Do not infer a call from UI state alone.
 - Direct-call setup must write the `direct_calls/{receiverUserId}` signal before scheduling `onDisconnect().remove()`, because delete permission is valid only after the caller-owned signal exists.
