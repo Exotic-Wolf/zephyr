@@ -259,7 +259,7 @@ curl -fsS --max-time 30 \
 ## Android Release Build
 
 ```bash
-# 1. Bump apps/zephyr-mobile/pubspec.yaml version above any Play-uploaded code.
+# 1. Bump apps/zephyr-mobile/pubspec.yaml build number before every Play/internal-test candidate AAB.
 # 2. Run the full gate when release behavior changed.
 pnpm check
 
@@ -275,11 +275,11 @@ ls -lh apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab
 
 Known local caveat: `flutter build appbundle` has reported native debug-symbol stripping failure on this Mac. Direct Gradle `:app:bundleRelease` succeeds and reads version metadata from `pubspec.yaml`. Current release builds still emit known non-fatal R8 Kotlin metadata and Gradle 9 deprecation warnings.
 
-Play upload caveat: if Play Console says "Version code X has already been used", that AAB cannot be reused. Bump the build number in `apps/zephyr-mobile/pubspec.yaml` above every Play-uploaded version code, rebuild with direct Gradle, then upload the newly generated AAB.
+Play upload caveat: if Play Console says "Version code X has already been used", that AAB cannot be reused. For Zephyr release candidates, treat every Play/internal-test AAB build as consuming its Android build number: bump the build number in `apps/zephyr-mobile/pubspec.yaml` before building the next candidate, keep it above every Play-uploaded version code, rebuild with direct Gradle, then upload the newly generated AAB.
 
 Release preflight:
 
-1. Confirm `pubspec.yaml` version/build is higher than any uploaded Play build.
+1. Bump and confirm `pubspec.yaml` version/build is higher than the last local Play/internal-test candidate and any uploaded Play build.
 2. Run `pnpm check`.
 3. Build with direct Gradle `:app:bundleRelease`.
 4. Verify package, version name, version code, and permissions from generated manifests.

@@ -28,7 +28,7 @@ Current launch blockers live in [current-state.md](./current-state.md). Architec
 
 | Area | Current grade | Evidence | Current gap | Owner doc |
 |---|---|---|---|---|
-| Closed/internal testing readiness | A- | Root `pnpm check` passed on 13 Jun 2026; fresh local AAB `1.0.23+25` exists and release manifest confirms version code `25` with the onboarding overflow and presence listener recovery fixes | Upload/test the AAB if Play has not already accepted code `25`, then complete manual launch-minimum smoke | `current-state.md` |
+| Closed/internal testing readiness | A- | Root `pnpm check` passed on 13 Jun 2026; fresh local AAB `1.0.23+26` exists and release manifest confirms version code `26` with the onboarding overflow and presence listener recovery fixes | Upload/test `1.0.23+26`, then complete manual launch-minimum smoke | `current-state.md` |
 | Minimum public Android launch | B+ | Core app, backend, Firebase rules, and signed AAB build path are in place | Play upload/acceptance, two-account smoke, Play IAP product/purchase smoke, store assets, Render billing stability, and launch operations remain | `current-state.md` |
 | Full Zephyr Live v1 vision | C+ | Core social/live/call/economy foundation exists and the reusable gift module is started with Inbox wired | Premium live, full gift migration, admin/moderation operations, production brand assets, and iOS release remain incomplete | `current-state.md` |
 | Onboarding | A | Google/Apple login, signed-in-elsewhere notice, compact safe-area overflow coverage, legal copy, and profile setup are implemented with tests | Keep smoke coverage during launch-minimum device test | `roadmap-ui.md` |

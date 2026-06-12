@@ -137,7 +137,7 @@ Stop and fix, contain, or ask before continuing when:
 - a shared model, DTO, route, listener, lifecycle hook, transaction, or Firebase path changed without adjacent-contract review
 - a fix needs scattered defensive conditionals instead of a change in the owning module
 - a regression or performance degradation appears in any previously working path
-- a deploy, release, schema migration, production Firebase rules deploy, version bump, or dependency addition is needed but was not explicitly requested
+- a deploy, release, schema migration, production Firebase rules deploy, dependency addition, or Play/internal-test AAB build without a freshly incremented Android build number is needed but was not explicitly requested
 
 For repeated regressions, production incidents, failed deploys, failed releases, payment/IAP issues, or cross-module failures, use the A3 record in `docs/product/operations.md`.
 
