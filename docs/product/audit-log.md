@@ -28,7 +28,7 @@ Current launch blockers live in [current-state.md](./current-state.md). Architec
 
 | Area | Current grade | Evidence | Current gap | Owner doc |
 |---|---|---|---|---|
-| Closed/internal testing readiness | A- | Root `pnpm check` passed on 11 Jun 2026; release AAB `1.0.21+23` exists | Manual launch-minimum smoke still open | `current-state.md` |
+| Closed/internal testing readiness | A- | Root `pnpm check` passed on 11 Jun 2026; release AAB `1.0.22+24` exists | Manual launch-minimum smoke still open | `current-state.md` |
 | Minimum public Android launch | B+ | Core app, backend, Firebase rules, and signed AAB are in place | Two-account smoke, Play IAP product/purchase smoke, store assets, Render billing stability, and launch operations remain | `current-state.md` |
 | Full Zephyr Live v1 vision | C+ | Core social/live/call/economy foundation exists and the reusable gift module is started with Inbox wired | Premium live, full gift migration, admin/moderation operations, production brand assets, and iOS release remain incomplete | `current-state.md` |
 | Onboarding | A | Google/Apple login, legal copy, and profile setup are implemented with tests | Keep smoke coverage during launch-minimum device test | `roadmap-ui.md` |
