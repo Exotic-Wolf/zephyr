@@ -208,6 +208,41 @@ curl -fsS -H "X-Service-Key: $SERVICE_KEY" -X POST https://zephyr-api-wr1s.onren
 
 Current `render.yaml` enables `DEMO_FOR_YOU_SIMULATOR_ENABLED=true` with `routeable=false`. Before public launch, deliberately decide whether the simulator should stay enabled; routeable fake hosts must remain disabled outside explicit tests.
 
+If For you shows "No one is live right now" during demo testing:
+
+1. Confirm the backend is not down:
+
+```bash
+curl -fsS https://zephyr-api-wr1s.onrender.com/v1/health/live
+curl -fsS https://zephyr-api-wr1s.onrender.com/v1/health/ready
+```
+
+2. Check simulator status. Do not print the key in logs or screenshots.
+
+```bash
+curl -fsS -H "X-Service-Key: $SERVICE_KEY" https://zephyr-api-wr1s.onrender.com/v1/internal/demo-for-you/status
+```
+
+3. If `enabled=true`, `firebaseReady=true`, but `running=false`, restart it:
+
+```bash
+curl -fsS --max-time 90 \
+  -H "X-Service-Key: $SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"count":24,"intervals":[15,30,60,120],"routeable":false}' \
+  https://zephyr-api-wr1s.onrender.com/v1/internal/demo-for-you/start
+```
+
+If the 24-host start times out, check status before retrying. If it still shows `running=false`, start 8 hosts first, then start 24 hosts again:
+
+```bash
+curl -fsS --max-time 30 \
+  -H "X-Service-Key: $SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"count":8,"intervals":[15,30,60,120],"routeable":false}' \
+  https://zephyr-api-wr1s.onrender.com/v1/internal/demo-for-you/start
+```
+
 ## Android Release Build
 
 ```bash

@@ -56,6 +56,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const int _forYouPageSize = 24;
+  static const Duration _resumeWorkDelay = Duration(milliseconds: 250);
+  static const Duration _feedRefreshDebounce = Duration(milliseconds: 350);
 
   UserProfile? _me;
   WalletSummary? _wallet;
@@ -77,6 +79,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _loadingMoreFeedCards = false;
   bool _firebaseRealtimeReady = false;
   bool _sessionInvalidated = false;
+  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
+  Timer? _resumeWorkTimer;
+  Timer? _feedRefreshTimer;
+  bool _refreshingFeed = false;
+  bool _feedRefreshQueued = false;
 
   // ── Incoming call state ───────────────────────────────────────────────────
   StreamSubscription<DatabaseEvent>? _incomingCallSub;
@@ -148,7 +155,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _onPresenceChanged() {
-    _refreshFeed();
+    if (_lifecycleState != AppLifecycleState.resumed) return;
+    _scheduleFeedRefresh();
+  }
+
+  void _scheduleFeedRefresh({Duration delay = _feedRefreshDebounce}) {
+    if (!mounted || _sessionInvalidated) return;
+    _feedRefreshTimer?.cancel();
+    _feedRefreshTimer = Timer(delay, () {
+      _feedRefreshTimer = null;
+      _refreshFeed().ignore();
+    });
+  }
+
+  void _scheduleForegroundResumeWork() {
+    _resumeWorkTimer?.cancel();
+    _resumeWorkTimer = Timer(_resumeWorkDelay, () {
+      _resumeWorkTimer = null;
+      if (!mounted ||
+          _sessionInvalidated ||
+          _lifecycleState != AppLifecycleState.resumed) {
+        return;
+      }
+
+      if (_firebaseRealtimeReady) {
+        FirebaseChatService.instance.restoreOnlineStatus();
+      }
+      _resetIdleTimer();
+      if (_firebaseRealtimeReady) {
+        _listenForIncomingCalls();
+      }
+      _scheduleFeedRefresh(delay: Duration.zero);
+    });
   }
 
   // ── Incoming call detection (RTDB-based) ───────────────────────────────────
@@ -501,6 +539,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _idleTimer?.cancel();
+    _resumeWorkTimer?.cancel();
+    _feedRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _convoDeliverySub?.cancel();
     _inboxBadgeSub?.cancel();
@@ -516,16 +556,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleState = state;
     if (state == AppLifecycleState.resumed) {
-      if (_firebaseRealtimeReady) {
-        FirebaseChatService.instance.restoreOnlineStatus();
-      }
-      _resetIdleTimer();
-      if (_firebaseRealtimeReady) {
-        _listenForIncomingCalls();
-      }
-      _refreshFeed();
+      _scheduleForegroundResumeWork();
     } else if (state == AppLifecycleState.paused) {
+      _resumeWorkTimer?.cancel();
+      _feedRefreshTimer?.cancel();
       _idleTimer?.cancel();
       _declineRandomCallInvite().ignore();
       if (_firebaseRealtimeReady) {
@@ -792,6 +828,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// Silently refreshes just the live feed cards (no loading spinner).
   Future<void> _refreshFeed() async {
     if (!mounted || _sessionInvalidated) return;
+    if (_refreshingFeed) {
+      _feedRefreshQueued = true;
+      return;
+    }
+    _refreshingFeed = true;
     try {
       final List<LiveFeedCard> feedCards = await widget.apiClient.listLiveFeed(
         widget.accessToken,
@@ -816,6 +857,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         await _expireSession();
       }
       // ignore — next poll will retry
+    } finally {
+      _refreshingFeed = false;
+      if (_feedRefreshQueued && mounted && !_sessionInvalidated) {
+        _feedRefreshQueued = false;
+        _scheduleFeedRefresh();
+      }
     }
   }
 
