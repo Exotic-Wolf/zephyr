@@ -2020,11 +2020,6 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                                   msg,
                                                 ),
                                                 isMine: isMe,
-                                                timeLabel: _formatTime(
-                                                  msg.createdAt,
-                                                ),
-                                                read: msg.readAt != null,
-                                                optimistic: isOptimistic,
                                               )
                                             else if (msg.type == 'image')
                                               Column(
@@ -2090,59 +2085,59 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                                   ),
                                                 ),
                                             ],
-                                            if (!isGift) ...[
-                                              const SizedBox(height: 3),
-                                              Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(
-                                                    _formatTime(msg.createdAt),
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      color: isMe
-                                                          ? Colors.black54
-                                                          : (isDark
-                                                                ? Colors
-                                                                      .grey
-                                                                      .shade500
-                                                                : Colors
-                                                                      .grey
-                                                                      .shade400),
-                                                    ),
+                                            const SizedBox(height: 3),
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  _formatTime(msg.createdAt),
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: isGift
+                                                        ? Colors.grey.shade500
+                                                        : isMe
+                                                        ? Colors.black54
+                                                        : (isDark
+                                                              ? Colors
+                                                                    .grey
+                                                                    .shade500
+                                                              : Colors
+                                                                    .grey
+                                                                    .shade400),
                                                   ),
-                                                  if (isMe) ...[
-                                                    const SizedBox(width: 3),
-                                                    if (sendError != null)
-                                                      _buildRetrySendControl(
-                                                        messageId: msg.id,
-                                                      )
-                                                    else
-                                                      Icon(
-                                                        isOptimistic
-                                                            ? Icons
-                                                                  .schedule_rounded
-                                                            : msg.readAt != null
-                                                            ? Icons.done_all
-                                                            : msg.deliveredAt !=
-                                                                  null
-                                                            ? Icons.done_all
-                                                            : Icons.done,
-                                                        size: 13,
-                                                        color: isOptimistic
-                                                            ? Colors.black54
-                                                            : msg.readAt != null
-                                                            ? Colors
-                                                                  .blue
-                                                                  .shade300
-                                                            : msg.deliveredAt !=
-                                                                  null
-                                                            ? Colors.white70
-                                                            : Colors.white54,
-                                                      ),
-                                                  ],
+                                                ),
+                                                if (isMe) ...[
+                                                  const SizedBox(width: 3),
+                                                  if (sendError != null)
+                                                    _buildRetrySendControl(
+                                                      messageId: msg.id,
+                                                    )
+                                                  else
+                                                    Icon(
+                                                      isOptimistic
+                                                          ? Icons
+                                                                .schedule_rounded
+                                                          : msg.readAt != null
+                                                          ? Icons.done_all
+                                                          : msg.deliveredAt !=
+                                                                null
+                                                          ? Icons.done_all
+                                                          : Icons.done,
+                                                      size: 13,
+                                                      color: isOptimistic
+                                                          ? Colors.black54
+                                                          : msg.readAt != null
+                                                          ? Colors.blue.shade300
+                                                          : isGift
+                                                          ? Colors.white54
+                                                          : msg.deliveredAt !=
+                                                                null
+                                                          ? Colors.white70
+                                                          : Colors.white54,
+                                                    ),
                                                 ],
-                                              ),
-                                            ],
+                                              ],
+                                            ),
                                           ],
                                         ),
                                       ),

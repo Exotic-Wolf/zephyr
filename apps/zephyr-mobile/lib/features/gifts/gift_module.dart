@@ -605,16 +605,10 @@ class GiftReceiptCard extends StatelessWidget {
     super.key,
     required this.visual,
     required this.isMine,
-    required this.timeLabel,
-    this.read = false,
-    this.optimistic = false,
   });
 
   final GiftVisual visual;
   final bool isMine;
-  final String timeLabel;
-  final bool read;
-  final bool optimistic;
 
   @override
   Widget build(BuildContext context) {
@@ -660,83 +654,47 @@ class GiftReceiptCard extends StatelessWidget {
               ),
             Padding(
               padding: EdgeInsets.fromLTRB(10, 10, isMine ? 13 : 10, 10),
-              child: Column(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GiftThumbnail(url: visual.thumbnailUrl, size: 58),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                  GiftThumbnail(url: visual.thumbnailUrl, size: 58),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          visual.quantity > 1
+                              ? '${visual.giftName} x${visual.quantity}'
+                              : visual.giftName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: foreground,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Row(
                           children: [
-                            Text(
-                              visual.quantity > 1
-                                  ? '${visual.giftName} x${visual.quantity}'
-                                  : visual.giftName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: foreground,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            Row(
-                              children: [
-                                const CoinIcon(size: 13),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    '${visual.totalCoins}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Color(0xFFFFB020),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
+                            const CoinIcon(size: 13),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '${visual.totalCoins}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFFFFB020),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w900,
                                 ),
-                              ],
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          timeLabel,
-                          style: TextStyle(
-                            color: foreground.withValues(alpha: 0.58),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        if (isMine) ...[
-                          const SizedBox(width: 4),
-                          Icon(
-                            optimistic
-                                ? Icons.schedule_rounded
-                                : read
-                                ? Icons.done_all
-                                : Icons.done,
-                            size: 12,
-                            color: read
-                                ? Colors.blue.shade300
-                                : foreground.withValues(alpha: 0.56),
-                          ),
-                        ],
                       ],
                     ),
                   ),
