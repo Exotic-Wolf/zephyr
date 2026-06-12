@@ -620,16 +620,11 @@ class GiftReceiptCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color accent = const Color(0xFFFF8F00);
-    final Color background = isMine
-        ? accent
-        : isDark
-        ? const Color(0xFF242126)
-        : Colors.white;
-    final Color foreground = isMine
-        ? Colors.black87
-        : isDark
-        ? Colors.white
-        : Colors.black87;
+    final Color background = isDark ? const Color(0xFF242126) : Colors.white;
+    final Color foreground = isDark ? Colors.white : Colors.black87;
+    final Color border = isMine
+        ? accent.withValues(alpha: 0.58)
+        : accent.withValues(alpha: 0.28);
 
     return ConstrainedBox(
       constraints: const BoxConstraints(minWidth: 198, maxWidth: 250),
@@ -637,11 +632,7 @@ class GiftReceiptCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: background,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isMine
-                ? Colors.white.withValues(alpha: 0.16)
-                : accent.withValues(alpha: 0.28),
-          ),
+          border: Border.all(color: border),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.10),
@@ -650,83 +641,100 @@ class GiftReceiptCard extends StatelessWidget {
             ),
           ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              GiftThumbnail(url: visual.thumbnailUrl, size: 58),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      visual.quantity > 1
-                          ? '${visual.giftName} x${visual.quantity}'
-                          : visual.giftName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: foreground,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
-                      ),
+        child: Stack(
+          children: [
+            if (isMine)
+              Positioned(
+                top: 0,
+                right: 0,
+                bottom: 0,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: const BorderRadius.horizontal(
+                      right: Radius.circular(8),
                     ),
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        const CoinIcon(size: 13),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            '${visual.totalCoins}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: isMine
-                                  ? Colors.black87
-                                  : const Color(0xFFFFB020),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        Text(
-                          timeLabel,
-                          style: TextStyle(
-                            color: foreground.withValues(alpha: 0.58),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        if (isMine) ...[
-                          const SizedBox(width: 4),
-                          Icon(
-                            optimistic
-                                ? Icons.schedule_rounded
-                                : read
-                                ? Icons.done_all
-                                : Icons.done,
-                            size: 12,
-                            color: read
-                                ? Colors.blue.shade300
-                                : foreground.withValues(alpha: 0.56),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
+                  ),
+                  child: const SizedBox(width: 3),
                 ),
               ),
-            ],
-          ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(10, 10, isMine ? 13 : 10, 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GiftThumbnail(url: visual.thumbnailUrl, size: 58),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          visual.quantity > 1
+                              ? '${visual.giftName} x${visual.quantity}'
+                              : visual.giftName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: foreground,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Row(
+                          children: [
+                            const CoinIcon(size: 13),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '${visual.totalCoins}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFFFFB020),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+                        Row(
+                          children: [
+                            Text(
+                              timeLabel,
+                              style: TextStyle(
+                                color: foreground.withValues(alpha: 0.58),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (isMine) ...[
+                              const SizedBox(width: 4),
+                              Icon(
+                                optimistic
+                                    ? Icons.schedule_rounded
+                                    : read
+                                    ? Icons.done_all
+                                    : Icons.done,
+                                size: 12,
+                                color: read
+                                    ? Colors.blue.shade300
+                                    : foreground.withValues(alpha: 0.56),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

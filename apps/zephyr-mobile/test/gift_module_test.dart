@@ -69,4 +69,49 @@ void main() {
       expect(find.byIcon(Icons.done_all), findsOneWidget);
     },
   );
+
+  testWidgets('outgoing gift receipt keeps the premium card shell', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(),
+        home: const Scaffold(
+          body: Center(
+            child: GiftReceiptCard(
+              visual: GiftVisual(
+                giftEventId: 'gift-event-2',
+                giftId: 'heart',
+                giftName: 'Heart',
+                thumbnailUrl: '',
+                animationUrl: '',
+                animationType: 'image',
+                tier: 'small',
+                quantity: 1,
+                coinCost: 50,
+                totalCoins: 50,
+              ),
+              isMine: true,
+              timeLabel: '23:12',
+              read: true,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final DecoratedBox card = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byType(GiftReceiptCard),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    final BoxDecoration decoration = card.decoration as BoxDecoration;
+
+    expect(decoration.color, const Color(0xFF242126));
+    expect(decoration.color, isNot(const Color(0xFFFF8F00)));
+    expect(find.byIcon(Icons.card_giftcard_rounded), findsOneWidget);
+  });
 }
