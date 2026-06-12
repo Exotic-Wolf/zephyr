@@ -14,7 +14,7 @@ import { StoreService } from '../core/store.service';
 import type { Room, GiftSendResult } from '../core/store.service';
 import { RtcService } from '../core/rtc.service';
 import type { RtcJoinTokenResult } from '../core/rtc.service';
-import { FcmService } from '../core/fcm.service';
+import { GiftDeliveryService } from '../core/gift-delivery.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 
 @Controller('v1/rooms')
@@ -22,7 +22,7 @@ export class RoomsController {
   constructor(
     private readonly storeService: StoreService,
     private readonly rtcService: RtcService,
-    private readonly fcmService: FcmService,
+    private readonly giftDeliveryService: GiftDeliveryService,
   ) {}
 
   @Get()
@@ -139,16 +139,7 @@ export class RoomsController {
       idempotencyKey,
     });
 
-    await this.fcmService.writeLiveGiftEvent(roomId, {
-      giftEventId: result.giftEventId,
-      senderUserId: user.id,
-      senderName: user.displayName,
-      giftId: result.giftId,
-      giftName: result.giftName,
-      quantity: result.quantity,
-      totalGiftCoins: result.totalGiftCoins,
-      idempotencyKey,
-    });
+    await this.giftDeliveryService.deliverCommittedGift(result, idempotencyKey);
 
     return result;
   }

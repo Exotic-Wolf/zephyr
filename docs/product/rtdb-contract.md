@@ -189,7 +189,7 @@ RTDB failures must fail closed:
 - Direct-call setup must write the `direct_calls/{receiverUserId}` signal before scheduling `onDisconnect().remove()`, because delete permission is valid only after the caller-owned signal exists.
 - If direct-call setup creates a backend call session and any later RTDB signaling step fails, the caller must end that backend session with `setup_failed` and remove any partial signal.
 - Missing `live_rooms/{roomId}` means the live surface should exit or show ended/unavailable. Do not continue paid/live lifecycle from a stale screen.
-- Missing `live_rooms/{roomId}/gifts/{giftEventId}` affects only visible animation. Gift spend/refund truth remains Postgres/backend.
+- Missing `live_rooms/{roomId}/gifts/{giftEventId}` affects only visible animation. Gift spend/refund truth remains Postgres/backend, and backend `gift_delivery_outbox` tracks/retries trusted Admin projection delivery without rerunning the ledger.
 - RTDB permission-denied must be handled as a session/auth state problem, not hidden behind generic UI retry loops.
 
 ## Projection Contract

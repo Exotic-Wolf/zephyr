@@ -688,10 +688,14 @@ describe('StoreService', () => {
     const giftEventInsert = client.query.mock.calls.find(([sql]) =>
       String(sql).includes('INSERT INTO gift_events'),
     );
+    const outboxInsert = client.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO gift_delivery_outbox'),
+    );
     const giftEventParams = giftEventInsert?.[1] as unknown[] | undefined;
 
     expect(databaseService.transaction).toHaveBeenCalledTimes(1);
     expect(giftEventInsert).toBeDefined();
+    expect(outboxInsert).toBeUndefined();
     expect(result.giftEventId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
@@ -751,7 +755,15 @@ describe('StoreService', () => {
     const giftEventInsert = client.query.mock.calls.find(([sql]) =>
       String(sql).includes('INSERT INTO gift_events'),
     );
+    const outboxInsert = client.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO gift_delivery_outbox'),
+    );
     const giftEventParams = giftEventInsert?.[1] as unknown[] | undefined;
+    const outboxParams = outboxInsert?.[1] as unknown[] | undefined;
+    const outboxPayload =
+      typeof outboxParams?.[3] === 'string'
+        ? JSON.parse(outboxParams[3])
+        : undefined;
 
     expect(databaseService.transaction).toHaveBeenCalledTimes(1);
     expect(result.surface).toBe('inbox');
@@ -768,6 +780,13 @@ describe('StoreService', () => {
     expect(giftEventParams?.[9]).toBe(10);
     expect(giftEventParams?.[10]).toBe(10);
     expect(giftEventParams?.[16]).toBe('committed');
+    expect(outboxInsert).toBeDefined();
+    expect(outboxParams?.[0]).toBe(result.giftEventId);
+    expect(outboxParams?.[1]).toBe('inbox');
+    expect(outboxParams?.[2]).toBe(contextId);
+    expect(outboxPayload?.gift?.giftEventId).toBe(result.giftEventId);
+    expect(outboxPayload?.gift?.receiverUserId).toBe(receiverUserId);
+    expect(outboxPayload?.idempotencyKey).toBeNull();
     expect(databaseService.query).not.toHaveBeenCalled();
   });
 

@@ -302,6 +302,34 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS gift_delivery_outbox (
+        gift_event_id UUID PRIMARY KEY REFERENCES gift_events(id) ON DELETE CASCADE,
+        surface TEXT NOT NULL,
+        context_id TEXT NOT NULL,
+        payload_json JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        last_attempt_at TIMESTAMPTZ,
+        next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        delivered_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS gift_delivery_outbox_pending_idx
+      ON gift_delivery_outbox(status, next_attempt_at, created_at)
+      WHERE status <> 'delivered';
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS gift_delivery_outbox_context_idx
+      ON gift_delivery_outbox(surface, context_id, created_at DESC);
+    `);
+
+    await this.pool.query(`
       CREATE TABLE IF NOT EXISTS call_sessions (
         id UUID PRIMARY KEY,
         caller_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

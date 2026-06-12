@@ -54,27 +54,19 @@ describe('EconomyController gift routing', () => {
     createdAt: new Date().toISOString(),
   };
 
-  it('writes trusted inbox gift cards from committed backend gift receipts', async () => {
+  it('routes committed backend gift receipts through the delivery module', async () => {
     const storeService = {
       getUserFromAuthHeader: jest.fn().mockResolvedValue(sender),
       sendGift: jest.fn().mockResolvedValue(giftResult),
-      getUserById: jest.fn().mockResolvedValue(receiver),
-      getDeviceTokens: jest.fn().mockResolvedValue([]),
-      deleteDeviceTokensByToken: jest.fn().mockResolvedValue(undefined),
     };
-    const fcmService = {
-      writeInboxGiftMessage: jest
-        .fn()
-        .mockResolvedValue({ delivered: true, created: true }),
-      sendCommittedChatMessagePush: jest
-        .fn()
-        .mockResolvedValue({ sent: false, invalidTokens: [] }),
+    const giftDeliveryService = {
+      deliverCommittedGift: jest.fn().mockResolvedValue(undefined),
     };
     const controller = new EconomyController(
       storeService as never,
       {} as never,
       {} as never,
-      fcmService as never,
+      giftDeliveryService as never,
     );
 
     const result = await controller.sendGift('Bearer token', 'idem-inbox-1', {
@@ -95,26 +87,9 @@ describe('EconomyController gift routing', () => {
       quantity: 1,
       idempotencyKey: 'idem-inbox-1',
     });
-    expect(fcmService.writeInboxGiftMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        chatId: contextId,
-        giftEventId: giftResult.giftEventId,
-        senderUserId: sender.id,
-        receiverUserId: receiver.id,
-        giftId: 'rose',
-        giftName: 'Rose',
-        thumbnailUrl: giftResult.thumbnailUrl,
-        animationUrl: giftResult.animationUrl,
-        totalGiftCoins: 10,
-      }),
-    );
-    expect(fcmService.sendCommittedChatMessagePush).toHaveBeenCalledWith(
-      expect.objectContaining({
-        senderId: sender.id,
-        recipientId: receiver.id,
-        chatId: contextId,
-        messageId: giftResult.giftEventId,
-      }),
+    expect(giftDeliveryService.deliverCommittedGift).toHaveBeenCalledWith(
+      giftResult,
+      'idem-inbox-1',
     );
   });
 });

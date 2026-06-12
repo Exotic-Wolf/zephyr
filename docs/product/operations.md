@@ -189,8 +189,21 @@ Manual smoke is required when automation cannot prove device/session/store behav
 | Direct call | Two accounts online: caller rings receiver, accept, decline, timeout/no-answer, end, report, post-call actions |
 | Random call | Customer + host account: seek, receiver ribbon, accept, decline, timeout, next, partner-left/end |
 | Live | Host + viewer: start live, join, comments, reactions, viewer count, gift, heartbeat cleanup/end |
+| Gift delivery | After inbox/live gift send, verify Firestore/RTDB projection appears once; if needed, run service-key retry and verify it does not recharge or duplicate ledger rows |
 | IAP | Internal-test purchase/refund after store product visibility; fake purchase path is not proof |
 | Release build | Install/upload candidate, verify version code/name, run launch-minimum login/feed/inbox/call smoke |
+
+## Gift Delivery Outbox
+
+Use this only for backend/Admin projection retries after the gift ledger has already committed. It must never be used to replay the wallet transaction.
+
+```bash
+curl -fsS \
+  -H "X-Service-Key: $SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"limit":25}' \
+  https://zephyr-api-wr1s.onrender.com/v1/internal/gifts/retry-delivery
+```
 
 ## Demo Host Simulator
 

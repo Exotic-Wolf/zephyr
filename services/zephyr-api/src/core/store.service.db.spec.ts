@@ -23,6 +23,7 @@ describeDatabaseRace('StoreService Postgres ledger race tests', () => {
     await databaseService.query(`
       TRUNCATE
         ledger_idempotency,
+        gift_delivery_outbox,
         gift_events,
         wallet_transactions,
         call_sessions,
@@ -258,6 +259,16 @@ describeDatabaseRace('StoreService Postgres ledger race tests', () => {
       `,
       [sender.user.id, receiver.user.id, contextId],
     );
+    const deliveryOutboxCount = await databaseService.query<{ count: string }>(
+      `
+        SELECT COUNT(*)::text AS count
+        FROM gift_delivery_outbox
+        WHERE gift_event_id = $1
+          AND surface = 'inbox'
+          AND context_id = $2
+      `,
+      [first.giftEventId, contextId],
+    );
 
     expect(second).toEqual(first);
     expect(second.giftEventId).toBe(first.giftEventId);
@@ -270,6 +281,7 @@ describeDatabaseRace('StoreService Postgres ledger race tests', () => {
     );
     expect(spendCount.rows[0]?.count).toBe('1');
     expect(giftEventCount.rows[0]?.count).toBe('1');
+    expect(deliveryOutboxCount.rows[0]?.count).toBe('1');
   });
 
   it('rejects inbox gifts when either participant has blocked the other user', async () => {

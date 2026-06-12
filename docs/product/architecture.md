@@ -23,14 +23,14 @@ This file owns durable architecture truth: source-of-truth boundaries, module ow
 | Rules are contracts | Firebase rules and emulator tests must change with any client data-shape or permission change. |
 | Small reversible changes | Extract or move ownership only when a focused task proves the boundary and preserves existing behavior. |
 
-## Code Architecture Baseline (11 Jun 2026)
+## Code Architecture Baseline (13 Jun 2026)
 
 | Area | Current owner | Current boundary note |
 |---|---|---|
 | Mobile app | `apps/zephyr-mobile` | Feature folders are clear, and realtime service facades exist. Some screens still own too much lifecycle/state and should be pushed toward module contracts over time. |
 | Mobile realtime facade | `FirebaseChatService.instance` with `PresenceRealtime`, `ProfilesRealtime`, `DirectCallSignals`, `LiveRoomRealtime` | This is the strongest module boundary in the app. Keep all RTDB access behind these facades. |
 | Backend API | `services/zephyr-api/src/*` Nest modules | Module routing is clean at controller/module level. `StoreService` is a large domain service and should be split carefully only when a focused change proves a boundary. |
-| Money/economy | Backend `StoreService`, `IapService`, PostgreSQL transactions | Correctly backend-owned. The reusable gift send contract validates catalog surface eligibility, writes wallet/revenue changes, and creates durable `gift_events` receipts inside the wallet transaction. Any gift/IAP/call-billing change must keep idempotency and DB race tests in scope. |
+| Money/economy | Backend `StoreService`, `IapService`, PostgreSQL transactions | Correctly backend-owned. The reusable gift send contract validates catalog surface eligibility, writes wallet/revenue changes, creates durable `gift_events` receipts, and queues visible inbox/live projection delivery in `gift_delivery_outbox` inside the wallet transaction. Any gift/IAP/call-billing change must keep idempotency, delivery, and DB race tests in scope. |
 | Firebase Functions | `functions/src/index.ts` | Owns RTDB trigger glue: presence projection, stale presence reaping, and signal deletion cleanup. Keep product logic in backend where possible. |
 | Firebase rules | `database.rules.json`, `firestore.rules`, `storage.rules` | Rules are first-class contracts and have emulator suites. Storage rules read Firestore `session_controls`, so production also requires the Firebase Storage service agent to hold `roles/firebaserules.firestoreServiceAgent`. Any client data-shape change must update rules and tests together. |
 | Contracts | `packages/zephyr-contracts/openapi.yaml` | Partial public API contract for core auth/profile/room/feed flows. Nest controllers and `docs/product/code-reference.md` are the current full route map until OpenAPI is expanded. |
@@ -61,7 +61,7 @@ These are current architectural defaults, not eternal constraints. They stay in 
   - `onCallSignalDeleted`: RTDB trigger on `direct_calls/{userId}` deletion → ends Postgres call session via internal API
   - `onPresenceChanged`: RTDB trigger on `presence/{userId}` update → syncs the canonical display/availability/routing projection to Postgres, and ends the room when `displayStatus` leaves `live`
   - `reapStalePresence`: Scheduled every 5 min → scans all presence nodes, resets stale entries (>5min) to the canonical offline payload, ends orphaned live rooms
-  - Internal endpoints: `POST /v1/internal/end-call-session`, `POST /v1/internal/end-room` (validated via `X-Service-Key` header)
+  - Internal endpoints: `POST /v1/internal/end-call-session`, `POST /v1/internal/end-room`, `POST /v1/internal/gifts/retry-delivery` (validated via `X-Service-Key` header)
 - **Agora RTC** — replaces LiveKit for ALL video (calls + live streaming). Proprietary UDP bypasses Gulf WebRTC filtering. Single SDK, smaller APK.
 - **Zero app-owned Socket.IO runtime** — All real-time product flows use Firebase RTDB, Firestore listeners, FCM, or REST. Live room comments/reactions/audience state use RTDB; trusted room status and gift events must be backend-confirmed before fan-out. Random call matchmaking uses REST + RTDB signals. There are no direct Socket.IO/WebSocket dependencies or app-owned socket paths; lockfile cleanup may still show transitive Nest websocket artifacts.
 - **FCM/APNs** — push notifications for chat messages (backend relays via `POST /v1/messages/push`)
@@ -86,7 +86,7 @@ These are current architectural defaults, not eternal constraints. They stay in 
 | Live-room realtime | RTDB `live_rooms/{roomId}` | `LiveRoomRealtime`; backend/Admin for trusted gift events | Host/viewer live screens | RTDB rules tests, live smoke |
 | Video transport | Agora RTC | Backend token issuer, mobile SDK | Call/live screens | Backend token tests, device smoke |
 | Wallet/economy ledger | Postgres | Backend `StoreService` / `IapService` only | Mobile wallet/revenue views | Backend unit/e2e, DB race/idempotency tests |
-| Gifts | Backend ledger + reusable gift module | Backend owns the server catalog, price, surface eligibility, receiver/context validation, wallet/revenue transaction, and Postgres `gift_events`; Admin fans out trusted visible events that reference `giftEventId` into RTDB live gifts and Firestore inbox gift cards | Live/call/inbox/premium gift surfaces; mobile gift module reads catalog/send results, renders cards, and plays animations only after committed receipts | Backend tests, DB race/idempotency tests, mobile model/widget tests, Firestore/RTDB rules tests for visible projections, surface smoke |
+| Gifts | Backend ledger + reusable gift module | Backend owns the server catalog, price, surface eligibility, receiver/context validation, wallet/revenue transaction, Postgres `gift_events`, and `gift_delivery_outbox`; `GiftDeliveryService` fans out trusted visible events that reference `giftEventId` into RTDB live gifts and Firestore inbox gift cards, and retries projections without rerunning the ledger | Live/call/inbox/premium gift surfaces; mobile gift module reads catalog/send results, renders cards, and plays animations only after committed receipts | Backend tests, DB race/idempotency/delivery tests, mobile model/widget tests, Firestore/RTDB rules tests for visible projections, surface smoke |
 | IAP/refunds | Store APIs + Postgres `iap_purchases` | Backend `IapService` and webhooks | Wallet/revenue views | Backend tests, store purchase/refund smoke |
 | Moderation reports/blocks | Postgres + Firestore block projection | Backend only for durable state | UI block/report surfaces, Firestore rules | Backend tests, rules tests, smoke |
 

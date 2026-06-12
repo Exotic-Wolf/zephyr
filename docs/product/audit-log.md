@@ -24,7 +24,7 @@ Current launch blockers live in [current-state.md](./current-state.md). Architec
 | C | Product model or partial implementation exists, but the feature is not launch-complete. |
 | Pending | Not implemented or not meaningfully audited yet. |
 
-## Canonical Quality Dashboard (11 Jun 2026)
+## Canonical Quality Dashboard (13 Jun 2026)
 
 | Area | Current grade | Evidence | Current gap | Owner doc |
 |---|---|---|---|---|
@@ -36,13 +36,13 @@ Current launch blockers live in [current-state.md](./current-state.md). Architec
 | RTDB / realtime architecture | A | Presence/profile/call/live facades, fail-closed client contract helpers, Flutter module tests, rules, backend projection, and emulator tests are in place | Manual multi-state smoke across foreground/background/call/live remains | `rtdb-contract.md` |
 | Messaging / Inbox | A- | Text/media send path, Admin-written gift cards, reusable gift picker/card UI, once-only unseen gift animation, and automated Firestore/Storage/media prep gates pass; `pnpm check:firebase:iam` stamps the Storage cross-service IAM role; simulator image upload passes and Firestore has the committed image message with non-empty `imageUrl` | Complete real-device media/gift smoke plus receipts/block/report/no-push-after-logout before A/A+ | `roadmap-ui.md` |
 | Performance / perceived speed | A- | Warm cache, reduced repeat token round trip, nonblocking feed boot, and off-thread chat image prep are in place | Release-device profiling for cold login, image cache pressure, low network, frames, and startup remains | `current-state.md` |
-| Backend economy / wallet ledger | A | Transaction-safe wallet/call/gift paths and DB race/idempotency tests are in place | External IAP smoke and store refund proof remain | `product-model.md` |
+| Backend economy / wallet ledger | A | Transaction-safe wallet/call/gift paths, gift delivery outbox/retry, and DB race/idempotency tests are in place | External IAP smoke and store refund proof remain | `product-model.md` |
 | Direct + random calls | A- | Direct/random flows, shared call screen, receiver ribbon, billing/report paths, and routeability rules exist | Two-account direct/random smoke remains | `product-model.md` |
 | Normal live streaming | A- | Agora live, RTDB room events, per-viewer audience cells, heartbeat, and backend-trusted live gift fan-out exist | Production-like host/viewer/comment/reaction/gift/cleanup smoke remains | `product-model.md` |
 | For you / Following feed | A- | Live discovery, host cards, pull refresh, lazy-load trigger, viewer counts, body/profile entry, and Following state exist | iPhone polish, live inventory behavior, ranking tuning, and manual smoke remain | `roadmap-ui.md` |
 | Me / profile / wallet / settings | A- | Me dashboard, wallet/level/revenue/call-price/settings/profile edit entrances exist | Deeper revenue/payout detail, notification persistence, localization, and manual smoke remain | `roadmap-ui.md` |
 | IAP / billing | B | Backend/store code is hardened and production fake-purchase path is blocked | Google Play product visibility and one real internal-test purchase/refund smoke remain | `product-model.md` |
-| Gifts overall | B+ | Backend catalog/send contract is surface-aware; call/live/inbox gifts use backend ledger, durable `gift_events` receipts, idempotency/race tests, inbox receiver/context/block validation, mobile gift response models/UI, Admin Firestore inbox gift cards, Admin RTDB fan-out for live, and Firestore rules deny client-forged gift messages | Manual Inbox gift smoke, real asset animation renderer/dependency decision, and migration across direct call, random call, live, and premium live remain | `product-model.md` |
+| Gifts overall | B+ | Backend catalog/send contract is surface-aware; call/live/inbox gifts use backend ledger, durable `gift_events` receipts, `gift_delivery_outbox` retry tracking for inbox/live projections, idempotency/race tests, inbox receiver/context/block validation, mobile gift response models/UI, Admin Firestore inbox gift cards, Admin RTDB fan-out for live, and Firestore rules deny client-forged gift messages | Manual Inbox gift smoke, real asset animation renderer/dependency decision, and migration across direct call, random call, live, and premium live remain | `product-model.md` |
 | Brand / store presence | B- | Premium Zephyr Live direction and concept asset exist | Production icon, splash, store listing, and screenshots remain | `current-state.md` |
 | Admin / moderation operations | Pending | Block/report primitives exist | Admin/moderation operations surface remains unfinished | `product-model.md` |
 | Premium live | C | Product model and realtime states are documented | Paid entry, lock screen, per-minute billing, lifecycle, and `PremiumLiveRealtime` are not implemented | `product-model.md` |

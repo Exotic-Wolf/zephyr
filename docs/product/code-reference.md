@@ -6,7 +6,7 @@ This file is a source-checked reference, not a launch-status report or architect
 
 When code changes a path, controller route, table, column, package, or generated contract, update this file in the same work slice.
 
-Last source check: 12 Jun 2026 against repository paths, Nest controller decorators, `DatabaseService` table creation, gift catalog/send/inbox projection contracts, `apps/zephyr-mobile/pubspec.yaml`, and package manifests.
+Last source check: 13 Jun 2026 against repository paths, Nest controller decorators, `DatabaseService` table creation, gift catalog/send/delivery-outbox contracts, `apps/zephyr-mobile/pubspec.yaml`, and package manifests.
 
 ## Flutter App Structure (`apps/zephyr-mobile/lib/`)
 
@@ -63,12 +63,13 @@ Last source check: 12 Jun 2026 against repository paths, Nest controller decorat
 | `main.ts` | Bootstrap — standard NestJS HTTP server |
 | `app.module.ts` | Nest module composition |
 | `app.controller.ts` | Root `GET /` health/hello endpoint |
-| `health/health.controller.ts` | `/v1/health/*` and protected `/v1/internal/*` cleanup/demo/presence endpoints |
+| `health/health.controller.ts` | `/v1/health/*` and protected `/v1/internal/*` cleanup/demo/presence/gift-delivery endpoints |
 | `legal/legal.controller.ts` | Static privacy and terms pages |
-| `core/store.service.ts` | All DB logic — messages, rooms, economy, wallets |
+| `core/store.service.ts` | All DB logic — messages, rooms, economy, wallets, gift receipts, and gift delivery outbox state |
 | `core/database.service.ts` | Schema init, migrations, periodic cleanup |
 | `core/rtc.service.ts` | Agora token generation |
 | `core/fcm.service.ts` | Firebase Admin — push notifications, active-session projections, custom-token claims, RTDB writes for backend-owned call/match/live gift fan-out, and backend-owned Firestore inbox gift card projection |
+| `core/gift-delivery.service.ts` | Gift projection delivery owner — idempotently writes inbox Firestore gift cards/live RTDB gift events, marks delivery state, and retries pending outbox rows |
 | `core/iap.service.ts` | Apple/Google purchase verification and refund support |
 | `core/demo-for-you-simulator.service.ts` | Reversible backend-owned For you demo host simulator |
 | `core/agora-chat.service.ts` | Agora Chat REST helper; currently support integration, not the main app messaging source of truth |
@@ -95,6 +96,7 @@ Core tables:
 - `wallet_transactions`
 - `ledger_idempotency`
 - `gift_events`
+- `gift_delivery_outbox`
 - `rooms`
 - `room_viewers`
 - `messages`
@@ -121,6 +123,9 @@ Key columns:
 - `gift_events.surface` + `context_id` — inbox/live/call/premium surface target; inbox context is the canonical sorted sender/receiver chat id
 - `gift_events.sender_user_id` / `receiver_user_id` — backend-resolved gift participants
 - `gift_events.sender_coin_balance_after` / `delivery_status` — receipt balance and visible-delivery state
+- `gift_delivery_outbox.gift_event_id` — one durable projection delivery row per inbox/live gift receipt
+- `gift_delivery_outbox.status`, `attempt_count`, `next_attempt_at`, `last_error` — retry state for trusted Firestore/RTDB visible gift projection delivery
+- `gift_delivery_outbox.payload_json` — serialized `GiftSendResult` plus idempotency key used by retry delivery without rerunning the wallet ledger
 - `users.call_rate_coins_per_minute INT` — receiver sets their direct call rate
 - `rooms.audience_count INT` — backend/feed projection updated by room join/leave REST calls; visible live audience presence lives in RTDB
 - `rooms.last_heartbeat TIMESTAMPTZ` — updated every 15s by host
@@ -146,6 +151,7 @@ POST /v1/internal/demo-for-you/cleanup
 POST /v1/internal/end-call-session
 POST /v1/internal/end-room
 POST /v1/internal/sync-presence
+POST /v1/internal/gifts/retry-delivery
 POST /v1/auth/google-login
 POST /v1/auth/apple-login
 POST /v1/auth/firebase-token
@@ -214,9 +220,10 @@ Gift API:
 - `GET /v1/economy/gifts/catalog` returns backend-owned paid gift items with `sectionId`, `sectionName`, `coinCost`, `thumbnailUrl`, `animationUrl`, `animationType`, `tier`, `surfaces`, and `enabled`.
 - `POST /v1/economy/gifts/send` accepts the reusable surface contract: `surface`, `contextId`, `receiverUserId` when needed, `giftId`, `quantity`, and `X-Idempotency-Key` or body `idempotencyKey`.
 - Gift send responses include receipt and visual metadata: `giftEventId`, `surface`, `contextId`, sender/receiver ids, gift id/name, section, thumbnail URL, animation URL/type, tier, quantity, coin cost, total coins, balance after, delivery status, and creation timestamp.
-- `inbox` sends require `receiverUserId`; backend derives/checks the canonical chat context, rejects self/blocked sends, commits wallet + `gift_events` in one transaction, then writes a trusted Firestore `type=gift` message with the `giftEventId` as the message id.
+- `inbox` sends require `receiverUserId`; backend derives/checks the canonical chat context, rejects self/blocked sends, commits wallet + `gift_events` + `gift_delivery_outbox` in one transaction, then writes a trusted Firestore `type=gift` message with the `giftEventId` as the message id.
 - `direct_call` and `random_call` sends use the call session id as `contextId` and reject mode/surface mismatches before charging.
-- `live_room` sends use the room id as `contextId`; the generic route and `/v1/rooms/:roomId/gift` both use backend/Admin live gift fan-out after ledger commit.
+- `live_room` sends use the room id as `contextId`; the generic route and `/v1/rooms/:roomId/gift` both commit wallet + `gift_events` + `gift_delivery_outbox`, then use backend/Admin live gift fan-out after ledger commit.
+- `POST /v1/internal/gifts/retry-delivery` is service-key protected and retries pending/failed gift projection deliveries from `gift_delivery_outbox` without recharging or re-crediting users.
 
 Firebase Chat:
 - Backend: `POST /v1/auth/firebase-token` -> session-bound custom token for Firebase Auth

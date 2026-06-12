@@ -185,6 +185,12 @@ export interface GiftCatalogItem {
 
 export type GiftDeliveryStatus = 'committed' | 'delivery_pending' | 'delivered';
 
+export type GiftDeliveryOutboxStatus =
+  | 'pending'
+  | 'processing'
+  | 'failed'
+  | 'delivered';
+
 export interface CallSession {
   id: string;
   callerUserId: string;
@@ -265,6 +271,18 @@ export interface GiftSendResult {
   platformCoins: number;
   senderCoinBalanceAfter: number;
   deliveryStatus: GiftDeliveryStatus;
+  createdAt: string;
+}
+
+export interface GiftDeliveryOutboxItem {
+  giftEventId: string;
+  surface: GiftSurface;
+  contextId: string;
+  gift: GiftSendResult;
+  idempotencyKey: string | null;
+  status: GiftDeliveryOutboxStatus;
+  attemptCount: number;
+  lastError: string | null;
   createdAt: string;
 }
 
@@ -360,6 +378,17 @@ interface LedgerIdempotencyRow {
   operation_type: LedgerOperationType;
   request_hash: string;
   response_json: unknown;
+}
+
+interface GiftDeliveryOutboxRow {
+  gift_event_id: string;
+  surface: GiftSurface;
+  context_id: string;
+  payload_json: unknown;
+  status: GiftDeliveryOutboxStatus;
+  attempt_count: number;
+  last_error: string | null;
+  created_at: string | Date;
 }
 
 function stableJson(value: unknown): string {
@@ -4162,6 +4191,222 @@ export class StoreService implements OnModuleInit {
     );
   }
 
+  private shouldQueueGiftDelivery(result: GiftSendResult): boolean {
+    return result.surface === 'inbox' || result.surface === 'live_room';
+  }
+
+  private async enqueueGiftDelivery(
+    client: PoolClient,
+    result: GiftSendResult,
+    idempotencyKey: string | null,
+  ): Promise<void> {
+    if (!this.shouldQueueGiftDelivery(result)) return;
+
+    await client.query(
+      `
+        INSERT INTO gift_delivery_outbox (
+          gift_event_id,
+          surface,
+          context_id,
+          payload_json,
+          status,
+          next_attempt_at,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4::jsonb, 'pending', NOW(), NOW(), NOW())
+        ON CONFLICT (gift_event_id) DO NOTHING
+      `,
+      [
+        result.giftEventId,
+        result.surface,
+        result.contextId,
+        JSON.stringify({ gift: result, idempotencyKey }),
+      ],
+    );
+  }
+
+  private mapGiftDeliveryOutboxRow(
+    row: GiftDeliveryOutboxRow,
+  ): GiftDeliveryOutboxItem {
+    const rawPayload =
+      typeof row.payload_json === 'string'
+        ? JSON.parse(row.payload_json)
+        : row.payload_json;
+    const payload =
+      rawPayload && typeof rawPayload === 'object'
+        ? (rawPayload as {
+            gift?: unknown;
+            idempotencyKey?: unknown;
+          })
+        : {};
+    const giftPayload = (payload.gift ?? rawPayload) as GiftSendResult;
+    const idempotencyKey =
+      typeof payload.idempotencyKey === 'string'
+        ? payload.idempotencyKey
+        : null;
+
+    return {
+      giftEventId: row.gift_event_id,
+      surface: row.surface,
+      contextId: row.context_id,
+      gift: giftPayload,
+      idempotencyKey,
+      status: row.status,
+      attemptCount: Number(row.attempt_count ?? 0),
+      lastError: row.last_error,
+      createdAt:
+        row.created_at instanceof Date
+          ? row.created_at.toISOString()
+          : String(row.created_at),
+    };
+  }
+
+  async isGiftDeliveryDelivered(giftEventId: string): Promise<boolean> {
+    if (!this.databaseService?.isEnabled()) {
+      return false;
+    }
+
+    const result = await this.databaseService.query<{ delivered: boolean }>(
+      `
+        SELECT EXISTS(
+          SELECT 1
+          FROM gift_delivery_outbox
+          WHERE gift_event_id = $1
+            AND status = 'delivered'
+        ) AS delivered
+      `,
+      [giftEventId],
+    );
+    return Boolean(result.rows[0]?.delivered);
+  }
+
+  async claimPendingGiftDeliveries(
+    limit = 25,
+  ): Promise<GiftDeliveryOutboxItem[]> {
+    if (!this.databaseService?.isEnabled()) {
+      return [];
+    }
+
+    const normalizedLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
+    return this.databaseService.transaction(async (client) => {
+      const result = await client.query<GiftDeliveryOutboxRow>(
+        `
+          WITH claimed AS (
+            SELECT gift_event_id
+            FROM gift_delivery_outbox
+            WHERE (
+                status IN ('pending', 'failed')
+                AND next_attempt_at <= NOW()
+              )
+              OR (
+                status = 'processing'
+                AND last_attempt_at < NOW() - INTERVAL '2 minutes'
+              )
+            ORDER BY next_attempt_at ASC, created_at ASC
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+          )
+          UPDATE gift_delivery_outbox AS outbox
+          SET status = 'processing',
+              attempt_count = outbox.attempt_count + 1,
+              last_attempt_at = NOW(),
+              updated_at = NOW()
+          FROM claimed
+          WHERE outbox.gift_event_id = claimed.gift_event_id
+          RETURNING
+            outbox.gift_event_id,
+            outbox.surface,
+            outbox.context_id,
+            outbox.payload_json,
+            outbox.status,
+            outbox.attempt_count,
+            outbox.last_error,
+            outbox.created_at
+        `,
+        [normalizedLimit],
+      );
+
+      return result.rows.map((row) => this.mapGiftDeliveryOutboxRow(row));
+    });
+  }
+
+  async markGiftDeliveryDelivered(giftEventId: string): Promise<void> {
+    if (!this.databaseService?.isEnabled()) {
+      return;
+    }
+
+    await this.databaseService.transaction(async (client) => {
+      await client.query(
+        `
+          UPDATE gift_delivery_outbox
+          SET status = 'delivered',
+              delivered_at = COALESCE(delivered_at, NOW()),
+              last_error = NULL,
+              next_attempt_at = NOW(),
+              updated_at = NOW()
+          WHERE gift_event_id = $1
+        `,
+        [giftEventId],
+      );
+      await client.query(
+        `
+          UPDATE gift_events
+          SET delivery_status = 'delivered',
+              delivered_at = COALESCE(delivered_at, NOW()),
+              delivery_error = NULL
+          WHERE id = $1
+        `,
+        [giftEventId],
+      );
+    });
+  }
+
+  async markGiftDeliveryFailed(
+    giftEventId: string,
+    error: unknown,
+  ): Promise<void> {
+    if (!this.databaseService?.isEnabled()) {
+      return;
+    }
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : 'Gift delivery projection failed';
+    const deliveryError = message.trim().slice(0, 512);
+
+    await this.databaseService.transaction(async (client) => {
+      await client.query(
+        `
+          UPDATE gift_delivery_outbox
+          SET status = 'failed',
+              last_error = $2,
+              next_attempt_at = NOW() + (
+                LEAST(300, GREATEST(5, attempt_count * attempt_count))
+                * INTERVAL '1 second'
+              ),
+              updated_at = NOW()
+          WHERE gift_event_id = $1
+            AND status <> 'delivered'
+        `,
+        [giftEventId, deliveryError],
+      );
+      await client.query(
+        `
+          UPDATE gift_events
+          SET delivery_status = 'delivery_pending',
+              delivery_error = $2
+          WHERE id = $1
+            AND delivered_at IS NULL
+        `,
+        [giftEventId, deliveryError],
+      );
+    });
+  }
+
   async sendGift(
     senderUserId: string,
     input: SendGiftInput,
@@ -4851,6 +5096,7 @@ export class StoreService implements OnModuleInit {
       });
 
       await this.writeGiftEvent(client, giftResult, idempotencyKey);
+      await this.enqueueGiftDelivery(client, giftResult, idempotencyKey);
 
       return this.saveDatabaseLedgerResponse(
         client,
@@ -5040,6 +5286,7 @@ export class StoreService implements OnModuleInit {
       });
 
       await this.writeGiftEvent(client, giftResult, idempotencyKey);
+      await this.enqueueGiftDelivery(client, giftResult, idempotencyKey);
 
       return this.saveDatabaseLedgerResponse(
         client,
@@ -5208,6 +5455,7 @@ export class StoreService implements OnModuleInit {
       });
 
       await this.writeGiftEvent(client, giftResult, idempotencyKey);
+      await this.enqueueGiftDelivery(client, giftResult, idempotencyKey);
 
       return this.saveDatabaseLedgerResponse(
         client,

@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../core/database.service';
 import { DemoForYouSimulatorService } from '../core/demo-for-you-simulator.service';
+import { GiftDeliveryService } from '../core/gift-delivery.service';
+import type { GiftDeliveryRetryResult } from '../core/gift-delivery.service';
 import { StoreService } from '../core/store.service';
 
 interface InternalSyncPresenceBody {
@@ -29,12 +31,17 @@ interface DemoForYouStartBody {
   routeable?: boolean;
 }
 
+interface InternalGiftDeliveryRetryBody {
+  limit?: number;
+}
+
 @Controller('v1')
 export class HealthController {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly storeService: StoreService,
     private readonly demoForYouSimulator: DemoForYouSimulatorService,
+    private readonly giftDeliveryService: GiftDeliveryService,
   ) {}
 
   @Get('health/live')
@@ -194,6 +201,15 @@ export class HealthController {
       updatedAt: body.updatedAt,
     });
     return { status: 'synced' };
+  }
+
+  @Post('internal/gifts/retry-delivery')
+  async internalRetryGiftDelivery(
+    @Headers('x-service-key') serviceKey: string | undefined,
+    @Body() body: InternalGiftDeliveryRetryBody = {},
+  ): Promise<GiftDeliveryRetryResult> {
+    this.assertInternalServiceKey(serviceKey);
+    return this.giftDeliveryService.retryPendingGiftDeliveries(body.limit);
   }
 
   private assertInternalServiceKey(serviceKey: string | undefined): void {

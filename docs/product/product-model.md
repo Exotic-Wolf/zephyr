@@ -98,6 +98,9 @@ Gift rules:
 - `POST /v1/economy/gifts/send` is the reusable send contract. New callers send `surface`, `contextId`, `receiverUserId` when the surface needs one, `giftId`, `quantity`, and an idempotency key.
 - Inbox gifts are backend-committable through the reusable contract: backend validates the receiver, derives/checks the canonical chat context from sender/receiver ids, rejects self-gifts and blocked pairs, locks the sender wallet, and writes the receipt in the same transaction.
 - Inbox gift chat cards are backend/Admin-written Firestore projections after the ledger commit. Clients cannot create `type=gift` chat messages through Firestore rules; they can only read the card and update normal delivered/read receipts.
+- Inbox and live-room gift projection delivery is tracked by `gift_delivery_outbox`, written in the same Postgres transaction as `gift_events`. A paid gift cannot commit without a durable delivery record for its visible Firestore/RTDB projection.
+- Gift projection delivery is idempotent by `giftEventId`: inbox uses the Firestore message id, and live rooms use the RTDB gift event key. Retry delivery must not re-run the wallet ledger.
+- Pending or failed gift projections can be retried through the protected internal backend delivery worker endpoint. Projection failure affects visible animation/card delivery only; wallet/revenue truth remains the committed Postgres ledger.
 - Inbox gift cards show the server thumbnail/name/coin amount in the message timeline. If the recipient has not read the gift message, the thread auto-plays the gift animation once on open; the card remains durable for later review.
 - Direct/random call gifts validate that the requested surface matches the actual call mode before charging.
 - Gifts unavailable for a requested surface are rejected even when the gift id exists.

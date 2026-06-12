@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { DatabaseService } from './database.service';
 import { DemoForYouSimulatorService } from './demo-for-you-simulator.service';
 import { FcmService } from './fcm.service';
+import { GiftDeliveryService } from './gift-delivery.service';
 import { IapService } from './iap.service';
 import { RtcService } from './rtc.service';
 import { StoreService } from './store.service';
@@ -13,6 +14,7 @@ import { StoreService } from './store.service';
     StoreService,
     RtcService,
     FcmService,
+    GiftDeliveryService,
     IapService,
     DemoForYouSimulatorService,
   ],
@@ -21,6 +23,7 @@ import { StoreService } from './store.service';
     StoreService,
     RtcService,
     FcmService,
+    GiftDeliveryService,
     IapService,
     DemoForYouSimulatorService,
   ],

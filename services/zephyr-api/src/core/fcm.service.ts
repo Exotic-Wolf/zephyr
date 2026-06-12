@@ -405,8 +405,8 @@ export class FcmService implements OnModuleInit {
       totalGiftCoins: number;
       idempotencyKey?: string | null;
     },
-  ): Promise<void> {
-    if (!this.initialized) return;
+  ): Promise<boolean> {
+    if (!this.initialized) return false;
 
     try {
       const giftsRef = admin.database().ref(`live_rooms/${roomId}/gifts`);
@@ -414,6 +414,10 @@ export class FcmService implements OnModuleInit {
         this.toRealtimeKey(data.giftEventId) ??
         this.toRealtimeKey(data.idempotencyKey);
       const eventRef = eventKey ? giftsRef.child(eventKey) : giftsRef.push();
+      const existing = await eventRef.get();
+      if (existing.exists()) {
+        return true;
+      }
       await eventRef.set({
         giftEventId: data.giftEventId,
         senderUserId: data.senderUserId,
@@ -426,8 +430,10 @@ export class FcmService implements OnModuleInit {
         eventId: data.giftEventId,
         ts: admin.database.ServerValue.TIMESTAMP,
       });
+      return true;
     } catch (err) {
       this.logger.error('Failed to write live gift event', err);
+      return false;
     }
   }
 
