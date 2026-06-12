@@ -91,11 +91,22 @@ Gifts are a first-class reusable monetization primitive, not a live-only feature
 
 Gift rules:
 
-- One gift catalog and one animation renderer are reused across all surfaces.
+- No free emoji gifts. A gift is always a paid catalog item committed by the backend.
+- One backend gift catalog and one mobile animation renderer are reused across all surfaces.
+- The backend catalog is the pricing and availability source of truth. Each gift exposes `sectionId`, display name, coin cost, thumbnail URL, animation URL/type, animation tier, enabled state, and allowed surfaces. Flutter must not hardcode gift prices or surface eligibility.
 - Backend validates balance, deducts coins, records the ledger transaction, credits host sparks/revenue, then emits/permits the visible gift event.
+- `POST /v1/economy/gifts/send` is the reusable send contract. New callers send `surface`, `contextId`, `receiverUserId` when the surface needs one, `giftId`, `quantity`, and an idempotency key.
+- Inbox gifts are backend-committable through the reusable contract: backend validates the receiver, derives/checks the canonical chat context from sender/receiver ids, rejects self-gifts and blocked pairs, locks the sender wallet, and writes the receipt in the same transaction.
+- Inbox gift chat cards are backend/Admin-written Firestore projections after the ledger commit. Clients cannot create `type=gift` chat messages through Firestore rules; they can only read the card and update normal delivered/read receipts.
+- Inbox gift cards show the server thumbnail/name/coin amount in the message timeline. If the recipient has not read the gift message, the thread auto-plays the gift animation once on open; the card remains durable for later review.
+- Direct/random call gifts validate that the requested surface matches the actual call mode before charging.
+- Gifts unavailable for a requested surface are rejected even when the gift id exists.
+- Every committed gift has a durable `gift_events` receipt with a stable `giftEventId`, surface, context, sender, receiver, catalog price, quantity, split, sender balance after, delivery status, and timestamp.
+- Visible gift events must reference the durable `giftEventId`; client-visible delivery is not money truth.
 - Gift events are visible UX; wallet/revenue truth is always Postgres.
 - Default split: host receives 60% value in sparks/revenue, platform keeps 40% before infrastructure and store economics are modeled. Backend currently uses `RECEIVER_SHARE_BPS` for the receiver share.
-- Gift assets are CDN-hosted Lottie/SVGA/animation payloads; 0 heavy gift animations ship in the app bundle.
+- Spark awards are calculated from integer receiver coins rather than floating-point USD multiplication.
+- Gift assets are CDN-hosted Lottie/Rive/SVGA/animation payloads; 0 heavy gift animations ship in the app bundle. `GIFT_ASSET_BASE_URL` can point catalog URLs at the active CDN.
 
 ---
 

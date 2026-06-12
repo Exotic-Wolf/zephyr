@@ -400,6 +400,25 @@ describe('StoreService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
+  it('exposes paid server gift catalog metadata for reusable gift surfaces', () => {
+    const catalog = storeService.listGiftCatalog();
+    const rose = catalog.find((gift) => gift.id === 'rose');
+    const lion = catalog.find((gift) => gift.id === 'lion');
+    const premiumKey = catalog.find((gift) => gift.id === 'premium_room_key');
+
+    expect(catalog.every((gift) => gift.coinCost > 0)).toBe(true);
+    expect(rose).toMatchObject({
+      sectionId: 'classic',
+      animationType: 'lottie',
+      tier: 'small',
+      enabled: true,
+    });
+    expect(rose?.surfaces).toContain('inbox');
+    expect(rose?.thumbnailUrl).toContain('/classic/rose/thumb.webp');
+    expect(lion?.tier).toBe('huge');
+    expect(premiumKey?.surfaces).toEqual(['premium_live_entry']);
+  });
+
   it('replays duplicate gift idempotency keys without charging twice', async () => {
     const caller = await storeService.issueTestSession('idem_gift_caller');
     const receiver = await storeService.issueTestSession('idem_gift_receiver');
@@ -428,9 +447,118 @@ describe('StoreService', () => {
     const walletAfter = await storeService.getWalletSummary(caller.user.id);
 
     expect(second).toEqual(first);
+    expect(first.giftEventId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(first.surface).toBe('direct_call');
+    expect(first.contextId).toBe(session.id);
+    expect(first.senderUserId).toBe(caller.user.id);
+    expect(first.receiverUserId).toBe(receiver.user.id);
+    expect(first.deliveryStatus).toBe('committed');
     expect(walletAfter.coinBalance).toBe(
       walletBefore.coinBalance - first.totalGiftCoins,
     );
+  });
+
+  it('sends inbox gifts through the reusable gift contract with a canonical context', async () => {
+    const sender = await storeService.issueTestSession('inbox_gift_sender');
+    const receiver = await storeService.issueTestSession('inbox_gift_receiver');
+    const contextId = [sender.user.id, receiver.user.id].sort().join('_');
+    const walletBefore = await storeService.getWalletSummary(sender.user.id);
+    const idempotencyKey = `gift:inbox:${contextId}:rose:1`;
+
+    const first = await storeService.sendGift(sender.user.id, {
+      surface: 'inbox',
+      contextId,
+      receiverUserId: receiver.user.id,
+      giftId: 'rose',
+      quantity: 2,
+      idempotencyKey,
+    });
+    const second = await storeService.sendGift(sender.user.id, {
+      surface: 'inbox',
+      contextId,
+      receiverUserId: receiver.user.id,
+      giftId: 'rose',
+      quantity: 2,
+      idempotencyKey,
+    });
+    const walletAfter = await storeService.getWalletSummary(sender.user.id);
+
+    expect(second).toEqual(first);
+    expect(first.surface).toBe('inbox');
+    expect(first.contextId).toBe(contextId);
+    expect(first.sessionId).toBe(contextId);
+    expect(first.senderUserId).toBe(sender.user.id);
+    expect(first.receiverUserId).toBe(receiver.user.id);
+    expect(first.totalGiftCoins).toBe(20);
+    expect(first.receiverSpark).toBe(12);
+    expect(first.deliveryStatus).toBe('committed');
+    expect(walletAfter.coinBalance).toBe(
+      walletBefore.coinBalance - first.totalGiftCoins,
+    );
+  });
+
+  it('rejects inbox gift context/receiver mismatches before charging', async () => {
+    const sender = await storeService.issueTestSession('inbox_wrong_sender');
+    const receiver = await storeService.issueTestSession(
+      'inbox_wrong_receiver',
+    );
+    const walletBefore = await storeService.getWalletSummary(sender.user.id);
+
+    await expect(
+      storeService.sendGift(sender.user.id, {
+        surface: 'inbox',
+        contextId:
+          '11111111-1111-4111-8111-111111111111_22222222-2222-4222-8222-222222222222',
+        receiverUserId: receiver.user.id,
+        giftId: 'rose',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    const walletAfter = await storeService.getWalletSummary(sender.user.id);
+    expect(walletAfter.coinBalance).toBe(walletBefore.coinBalance);
+  });
+
+  it('rejects gifts that are not enabled for the requested surface', async () => {
+    const sender = await storeService.issueTestSession('surface_gift_sender');
+    const receiver = await storeService.issueTestSession(
+      'surface_gift_receiver',
+    );
+
+    await expect(
+      storeService.sendGift(sender.user.id, {
+        surface: 'inbox',
+        receiverUserId: receiver.user.id,
+        giftId: 'premium_room_key',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects a call gift when requested surface does not match the call mode', async () => {
+    const caller = await storeService.issueTestSession(
+      'surface_call_mismatch_caller',
+    );
+    const receiver = await storeService.issueTestSession(
+      'surface_call_mismatch_receiver',
+    );
+    const session = await storeService.startCallSession(caller.user.id, {
+      mode: 'direct',
+      receiverUserId: receiver.user.id,
+      directRateCoinsPerMinute: 2100,
+    });
+    const walletBefore = await storeService.getWalletSummary(caller.user.id);
+
+    await expect(
+      storeService.sendGift(caller.user.id, {
+        surface: 'random_call',
+        contextId: session.id,
+        giftId: 'rose',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    const walletAfter = await storeService.getWalletSummary(caller.user.id);
+    expect(walletAfter.coinBalance).toBe(walletBefore.coinBalance);
   });
 
   it('uses a single database transaction and row locks for call ticks', async () => {
@@ -503,6 +631,143 @@ describe('StoreService', () => {
         String(sql).includes('FOR UPDATE'),
       ),
     ).toBe(true);
+    expect(databaseService.query).not.toHaveBeenCalled();
+  });
+
+  it('writes a gift event receipt inside the call gift database transaction', async () => {
+    const callerUserId = '11111111-1111-4111-8111-111111111111';
+    const receiverUserId = '22222222-2222-4222-8222-222222222222';
+    const sessionId = '33333333-3333-4333-8333-333333333333';
+    const sessionRow = {
+      id: sessionId,
+      caller_user_id: callerUserId,
+      receiver_user_id: receiverUserId,
+      mode: 'random',
+      rate_coins_per_minute: 600,
+      receiver_share_bps: 6000,
+      coins_per_usd_receiver: 10000,
+      spark_per_usd: 10000,
+      total_billed_coins: 0,
+      total_receiver_coins: 0,
+      total_receiver_usd: 0,
+      total_receiver_spark: 0,
+      status: 'live',
+      end_reason: null,
+      started_at: new Date('2026-06-06T00:00:00.000Z'),
+      updated_at: new Date('2026-06-06T00:00:00.000Z'),
+      ended_at: null,
+    };
+
+    const client = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('FROM call_sessions')) {
+          return { rowCount: 1, rows: [sessionRow] };
+        }
+        if (sql.includes('FROM wallets')) {
+          return { rowCount: 1, rows: [{ coin_balance: 1200 }] };
+        }
+        if (sql.includes('UPDATE wallets')) {
+          return { rowCount: 1, rows: [{ coin_balance: 1190 }] };
+        }
+        return { rowCount: 1, rows: [] };
+      }),
+    };
+    const databaseService = {
+      isEnabled: () => true,
+      transaction: jest.fn(async (work) => work(client)),
+      query: jest.fn(),
+    };
+    const dbBackedStore = new StoreService(databaseService as any);
+
+    const result = await dbBackedStore.sendGiftInCall(callerUserId, {
+      sessionId,
+      giftId: 'rose',
+      quantity: 1,
+    });
+
+    const giftEventInsert = client.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO gift_events'),
+    );
+    const giftEventParams = giftEventInsert?.[1] as unknown[] | undefined;
+
+    expect(databaseService.transaction).toHaveBeenCalledTimes(1);
+    expect(giftEventInsert).toBeDefined();
+    expect(result.giftEventId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(result.surface).toBe('random_call');
+    expect(result.contextId).toBe(sessionId);
+    expect(result.senderUserId).toBe(callerUserId);
+    expect(result.receiverUserId).toBe(receiverUserId);
+    expect(result.senderCoinBalanceAfter).toBe(1190);
+    expect(giftEventParams?.[0]).toBe(result.giftEventId);
+    expect(giftEventParams?.[2]).toBe('random_call');
+    expect(giftEventParams?.[3]).toBe(sessionId);
+    expect(giftEventParams?.[4]).toBe(callerUserId);
+    expect(giftEventParams?.[5]).toBe(receiverUserId);
+    expect(giftEventParams?.[6]).toBe('rose');
+    expect(giftEventParams?.[9]).toBe(10);
+    expect(giftEventParams?.[10]).toBe(10);
+    expect(giftEventParams?.[16]).toBe('committed');
+    expect(databaseService.query).not.toHaveBeenCalled();
+  });
+
+  it('writes an inbox gift event receipt inside the inbox gift database transaction', async () => {
+    const senderUserId = '11111111-1111-4111-8111-111111111111';
+    const receiverUserId = '22222222-2222-4222-8222-222222222222';
+    const contextId = [senderUserId, receiverUserId].sort().join('_');
+
+    const client = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('FROM users')) {
+          return { rowCount: 1, rows: [{ id: receiverUserId }] };
+        }
+        if (sql.includes('FROM user_blocks')) {
+          return { rowCount: 1, rows: [{ blocked: false }] };
+        }
+        if (sql.includes('FROM wallets')) {
+          return { rowCount: 1, rows: [{ coin_balance: 1200 }] };
+        }
+        if (sql.includes('UPDATE wallets')) {
+          return { rowCount: 1, rows: [{ coin_balance: 1190 }] };
+        }
+        return { rowCount: 1, rows: [] };
+      }),
+    };
+    const databaseService = {
+      isEnabled: () => true,
+      transaction: jest.fn(async (work) => work(client)),
+      query: jest.fn(),
+    };
+    const dbBackedStore = new StoreService(databaseService as any);
+
+    const result = await dbBackedStore.sendGift(senderUserId, {
+      surface: 'inbox',
+      receiverUserId,
+      giftId: 'rose',
+      quantity: 1,
+    });
+
+    const giftEventInsert = client.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO gift_events'),
+    );
+    const giftEventParams = giftEventInsert?.[1] as unknown[] | undefined;
+
+    expect(databaseService.transaction).toHaveBeenCalledTimes(1);
+    expect(result.surface).toBe('inbox');
+    expect(result.contextId).toBe(contextId);
+    expect(result.receiverUserId).toBe(receiverUserId);
+    expect(result.senderCoinBalanceAfter).toBe(1190);
+    expect(giftEventInsert).toBeDefined();
+    expect(giftEventParams?.[0]).toBe(result.giftEventId);
+    expect(giftEventParams?.[2]).toBe('inbox');
+    expect(giftEventParams?.[3]).toBe(contextId);
+    expect(giftEventParams?.[4]).toBe(senderUserId);
+    expect(giftEventParams?.[5]).toBe(receiverUserId);
+    expect(giftEventParams?.[6]).toBe('rose');
+    expect(giftEventParams?.[9]).toBe(10);
+    expect(giftEventParams?.[10]).toBe(10);
+    expect(giftEventParams?.[16]).toBe('committed');
     expect(databaseService.query).not.toHaveBeenCalled();
   });
 
@@ -579,6 +844,15 @@ describe('StoreService', () => {
 
     expect(giftResult.totalGiftCoins).toBe(5000);
     expect(giftResult.receiverSpark).toBe(3000);
+    expect(giftResult.giftEventId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(giftResult.surface).toBe('direct_call');
+    expect(giftResult.contextId).toBe(session.id);
+    expect(giftResult.senderUserId).toBe(caller.user.id);
+    expect(giftResult.receiverUserId).toBe(receiver.user.id);
+    expect(giftResult.coinCost).toBe(5000);
+    expect(giftResult.deliveryStatus).toBe('committed');
     expect(callerWalletAfter.coinBalance).toBe(
       callerWalletBefore.coinBalance - 5000,
     );

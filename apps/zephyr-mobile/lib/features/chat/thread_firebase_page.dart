@@ -15,6 +15,7 @@ import '../../services/firebase_chat_service.dart';
 import '../../services/translation_service.dart';
 import '../../widgets/coin_icon.dart';
 import '../call/direct_call_screen.dart';
+import '../gifts/gift_module.dart';
 import '../live/viewer_live_screen.dart';
 import '../profile/profile_page.dart';
 import 'live_preview_widget.dart';
@@ -72,6 +73,9 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
   final Map<String, String> _pendingImageUrls = {};
   final Map<String, String> _translations = {}; // messageId -> translated text
   final Set<String> _translating = {}; // messageIds currently being translated
+  final Set<String> _autoPlayedGiftEventIds = {};
+  final List<GiftVisual> _giftAnimationQueue = [];
+  bool _giftAnimationQueueRunning = false;
 
   // Live preview
   String? _liveRoomId;
@@ -165,6 +169,14 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
           .listen(
             (List<FirebaseMessage> msgs) {
               if (mounted) {
+                final List<FirebaseMessage> incomingUnseenGifts = msgs
+                    .where(
+                      (FirebaseMessage message) =>
+                          message.type == 'gift' &&
+                          message.senderId == widget.otherUserId &&
+                          message.readAt == null,
+                    )
+                    .toList(growable: false);
                 final Set<String> committedIds = msgs.map((m) => m.id).toSet();
                 setState(() {
                   _threadError = null;
@@ -183,6 +195,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                   );
                 });
                 _scrollToBottom();
+                _queueIncomingGiftAnimations(incomingUnseenGifts);
                 // Mark incoming messages as read continuously while chat is open
                 _markIncomingRead(msgs);
               }
@@ -231,6 +244,91 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
     if (hasUnread) {
       FirebaseChatService.instance.markRead(widget.otherUserId);
     }
+  }
+
+  GiftVisual _giftVisualFromMessage(FirebaseMessage message) {
+    return GiftVisual(
+      giftEventId: message.giftEventId ?? message.id,
+      giftId: message.giftId ?? '',
+      giftName: message.giftName ?? message.body,
+      thumbnailUrl: message.giftThumbnailUrl ?? '',
+      animationUrl: message.giftAnimationUrl ?? '',
+      animationType: message.giftAnimationType ?? 'image',
+      tier: message.giftTier ?? 'small',
+      quantity: message.giftQuantity ?? 1,
+      coinCost: message.giftCoinCost ?? 0,
+      totalCoins: message.giftTotalCoins ?? message.giftCoinCost ?? 0,
+    );
+  }
+
+  void _queueIncomingGiftAnimations(List<FirebaseMessage> messages) {
+    if (messages.isEmpty) return;
+    final Iterable<FirebaseMessage> playable = messages
+        .where((FirebaseMessage message) {
+          final String eventId = message.giftEventId ?? message.id;
+          return eventId.isNotEmpty && _autoPlayedGiftEventIds.add(eventId);
+        })
+        .take(3);
+
+    for (final FirebaseMessage message in playable) {
+      _giftAnimationQueue.add(_giftVisualFromMessage(message));
+    }
+    if (!_giftAnimationQueueRunning && _giftAnimationQueue.isNotEmpty) {
+      unawaited(_drainGiftAnimationQueue());
+    }
+  }
+
+  Future<void> _drainGiftAnimationQueue() async {
+    if (_giftAnimationQueueRunning) return;
+    final OverlayState? giftOverlay = Overlay.maybeOf(
+      context,
+      rootOverlay: true,
+    );
+    if (giftOverlay == null) return;
+    _giftAnimationQueueRunning = true;
+    try {
+      while (mounted && _giftAnimationQueue.isNotEmpty) {
+        final GiftVisual visual = _giftAnimationQueue.removeAt(0);
+        await GiftAnimationOverlay.playOnOverlay(giftOverlay, visual);
+        if (_giftAnimationQueue.isNotEmpty) {
+          await Future<void>.delayed(const Duration(milliseconds: 180));
+        }
+      }
+    } finally {
+      _giftAnimationQueueRunning = false;
+    }
+  }
+
+  Future<void> _openGiftPicker() async {
+    final ZephyrApiClient? api = ZephyrApiClient.instance;
+    final String? token = ZephyrApiClient.accessToken;
+    if (api == null || token == null || token.isEmpty) {
+      _showSnack('Account session unavailable');
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+    setState(() => _mediaTrayOpen = false);
+
+    final String contextId = FirebaseChatService.instance.chatId(
+      widget.myUserId,
+      widget.otherUserId,
+    );
+    final GiftSendResult? result = await showGiftPickerSheet(
+      context: context,
+      apiClient: api,
+      accessToken: token,
+      target: GiftSendTarget(
+        surface: 'inbox',
+        contextId: contextId,
+        receiverUserId: widget.otherUserId,
+        receiverDisplayName: widget.otherDisplayName,
+      ),
+    );
+    if (!mounted || result == null) return;
+    unawaited(
+      GiftAnimationOverlay.play(context, GiftVisual.fromSendResult(result)),
+    );
   }
 
   @override
@@ -1789,6 +1887,7 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                 msg.createdAt,
                               );
                           final bool isDeleted = msg.type == 'deleted';
+                          final bool isGift = msg.type == 'gift' && !isDeleted;
 
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1855,41 +1954,52 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                         margin: const EdgeInsets.symmetric(
                                           vertical: 3,
                                         ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                          vertical: 10,
-                                        ),
+                                        padding: isGift
+                                            ? EdgeInsets.zero
+                                            : const EdgeInsets.symmetric(
+                                                horizontal: 14,
+                                                vertical: 10,
+                                              ),
                                         constraints: BoxConstraints(
                                           maxWidth:
                                               MediaQuery.sizeOf(ctx).width *
                                               0.72,
                                         ),
-                                        decoration: BoxDecoration(
-                                          color: isMe
-                                              ? const Color(0xFFFF8F00)
-                                              : (isDark
-                                                    ? const Color(0xFF2C2C2E)
-                                                    : Colors.white),
-                                          borderRadius: BorderRadius.only(
-                                            topLeft: const Radius.circular(18),
-                                            topRight: const Radius.circular(18),
-                                            bottomLeft: Radius.circular(
-                                              isMe ? 18 : 4,
-                                            ),
-                                            bottomRight: Radius.circular(
-                                              isMe ? 4 : 18,
-                                            ),
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withValues(
-                                                alpha: isDark ? 0.06 : 0.10,
+                                        decoration: isGift
+                                            ? const BoxDecoration()
+                                            : BoxDecoration(
+                                                color: isMe
+                                                    ? const Color(0xFFFF8F00)
+                                                    : (isDark
+                                                          ? const Color(
+                                                              0xFF2C2C2E,
+                                                            )
+                                                          : Colors.white),
+                                                borderRadius: BorderRadius.only(
+                                                  topLeft:
+                                                      const Radius.circular(18),
+                                                  topRight:
+                                                      const Radius.circular(18),
+                                                  bottomLeft: Radius.circular(
+                                                    isMe ? 18 : 4,
+                                                  ),
+                                                  bottomRight: Radius.circular(
+                                                    isMe ? 4 : 18,
+                                                  ),
+                                                ),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black
+                                                        .withValues(
+                                                          alpha: isDark
+                                                              ? 0.06
+                                                              : 0.10,
+                                                        ),
+                                                    blurRadius: isDark ? 4 : 6,
+                                                    offset: const Offset(0, 2),
+                                                  ),
+                                                ],
                                               ),
-                                              blurRadius: isDark ? 4 : 6,
-                                              offset: const Offset(0, 2),
-                                            ),
-                                          ],
-                                        ),
                                         child: Column(
                                           crossAxisAlignment: isMe
                                               ? CrossAxisAlignment.end
@@ -1903,6 +2013,18 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                                   fontStyle: FontStyle.italic,
                                                   color: Colors.grey.shade500,
                                                 ),
+                                              )
+                                            else if (isGift)
+                                              GiftReceiptCard(
+                                                visual: _giftVisualFromMessage(
+                                                  msg,
+                                                ),
+                                                isMine: isMe,
+                                                timeLabel: _formatTime(
+                                                  msg.createdAt,
+                                                ),
+                                                read: msg.readAt != null,
+                                                optimistic: isOptimistic,
                                               )
                                             else if (msg.type == 'image')
                                               Column(
@@ -1968,55 +2090,59 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                                                   ),
                                                 ),
                                             ],
-                                            const SizedBox(height: 3),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  _formatTime(msg.createdAt),
-                                                  style: TextStyle(
-                                                    fontSize: 11,
-                                                    color: isMe
-                                                        ? Colors.black54
-                                                        : (isDark
-                                                              ? Colors
-                                                                    .grey
-                                                                    .shade500
-                                                              : Colors
-                                                                    .grey
-                                                                    .shade400),
-                                                  ),
-                                                ),
-                                                if (isMe) ...[
-                                                  const SizedBox(width: 3),
-                                                  if (sendError != null)
-                                                    _buildRetrySendControl(
-                                                      messageId: msg.id,
-                                                    )
-                                                  else
-                                                    Icon(
-                                                      isOptimistic
-                                                          ? Icons
-                                                                .schedule_rounded
-                                                          : msg.readAt != null
-                                                          ? Icons.done_all
-                                                          : msg.deliveredAt !=
-                                                                null
-                                                          ? Icons.done_all
-                                                          : Icons.done,
-                                                      size: 13,
-                                                      color: isOptimistic
+                                            if (!isGift) ...[
+                                              const SizedBox(height: 3),
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    _formatTime(msg.createdAt),
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: isMe
                                                           ? Colors.black54
-                                                          : msg.readAt != null
-                                                          ? Colors.blue.shade300
-                                                          : msg.deliveredAt !=
-                                                                null
-                                                          ? Colors.white70
-                                                          : Colors.white54,
+                                                          : (isDark
+                                                                ? Colors
+                                                                      .grey
+                                                                      .shade500
+                                                                : Colors
+                                                                      .grey
+                                                                      .shade400),
                                                     ),
+                                                  ),
+                                                  if (isMe) ...[
+                                                    const SizedBox(width: 3),
+                                                    if (sendError != null)
+                                                      _buildRetrySendControl(
+                                                        messageId: msg.id,
+                                                      )
+                                                    else
+                                                      Icon(
+                                                        isOptimistic
+                                                            ? Icons
+                                                                  .schedule_rounded
+                                                            : msg.readAt != null
+                                                            ? Icons.done_all
+                                                            : msg.deliveredAt !=
+                                                                  null
+                                                            ? Icons.done_all
+                                                            : Icons.done,
+                                                        size: 13,
+                                                        color: isOptimistic
+                                                            ? Colors.black54
+                                                            : msg.readAt != null
+                                                            ? Colors
+                                                                  .blue
+                                                                  .shade300
+                                                            : msg.deliveredAt !=
+                                                                  null
+                                                            ? Colors.white70
+                                                            : Colors.white54,
+                                                      ),
+                                                  ],
                                                 ],
-                                              ],
-                                            ),
+                                              ),
+                                            ],
                                           ],
                                         ),
                                       ),
@@ -2052,6 +2178,23 @@ class _ThreadFirebasePageState extends State<ThreadFirebasePage> {
                               ? Colors.grey.shade400
                               : Colors.grey.shade600,
                           size: 28,
+                        ),
+                      ),
+                    ),
+                    Tooltip(
+                      message: 'Send gift',
+                      child: GestureDetector(
+                        onTap: _openGiftPicker,
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Icon(
+                            Icons.card_giftcard_rounded,
+                            color: const Color(
+                              0xFFFF8F00,
+                            ).withValues(alpha: 0.92),
+                            size: 27,
+                          ),
                         ),
                       ),
                     ),

@@ -95,11 +95,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _randomCallInviteTimer;
   bool _acceptingRandomCallInvite = false;
 
-  // ── Idle detection (away after 2 min no touch) ────────────────────────────
-  static const Duration _awayIdleTimeout = Duration(minutes: 2);
-  Timer? _idleTimer;
-  bool _isIdle = false;
-
   void _debugDirectCall(String message) {
     assert(() {
       debugPrint('[HomeDirectCall] $message');
@@ -118,7 +113,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _refreshApiStatus();
     _connectFeedSocket();
     _fcmSub = FirebaseMessaging.onMessage.listen((_) {});
-    _resetIdleTimer();
   }
 
   void _onTabNotify() {
@@ -131,20 +125,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _normalizeRootTab(int index) {
     if (index < 0 || index > 4) return 0;
     return index;
-  }
-
-  void _resetIdleTimer() {
-    _idleTimer?.cancel();
-    if (_isIdle) {
-      _isIdle = false;
-      FirebaseChatService.instance.restoreOnlineStatus();
-    }
-    _idleTimer = Timer(_awayIdleTimeout, _onIdleTimeout);
-  }
-
-  void _onIdleTimeout() {
-    _isIdle = true;
-    FirebaseChatService.instance.setAwayStatus();
   }
 
   void _connectFeedSocket() {
@@ -181,7 +161,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (_firebaseRealtimeReady) {
         FirebaseChatService.instance.restoreOnlineStatus();
       }
-      _resetIdleTimer();
       if (_firebaseRealtimeReady) {
         _listenForIncomingCalls();
       }
@@ -468,7 +447,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       // Pause the RTDB listener while in call
       _incomingCallSub?.cancel();
 
-      Navigator.of(context)
+      Navigator.of(context, rootNavigator: true)
           .push(
             MaterialPageRoute<void>(
               fullscreenDialog: true,
@@ -538,7 +517,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _idleTimer?.cancel();
     _resumeWorkTimer?.cancel();
     _feedRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -562,7 +540,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.paused) {
       _resumeWorkTimer?.cancel();
       _feedRefreshTimer?.cancel();
-      _idleTimer?.cancel();
       _declineRandomCallInvite().ignore();
       if (_firebaseRealtimeReady) {
         FirebaseChatService.instance.setBackgroundOffline();
@@ -1388,8 +1365,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Map<String, dynamic>? randomInvite = _randomCallInvite;
 
-    return Listener(
-      onPointerDown: (_) => _resetIdleTimer(),
+    return IncomingCallOverlayPortal(
+      callerId: _incomingCallerId,
+      callerName: _incomingCallerName,
+      onAccept: _acceptIncomingCall,
+      onReject: _rejectIncomingCall,
       child: PopScope(
         canPop: false,
         child: Stack(
@@ -1515,16 +1495,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   accepting: _acceptingRandomCallInvite,
                   onAccept: _acceptRandomCallInvite,
                   onDecline: () => _declineRandomCallInvite().ignore(),
-                ),
-              ),
-            // Incoming call overlay
-            if (_incomingCallerId != null)
-              Positioned.fill(
-                child: IncomingCallOverlay(
-                  callerId: _incomingCallerId!,
-                  callerName: _incomingCallerName,
-                  onAccept: _acceptIncomingCall,
-                  onReject: _rejectIncomingCall,
                 ),
               ),
           ],

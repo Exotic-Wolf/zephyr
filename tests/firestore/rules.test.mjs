@@ -266,6 +266,85 @@ describe('chat rules', () => {
     );
   });
 
+  test('deny client-forged gift messages while allowing receiver receipts', async () => {
+    const alice = db('alice');
+    const bob = db('bob');
+    const giftMessageRef = doc(
+      bob,
+      'chats/alice_bob/messages/33333333-3333-4333-8333-333333333333',
+    );
+
+    await assertSucceeds(setDoc(doc(alice, 'chats/alice_bob'), chat()));
+    await assertFails(
+      setDoc(
+        doc(alice, 'chats/alice_bob/messages/gift_12345678'),
+        message({
+          body: 'Rose',
+          type: 'gift',
+          idempotencyKey: 'gift_12345678',
+          giftEventId: '33333333-3333-4333-8333-333333333333',
+          giftId: 'rose',
+          giftName: 'Rose',
+          giftThumbnailUrl: 'https://cdn.example.test/gifts/rose/thumb.webp',
+          giftCoinCost: 10,
+          giftQuantity: 1,
+          giftTotalCoins: 10,
+        }),
+      ),
+    );
+
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(
+        doc(
+          context.firestore(),
+          'chats/alice_bob/messages/33333333-3333-4333-8333-333333333333',
+        ),
+        {
+          senderId: 'alice',
+          receiverId: 'bob',
+          body: 'Rose',
+          type: 'gift',
+          giftEventId: '33333333-3333-4333-8333-333333333333',
+          giftId: 'rose',
+          giftName: 'Rose',
+          giftThumbnailUrl: 'https://cdn.example.test/gifts/rose/thumb.webp',
+          giftAnimationUrl:
+            'https://cdn.example.test/gifts/rose/animation.lottie',
+          giftAnimationType: 'lottie',
+          giftTier: 'small',
+          giftCoinCost: 10,
+          giftQuantity: 1,
+          giftTotalCoins: 10,
+          idempotencyKey: 'gift_12345678',
+          createdAt: Timestamp.fromMillis(1760000001000),
+          deliveredAt: null,
+          readAt: null,
+        },
+      );
+    });
+
+    await assertSucceeds(
+      updateDoc(giftMessageRef, {
+        deliveredAt: Timestamp.fromMillis(1760000002000),
+        readAt: Timestamp.fromMillis(1760000003000),
+      }),
+    );
+    await assertFails(
+      updateDoc(
+        doc(
+          alice,
+          'chats/alice_bob/messages/33333333-3333-4333-8333-333333333333',
+        ),
+        {
+          deletedFor: 'all',
+          body: '',
+          imageUrl: null,
+          type: 'deleted',
+        },
+      ),
+    );
+  });
+
   test('allow receiver receipts on legacy messages with unchanged extra fields', async () => {
     await env.withSecurityRulesDisabled(async (context) => {
       await setDoc(doc(context.firestore(), 'chats/alice_bob'), chat());

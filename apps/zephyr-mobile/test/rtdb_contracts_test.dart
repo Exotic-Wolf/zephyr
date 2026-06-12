@@ -205,11 +205,13 @@ void main() {
 
       final RtdbLiveGift? gift = RtdbLiveRoomContract.gift(<String, dynamic>{
         'trusted': true,
+        'giftEventId': 'gift-event-1',
         'senderName': 'Alice',
         'giftName': 'Rose',
         'quantity': 2,
         'ts': 1760000000000,
       });
+      expect(gift?.giftEventId, 'gift-event-1');
       expect(gift?.quantity, 2);
       expect(
         RtdbLiveRoomContract.gift(<String, dynamic>{

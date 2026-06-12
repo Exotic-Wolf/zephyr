@@ -9,6 +9,11 @@ export interface CommittedChatPushResult extends FcmSendResult {
   sent: boolean;
 }
 
+export interface InboxGiftMessageWriteResult {
+  delivered: boolean;
+  created: boolean;
+}
+
 function isInvalidFcmTokenError(error: unknown): boolean {
   const code =
     typeof error === 'object' && error !== null && 'code' in error
@@ -138,9 +143,13 @@ export class FcmService implements OnModuleInit {
       const body =
         type === 'image'
           ? 'Photo'
-          : String(message.body ?? '')
-              .trim()
-              .slice(0, 200);
+          : type === 'gift'
+            ? `Gift: ${String(message.giftName ?? message.body ?? 'Gift')
+                .trim()
+                .slice(0, 80)}`
+            : String(message.body ?? '')
+                .trim()
+                .slice(0, 200);
       if (!body) return { sent: false, invalidTokens: [] };
 
       const result = await this.sendPush(
@@ -257,6 +266,113 @@ export class FcmService implements OnModuleInit {
       .delete();
   }
 
+  /**
+   * Publish a trusted inbox gift card after the backend economy ledger succeeds.
+   * Clients can read this Firestore projection but cannot create paid gift cards.
+   */
+  async writeInboxGiftMessage(input: {
+    chatId: string;
+    giftEventId: string;
+    senderUserId: string;
+    senderDisplayName: string;
+    senderAvatarUrl?: string | null;
+    receiverUserId: string;
+    receiverDisplayName: string;
+    receiverAvatarUrl?: string | null;
+    giftId: string;
+    giftName: string;
+    sectionId: string;
+    sectionName: string;
+    thumbnailUrl: string;
+    animationUrl: string;
+    animationType: string;
+    tier: string;
+    coinCost: number;
+    quantity: number;
+    totalGiftCoins: number;
+    idempotencyKey?: string | null;
+  }): Promise<InboxGiftMessageWriteResult> {
+    if (!this.initialized) {
+      return { delivered: false, created: false };
+    }
+
+    const participants = [input.senderUserId, input.receiverUserId].sort();
+    const canonicalChatId = `${participants[0]}_${participants[1]}`;
+    if (input.chatId !== canonicalChatId) {
+      this.logger.error(
+        `Refusing inbox gift write for mismatched chat ${input.chatId}`,
+      );
+      return { delivered: false, created: false };
+    }
+
+    try {
+      const firestore = admin.firestore();
+      const chatRef = firestore.collection('chats').doc(input.chatId);
+      const messageRef = chatRef.collection('messages').doc(input.giftEventId);
+
+      const created = await firestore.runTransaction(async (transaction) => {
+        const existing = await transaction.get(messageRef);
+        if (existing.exists) return false;
+
+        const now = admin.firestore.FieldValue.serverTimestamp();
+        transaction.set(
+          chatRef,
+          {
+            participants,
+            participantIds: {
+              [participants[0]]: true,
+              [participants[1]]: true,
+            },
+            lastMessage: `Gift: ${input.giftName}`,
+            lastMessageAt: now,
+            lastSenderId: input.senderUserId,
+            [`unread_${input.receiverUserId}`]:
+              admin.firestore.FieldValue.increment(1),
+            [`name_${input.senderUserId}`]: input.senderDisplayName,
+            [`name_${input.receiverUserId}`]: input.receiverDisplayName,
+            ...(input.senderAvatarUrl
+              ? { [`avatar_${input.senderUserId}`]: input.senderAvatarUrl }
+              : {}),
+            ...(input.receiverAvatarUrl
+              ? { [`avatar_${input.receiverUserId}`]: input.receiverAvatarUrl }
+              : {}),
+          },
+          { merge: true },
+        );
+        transaction.set(messageRef, {
+          senderId: input.senderUserId,
+          receiverId: input.receiverUserId,
+          body: input.giftName,
+          type: 'gift',
+          giftEventId: input.giftEventId,
+          giftId: input.giftId,
+          giftName: input.giftName,
+          giftSectionId: input.sectionId,
+          giftSectionName: input.sectionName,
+          giftThumbnailUrl: input.thumbnailUrl,
+          giftAnimationUrl: input.animationUrl,
+          giftAnimationType: input.animationType,
+          giftTier: input.tier,
+          giftCoinCost: input.coinCost,
+          giftQuantity: input.quantity,
+          giftTotalCoins: input.totalGiftCoins,
+          ...(input.idempotencyKey
+            ? { idempotencyKey: input.idempotencyKey }
+            : {}),
+          createdAt: now,
+          deliveredAt: null,
+          readAt: null,
+        });
+        return true;
+      });
+
+      return { delivered: true, created };
+    } catch (err) {
+      this.logger.error('Failed to write inbox gift message', err);
+      return { delivered: false, created: false };
+    }
+  }
+
   /** Write a call signal to RTDB at direct_calls/{userId}. */
   async writeCallSignal(
     userId: string,
@@ -280,6 +396,7 @@ export class FcmService implements OnModuleInit {
   async writeLiveGiftEvent(
     roomId: string,
     data: {
+      giftEventId: string;
       senderUserId: string;
       senderName: string;
       giftId: string;
@@ -293,9 +410,12 @@ export class FcmService implements OnModuleInit {
 
     try {
       const giftsRef = admin.database().ref(`live_rooms/${roomId}/gifts`);
-      const eventKey = this.toRealtimeKey(data.idempotencyKey);
+      const eventKey =
+        this.toRealtimeKey(data.giftEventId) ??
+        this.toRealtimeKey(data.idempotencyKey);
       const eventRef = eventKey ? giftsRef.child(eventKey) : giftsRef.push();
       await eventRef.set({
+        giftEventId: data.giftEventId,
         senderUserId: data.senderUserId,
         senderName: data.senderName,
         giftId: data.giftId,
@@ -303,7 +423,7 @@ export class FcmService implements OnModuleInit {
         quantity: data.quantity,
         totalGiftCoins: data.totalGiftCoins,
         trusted: true,
-        eventId: eventRef.key,
+        eventId: data.giftEventId,
         ts: admin.database.ServerValue.TIMESTAMP,
       });
     } catch (err) {

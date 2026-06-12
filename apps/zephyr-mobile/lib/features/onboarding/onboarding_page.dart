@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -104,6 +105,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _apiOffline = false;
   String? _error;
   String? _dismissedSessionNotice;
+  Timer? _apiOfflineRetryTimer;
+  int _apiCheckGeneration = 0;
+
+  static const Duration _apiOfflineRetryDelay = Duration(seconds: 2);
 
   String? get _visibleSessionNotice {
     final notice = widget.sessionNotice?.trim();
@@ -119,7 +124,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _authGateway =
         widget.authGateway ??
         PlatformOnboardingAuthGateway(apiClient: widget.apiClient);
-    _checkApi();
+    _checkApi(retryOnFailure: true);
   }
 
   @override
@@ -130,6 +135,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    _apiOfflineRetryTimer?.cancel();
+    super.dispose();
+  }
+
   void _dismissSessionNotice() {
     final notice = widget.sessionNotice?.trim();
     if (notice == null || notice.isEmpty) return;
@@ -137,9 +148,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     widget.onSessionNoticeDismissed?.call();
   }
 
-  Future<void> _checkApi() async {
+  Future<bool> _checkApi({bool retryOnFailure = false}) async {
+    final int generation = ++_apiCheckGeneration;
     final bool ok = await widget.apiClient.ping();
-    if (mounted) setState(() => _apiOffline = !ok);
+    if (!mounted || generation != _apiCheckGeneration) return ok;
+
+    if (ok) {
+      _apiOfflineRetryTimer?.cancel();
+      _apiOfflineRetryTimer = null;
+    }
+    setState(() => _apiOffline = !ok);
+
+    if (!ok && retryOnFailure) {
+      _apiOfflineRetryTimer?.cancel();
+      _apiOfflineRetryTimer = Timer(_apiOfflineRetryDelay, () {
+        _apiOfflineRetryTimer = null;
+        if (!mounted || !_apiOffline) return;
+        unawaited(_checkApi());
+      });
+    }
+
+    return ok;
   }
 
   Future<void> _continueWithGoogle() async {
@@ -158,7 +187,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       if (!mounted) return;
       _handleLoginResult(session);
     } catch (error) {
-      if (mounted) setState(() => _error = _friendlySignInError(error, l10n));
+      final String message = await _friendlySignInError(error, l10n);
+      if (mounted) setState(() => _error = message);
     } finally {
       if (mounted) setState(() => _googleLoading = false);
     }
@@ -176,27 +206,36 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       if (!mounted) return;
       _handleLoginResult(session);
     } catch (error) {
-      if (mounted) setState(() => _error = _friendlySignInError(error, l10n));
+      final String message = await _friendlySignInError(error, l10n);
+      if (mounted) setState(() => _error = message);
     } finally {
       if (mounted) setState(() => _appleLoading = false);
     }
   }
 
-  String _friendlySignInError(Object error, AppLocalizations l10n) {
+  Future<String> _friendlySignInError(
+    Object error,
+    AppLocalizations l10n,
+  ) async {
     final String raw = error is ZephyrApiException
         ? error.message
         : error.toString();
     final String lower = raw.toLowerCase();
 
     if (lower.contains('cancel')) return l10n.signInCancelled;
-    if (error is SocketException ||
-        lower.contains('socket') ||
-        lower.contains('network') ||
-        lower.contains('connection') ||
-        lower.contains('timed out')) {
+    if (_isNetworkSignInError(error, lower)) {
+      if (await _checkApi()) return l10n.signInFailedTryAgain;
       return l10n.signInNetworkError;
     }
     return l10n.signInFailedTryAgain;
+  }
+
+  bool _isNetworkSignInError(Object error, String lowerMessage) {
+    return error is SocketException ||
+        lowerMessage.contains('socket') ||
+        lowerMessage.contains('network') ||
+        lowerMessage.contains('connection') ||
+        lowerMessage.contains('timed out');
   }
 
   void _handleLoginResult(AuthSession session) {

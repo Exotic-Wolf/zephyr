@@ -247,6 +247,7 @@ service cloud.firestore {
 
         function deleteForEveryoneBySender() {
           return resource.data.senderId == request.auth.uid
+            && resource.data.type in ['text', 'image']
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedFor', 'body', 'imageUrl', 'type'])
             && request.resource.data.deletedFor == 'all'
             && request.resource.data.body == ''

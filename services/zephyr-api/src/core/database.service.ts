@@ -256,6 +256,52 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     `);
 
     await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS gift_events (
+        id UUID PRIMARY KEY,
+        idempotency_key TEXT,
+        surface TEXT NOT NULL,
+        context_id TEXT NOT NULL,
+        sender_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        receiver_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        gift_id TEXT NOT NULL,
+        gift_name TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        coin_cost INTEGER NOT NULL,
+        total_gift_coins INTEGER NOT NULL,
+        receiver_coins INTEGER NOT NULL,
+        receiver_usd NUMERIC(14, 4) NOT NULL,
+        receiver_spark INTEGER NOT NULL,
+        platform_coins INTEGER NOT NULL,
+        sender_coin_balance_after INTEGER NOT NULL,
+        delivery_status TEXT NOT NULL DEFAULT 'committed',
+        delivered_at TIMESTAMPTZ,
+        delivery_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+
+    await this.pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS gift_events_sender_idempotency_key_idx
+      ON gift_events(sender_user_id, idempotency_key)
+      WHERE idempotency_key IS NOT NULL;
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS gift_events_sender_created_idx
+      ON gift_events(sender_user_id, created_at DESC);
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS gift_events_receiver_created_idx
+      ON gift_events(receiver_user_id, created_at DESC);
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS gift_events_context_created_idx
+      ON gift_events(surface, context_id, created_at DESC);
+    `);
+
+    await this.pool.query(`
       CREATE TABLE IF NOT EXISTS call_sessions (
         id UUID PRIMARY KEY,
         caller_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

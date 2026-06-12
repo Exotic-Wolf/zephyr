@@ -17,7 +17,7 @@ This file owns screen and interaction contracts only. It does not own completion
 - Dark premium visual direction with mascot branding for internal testing.
 - Apple Sign-In on iOS and Google Sign-In everywhere supported.
 - No guest login.
-- API offline warning checks `/v1/health/live`.
+- API offline warning checks `/v1/health/live`, retries transient first-check failures, and revalidates before showing network-outage sign-in copy.
 - Buttons disable during loading.
 - User-facing errors must use product-safe copy, not raw exception strings.
 - Legal links open Terms of Service and Privacy Policy.
@@ -35,6 +35,7 @@ This file owns screen and interaction contracts only. It does not own completion
 ## App Shell
 
 - Root file: `apps/zephyr-mobile/lib/features/home/home_screen.dart`
+- App-level activity observation lives above pushed routes so touch activity in Inbox threads, profile pages, image viewers, and settings restores `away` users to online.
 - Shared Zephyr header owns avatar/profile entry plus wallet/spark context.
 - Footer destinations:
 
@@ -115,6 +116,9 @@ Target: Tango-style live discovery feed at real supply scale, not a filtered use
 - Tapping any sent or received chat image opens a full-screen image viewer with pinch/pan zoom and a clear close control.
 - Presence and identity display use RTDB cache through `FirebaseChatService`.
 - Thread call action uses a compact highlighted top-bar affordance and opens a bottom sheet with only supported call modes; current supported mode is `Video Call` with the receiver's backend-fetched price as `2100 [coin]/min`. If the receiver is offline, busy, or in premium live, tapping the affordance must show product-safe availability copy instead of silently doing nothing. Do not fetch prices for every Inbox row by default, and do not show unsupported call modes as disabled/"soon" actions.
+- Thread gift action must open the reusable paid gift module, not a hardcoded/free emoji tray. The module freezes `surface=inbox`, the canonical receiver id/display, and the chat context when opened; every send waits for backend `giftEventId` before playing the full animation or rendering the gift receipt.
+- Inbox gift UI presents server catalog sections, shows server coin prices and thumbnails, uses receipt animation metadata, keeps send state idempotent through an `X-Idempotency-Key`, and shows product-safe errors for blocked users, insufficient balance, disabled gifts, stale chat context, or network failure.
+- Inbox gift cards are `type=gift` Firestore messages written by backend/Admin only after the gift ledger commits. Recipients auto-play unseen gift animations once when the thread is open or later entered; the card remains in the timeline.
 - Text and media sends are optimistic but must be verified by committed Firestore message state.
 - Push relay is best-effort after Firestore commit.
 - Permission recovery must refresh the session-bound Firebase token before retrying.
@@ -128,6 +132,7 @@ Target: Tango-style live discovery feed at real supply scale, not a filtered use
 - Uses Agora for media and backend/Postgres for billing.
 - Signaling goes through `DirectCallSignals`.
 - Presence transitions go through `PresenceRealtime`.
+- Incoming call UI must mount in the root app overlay so accept/decline remains above message threads, profile pages, image viewers, and other pushed routes.
 - Incoming call overlay must be safe-area aware and responsive across iPhone, Android phones, and tablets; accept/decline controls must remain reachable without RenderFlex overflow.
 - In-call report entry and post-call Message/Report/Done actions remain part of the safety UX.
 

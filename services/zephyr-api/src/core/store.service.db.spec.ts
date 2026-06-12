@@ -23,6 +23,7 @@ describeDatabaseRace('StoreService Postgres ledger race tests', () => {
     await databaseService.query(`
       TRUNCATE
         ledger_idempotency,
+        gift_events,
         wallet_transactions,
         call_sessions,
         rooms,
@@ -182,11 +183,128 @@ describeDatabaseRace('StoreService Postgres ledger race tests', () => {
       `,
       [caller.user.id, session.id],
     );
+    const giftEventCount = await databaseService.query<{ count: string }>(
+      `
+        SELECT COUNT(*)::text AS count
+        FROM gift_events
+        WHERE sender_user_id = $1
+          AND context_id = $2
+      `,
+      [caller.user.id, session.id],
+    );
 
     expect(second).toEqual(first);
+    expect(second.giftEventId).toBe(first.giftEventId);
+    expect(first.surface).toBe('direct_call');
+    expect(first.contextId).toBe(session.id);
+    expect(first.senderUserId).toBe(caller.user.id);
+    expect(first.receiverUserId).toBe(receiver.user.id);
     expect(walletAfter.coinBalance).toBe(
       walletBefore.coinBalance - first.totalGiftCoins,
     );
     expect(spendCount.rows[0]?.count).toBe('1');
+    expect(giftEventCount.rows[0]?.count).toBe('1');
+  });
+
+  it('replays concurrent duplicate inbox gifts without double charging', async () => {
+    const sender = await storeService.issueTestSession('db_inbox_gift_sender');
+    const receiver = await storeService.issueTestSession(
+      'db_inbox_gift_receiver',
+    );
+
+    await storeService.purchaseCoins(sender.user.id, 'pack_299');
+    const contextId = [sender.user.id, receiver.user.id].sort().join('_');
+    const walletBefore = await storeService.getWalletSummary(sender.user.id);
+    const idempotencyKey = `gift:inbox:${contextId}:rose:race`;
+
+    const [first, second] = await Promise.all([
+      storeService.sendGift(sender.user.id, {
+        surface: 'inbox',
+        contextId,
+        receiverUserId: receiver.user.id,
+        giftId: 'rose',
+        quantity: 1,
+        idempotencyKey,
+      }),
+      storeService.sendGift(sender.user.id, {
+        surface: 'inbox',
+        contextId,
+        receiverUserId: receiver.user.id,
+        giftId: 'rose',
+        quantity: 1,
+        idempotencyKey,
+      }),
+    ]);
+
+    const walletAfter = await storeService.getWalletSummary(sender.user.id);
+    const spendCount = await databaseService.query<{ count: string }>(
+      `
+        SELECT COUNT(*)::text AS count
+        FROM wallet_transactions
+        WHERE user_id = $1
+          AND type = 'gift_spend'
+          AND metadata->>'contextId' = $2
+      `,
+      [sender.user.id, contextId],
+    );
+    const giftEventCount = await databaseService.query<{ count: string }>(
+      `
+        SELECT COUNT(*)::text AS count
+        FROM gift_events
+        WHERE sender_user_id = $1
+          AND receiver_user_id = $2
+          AND surface = 'inbox'
+          AND context_id = $3
+      `,
+      [sender.user.id, receiver.user.id, contextId],
+    );
+
+    expect(second).toEqual(first);
+    expect(second.giftEventId).toBe(first.giftEventId);
+    expect(first.surface).toBe('inbox');
+    expect(first.contextId).toBe(contextId);
+    expect(first.senderUserId).toBe(sender.user.id);
+    expect(first.receiverUserId).toBe(receiver.user.id);
+    expect(walletAfter.coinBalance).toBe(
+      walletBefore.coinBalance - first.totalGiftCoins,
+    );
+    expect(spendCount.rows[0]?.count).toBe('1');
+    expect(giftEventCount.rows[0]?.count).toBe('1');
+  });
+
+  it('rejects inbox gifts when either participant has blocked the other user', async () => {
+    const sender = await storeService.issueTestSession(
+      'db_blocked_gift_sender',
+    );
+    const receiver = await storeService.issueTestSession(
+      'db_blocked_gift_receiver',
+    );
+
+    await storeService.purchaseCoins(sender.user.id, 'pack_299');
+    await storeService.blockUser(receiver.user.id, sender.user.id);
+    const walletBefore = await storeService.getWalletSummary(sender.user.id);
+
+    await expect(
+      storeService.sendGift(sender.user.id, {
+        surface: 'inbox',
+        receiverUserId: receiver.user.id,
+        giftId: 'rose',
+      }),
+    ).rejects.toThrow('Cannot send gift to this user');
+
+    const walletAfter = await storeService.getWalletSummary(sender.user.id);
+    const giftEventCount = await databaseService.query<{ count: string }>(
+      `
+        SELECT COUNT(*)::text AS count
+        FROM gift_events
+        WHERE sender_user_id = $1
+          AND receiver_user_id = $2
+          AND surface = 'inbox'
+      `,
+      [sender.user.id, receiver.user.id],
+    );
+
+    expect(walletAfter.coinBalance).toBe(walletBefore.coinBalance);
+    expect(giftEventCount.rows[0]?.count).toBe('0');
   });
 });

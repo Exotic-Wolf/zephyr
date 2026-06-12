@@ -31,6 +31,124 @@ class WalletSummary {
   }
 }
 
+class GiftCatalogItem {
+  GiftCatalogItem({
+    required this.id,
+    required this.name,
+    required this.coinCost,
+    required this.sectionId,
+    required this.sectionName,
+    required this.thumbnailUrl,
+    required this.animationUrl,
+    required this.animationType,
+    required this.tier,
+    required this.surfaces,
+    required this.enabled,
+  });
+
+  final String id;
+  final String name;
+  final int coinCost;
+  final String sectionId;
+  final String sectionName;
+  final String thumbnailUrl;
+  final String animationUrl;
+  final String animationType;
+  final String tier;
+  final List<String> surfaces;
+  final bool enabled;
+
+  factory GiftCatalogItem.fromJson(Map<String, dynamic> json) {
+    final dynamic rawSurfaces = json['surfaces'];
+    return GiftCatalogItem(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      coinCost: (json['coinCost'] as num?)?.toInt() ?? 0,
+      sectionId: json['sectionId'] as String? ?? 'classic',
+      sectionName: json['sectionName'] as String? ?? 'Classic',
+      thumbnailUrl: json['thumbnailUrl'] as String? ?? '',
+      animationUrl: json['animationUrl'] as String? ?? '',
+      animationType: json['animationType'] as String? ?? 'image',
+      tier: json['tier'] as String? ?? 'small',
+      surfaces: rawSurfaces is List<dynamic>
+          ? rawSurfaces.whereType<String>().toList()
+          : const <String>[],
+      enabled: json['enabled'] as bool? ?? false,
+    );
+  }
+}
+
+class GiftSendResult {
+  GiftSendResult({
+    required this.giftEventId,
+    required this.surface,
+    required this.contextId,
+    required this.senderUserId,
+    required this.receiverUserId,
+    required this.giftId,
+    required this.giftName,
+    required this.sectionId,
+    required this.sectionName,
+    required this.thumbnailUrl,
+    required this.animationUrl,
+    required this.animationType,
+    required this.tier,
+    required this.quantity,
+    required this.coinCost,
+    required this.totalGiftCoins,
+    required this.senderCoinBalanceAfter,
+    required this.deliveryStatus,
+    required this.createdAt,
+  });
+
+  final String giftEventId;
+  final String surface;
+  final String contextId;
+  final String senderUserId;
+  final String receiverUserId;
+  final String giftId;
+  final String giftName;
+  final String sectionId;
+  final String sectionName;
+  final String thumbnailUrl;
+  final String animationUrl;
+  final String animationType;
+  final String tier;
+  final int quantity;
+  final int coinCost;
+  final int totalGiftCoins;
+  final int senderCoinBalanceAfter;
+  final String deliveryStatus;
+  final DateTime createdAt;
+
+  factory GiftSendResult.fromJson(Map<String, dynamic> json) {
+    return GiftSendResult(
+      giftEventId: json['giftEventId'] as String? ?? '',
+      surface: json['surface'] as String? ?? '',
+      contextId: json['contextId'] as String? ?? '',
+      senderUserId: json['senderUserId'] as String? ?? '',
+      receiverUserId: json['receiverUserId'] as String? ?? '',
+      giftId: json['giftId'] as String? ?? '',
+      giftName: json['giftName'] as String? ?? '',
+      sectionId: json['sectionId'] as String? ?? 'classic',
+      sectionName: json['sectionName'] as String? ?? 'Classic',
+      thumbnailUrl: json['thumbnailUrl'] as String? ?? '',
+      animationUrl: json['animationUrl'] as String? ?? '',
+      animationType: json['animationType'] as String? ?? 'image',
+      tier: json['tier'] as String? ?? 'small',
+      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      coinCost: (json['coinCost'] as num?)?.toInt() ?? 0,
+      totalGiftCoins: (json['totalGiftCoins'] as num?)?.toInt() ?? 0,
+      senderCoinBalanceAfter:
+          (json['senderCoinBalanceAfter'] as num?)?.toInt() ?? 0,
+      deliveryStatus: json['deliveryStatus'] as String? ?? 'committed',
+      createdAt:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+}
+
 class CoinPack {
   CoinPack({
     required this.id,

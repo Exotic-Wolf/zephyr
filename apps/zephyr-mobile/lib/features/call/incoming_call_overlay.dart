@@ -2,6 +2,114 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+/// Hosts the incoming-call UI in the root app overlay so it stays above pushed
+/// routes such as message threads, profile pages, and image viewers.
+class IncomingCallOverlayPortal extends StatefulWidget {
+  const IncomingCallOverlayPortal({
+    super.key,
+    required this.child,
+    required this.callerId,
+    required this.onAccept,
+    required this.onReject,
+    this.callerName,
+  });
+
+  final Widget child;
+  final String? callerId;
+  final String? callerName;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  @override
+  State<IncomingCallOverlayPortal> createState() =>
+      _IncomingCallOverlayPortalState();
+}
+
+class _IncomingCallOverlayPortalState extends State<IncomingCallOverlayPortal> {
+  OverlayEntry? _entry;
+  bool _syncScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleSync();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scheduleSync();
+  }
+
+  @override
+  void didUpdateWidget(covariant IncomingCallOverlayPortal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.callerId != widget.callerId ||
+        oldWidget.callerName != widget.callerName ||
+        oldWidget.onAccept != widget.onAccept ||
+        oldWidget.onReject != widget.onReject) {
+      _scheduleSync();
+    }
+  }
+
+  @override
+  void dispose() {
+    _removeEntry();
+    super.dispose();
+  }
+
+  void _scheduleSync() {
+    if (_syncScheduled) return;
+    _syncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncScheduled = false;
+      if (!mounted) return;
+      _syncEntry();
+    });
+  }
+
+  void _syncEntry() {
+    if (widget.callerId == null) {
+      _removeEntry();
+      return;
+    }
+
+    final OverlayEntry? entry = _entry;
+    if (entry != null) {
+      entry.markNeedsBuild();
+      return;
+    }
+
+    final OverlayState? overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+
+    final nextEntry = OverlayEntry(
+      builder: (BuildContext context) {
+        final String? callerId = widget.callerId;
+        if (callerId == null) return const SizedBox.shrink();
+        return Positioned.fill(
+          child: IncomingCallOverlay(
+            callerId: callerId,
+            callerName: widget.callerName,
+            onAccept: widget.onAccept,
+            onReject: widget.onReject,
+          ),
+        );
+      },
+    );
+    _entry = nextEntry;
+    overlay.insert(nextEntry);
+  }
+
+  void _removeEntry() {
+    _entry?.remove();
+    _entry = null;
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 /// Full-screen overlay shown when another user is ringing this user for a video
 /// call. Provides Accept / Reject buttons.
 class IncomingCallOverlay extends StatefulWidget {

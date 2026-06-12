@@ -528,6 +528,19 @@ class FirebaseChatService {
       readAt: (data['readAt'] as Timestamp?)?.toDate(),
       type: (data['type'] as String?) ?? 'text',
       imageUrl: data['imageUrl'] as String?,
+      receiverId: data['receiverId'] as String?,
+      giftEventId: data['giftEventId'] as String?,
+      giftId: data['giftId'] as String?,
+      giftName: data['giftName'] as String?,
+      giftSectionId: data['giftSectionId'] as String?,
+      giftSectionName: data['giftSectionName'] as String?,
+      giftThumbnailUrl: data['giftThumbnailUrl'] as String?,
+      giftAnimationUrl: data['giftAnimationUrl'] as String?,
+      giftAnimationType: data['giftAnimationType'] as String?,
+      giftTier: data['giftTier'] as String?,
+      giftCoinCost: (data['giftCoinCost'] as num?)?.toInt(),
+      giftQuantity: (data['giftQuantity'] as num?)?.toInt(),
+      giftTotalCoins: (data['giftTotalCoins'] as num?)?.toInt(),
       deletedFor: data['deletedFor'],
     );
   }
@@ -941,6 +954,19 @@ class FirebaseChatService {
         readAt: (data['readAt'] as Timestamp?)?.toDate(),
         type: (data['type'] as String?) ?? 'text',
         imageUrl: data['imageUrl'] as String?,
+        receiverId: data['receiverId'] as String?,
+        giftEventId: data['giftEventId'] as String?,
+        giftId: data['giftId'] as String?,
+        giftName: data['giftName'] as String?,
+        giftSectionId: data['giftSectionId'] as String?,
+        giftSectionName: data['giftSectionName'] as String?,
+        giftThumbnailUrl: data['giftThumbnailUrl'] as String?,
+        giftAnimationUrl: data['giftAnimationUrl'] as String?,
+        giftAnimationType: data['giftAnimationType'] as String?,
+        giftTier: data['giftTier'] as String?,
+        giftCoinCost: (data['giftCoinCost'] as num?)?.toInt(),
+        giftQuantity: (data['giftQuantity'] as num?)?.toInt(),
+        giftTotalCoins: (data['giftTotalCoins'] as num?)?.toInt(),
       );
     }).toList();
   }
@@ -1038,6 +1064,19 @@ class FirebaseMessage {
     this.readAt,
     this.type = 'text',
     this.imageUrl,
+    this.receiverId,
+    this.giftEventId,
+    this.giftId,
+    this.giftName,
+    this.giftSectionId,
+    this.giftSectionName,
+    this.giftThumbnailUrl,
+    this.giftAnimationUrl,
+    this.giftAnimationType,
+    this.giftTier,
+    this.giftCoinCost,
+    this.giftQuantity,
+    this.giftTotalCoins,
     this.deletedFor,
   });
 
@@ -1049,5 +1088,18 @@ class FirebaseMessage {
   final DateTime? readAt;
   final String type;
   final String? imageUrl;
+  final String? receiverId;
+  final String? giftEventId;
+  final String? giftId;
+  final String? giftName;
+  final String? giftSectionId;
+  final String? giftSectionName;
+  final String? giftThumbnailUrl;
+  final String? giftAnimationUrl;
+  final String? giftAnimationType;
+  final String? giftTier;
+  final int? giftCoinCost;
+  final int? giftQuantity;
+  final int? giftTotalCoins;
   final dynamic deletedFor; // 'all' or List<String> of user IDs
 }

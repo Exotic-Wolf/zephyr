@@ -141,3 +141,31 @@ String directCallFailureMessage(Object error) {
 
   return 'Call failed. Please try again.';
 }
+
+String giftFailureMessage(Object error) {
+  final message = apiErrorMessage(error);
+  final normalized = message.toLowerCase();
+
+  if (normalized.contains('insufficient')) {
+    return 'Not enough coins for this gift.';
+  }
+  if (normalized.contains('blocked') ||
+      normalized.contains('cannot send gift to this user')) {
+    return 'Gift cannot be sent to this user.';
+  }
+  if (normalized.contains('not enabled') ||
+      normalized.contains('not available') ||
+      normalized.contains('surface')) {
+    return 'This gift is unavailable here.';
+  }
+  if (normalized.contains('context') || normalized.contains('receiver')) {
+    return 'This chat changed. Reopen it and try again.';
+  }
+  if (normalized.contains('secure session changed') ||
+      normalized.contains('sign in again') ||
+      normalized.contains('connection issue')) {
+    return message;
+  }
+
+  return 'Gift failed. Please try again.';
+}

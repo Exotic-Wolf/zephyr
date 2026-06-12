@@ -6,16 +6,16 @@ This file is a source-checked reference, not a launch-status report or architect
 
 When code changes a path, controller route, table, column, package, or generated contract, update this file in the same work slice.
 
-Last source check: 11 Jun 2026 against repository paths, Nest controller decorators, `DatabaseService` table creation, `apps/zephyr-mobile/pubspec.yaml`, and package manifests.
+Last source check: 12 Jun 2026 against repository paths, Nest controller decorators, `DatabaseService` table creation, gift catalog/send/inbox projection contracts, `apps/zephyr-mobile/pubspec.yaml`, and package manifests.
 
 ## Flutter App Structure (`apps/zephyr-mobile/lib/`)
 
 | File | Purpose |
 |------|---------|
-| `main.dart` | App bootstrap, session restore via `flutter_secure_storage` |
+| `main.dart` | App bootstrap, session restore via `flutter_secure_storage`, app-wide presence activity observer |
 | `app_constants.dart` | `apiBaseUrl`, `googleServerClientId`, env constants |
-| `models/models.dart` | All data models: `UserProfile`, `Room`, `ZephyrMessage`, `WalletSummary`, `CoinPack`, `CallSession`, etc. |
-| `services/api_client.dart` | REST API client for auth, users, rooms, economy, calls, feed, messages, uploads, and reports |
+| `models/models.dart` | All data models: `UserProfile`, `Room`, `ZephyrMessage`, `WalletSummary`, `CoinPack`, `GiftCatalogItem`, `GiftSendResult`, `CallSession`, etc. |
+| `services/api_client.dart` | REST API client for auth, users, rooms, economy, reusable gift catalog/send, calls, feed, messages, uploads, and reports |
 | `services/api_error_messages.dart` | Product-safe API error copy |
 | `services/device_session_service.dart` | Stable app-install device id for one-active-session enforcement |
 | `services/firebase_chat_service.dart` | Firebase facade for chat, Storage image prep/upload, and realtime module access |
@@ -32,17 +32,18 @@ Last source check: 11 Jun 2026 against repository paths, Nest controller decorat
 | `features/home/widgets/*.dart` | For you, Following, Popular, Discover, host-card grid, live-feed card, and shake-call UI components |
 | `features/call/direct_call_screen.dart` | Reusable Agora video call screen (direct + random), remote mute detection, PIP |
 | `features/call/call_ended_screen.dart` | Post-call Message/Report/Done actions |
-| `features/call/incoming_call_overlay.dart` | Incoming call overlay — accept/decline, caller info |
+| `features/call/incoming_call_overlay.dart` | Incoming call overlay and root overlay portal — accept/decline, caller info |
 | `features/call/random_call_screen.dart` | Random-call customer seek/next/end flow |
 | `features/call/random_call_invite_ribbon.dart` | Host random-call invite ribbon |
 | `features/live/host_live_screen.dart` | Host live stream, heartbeat timer (15s) |
 | `features/live/go_live_countdown_page.dart` | 3-2-1 countdown, creates room |
 | `features/live/viewer_live_screen.dart` | Viewer live stream, reactions, comments |
-| `features/onboarding/onboarding_page.dart` | Login screen — Google Sign-In + Apple Sign-In, API offline check, legal links |
+| `features/onboarding/onboarding_page.dart` | Login screen — Google Sign-In + Apple Sign-In, retrying API offline check, legal links |
 | `features/onboarding/profile_setup_screen.dart` | Post-login setup — gender picker → language picker (2-page PageView), auto-detects country, writes profile to RTDB |
 | `features/explore/explore_page.dart` | Search users by name or 8-digit public ID |
 | `features/chat/inbox_firebase_page.dart` | Conversation list (real-time Firestore), presence dots, unread badges |
-| `features/chat/thread_firebase_page.dart` | DM chat — real-time messages, read/delivered receipts, images, translate, delete, anti-spam |
+| `features/chat/thread_firebase_page.dart` | DM chat — real-time messages, read/delivered receipts, images, gift button/cards/once-only inbox gift animation, translate, delete, anti-spam |
+| `features/gifts/gift_module.dart` | Reusable paid gift picker, gift receipt card, thumbnail helper, and animation overlay used by Inbox first and intended for call/live/premium surfaces |
 | `features/profile/my_profile_page.dart` | View/edit own profile |
 | `features/profile/profile_page.dart` | View another user profile, follow/call/moderation entry |
 | `features/me/me_tab.dart` | Me dashboard entrance for wallet, revenue, settings, and profile context |
@@ -51,7 +52,7 @@ Last source check: 11 Jun 2026 against repository paths, Nest controller decorat
 | `features/me/level_page.dart` | Level/spark progress view |
 | `features/me/revenue_page.dart` | Host revenue summary |
 | `features/me/settings_page.dart` | Settings subpages |
-| `widgets/` | Shared widgets: gifts, spark icon, coin icon, language picker |
+| `widgets/` | Shared widgets: legacy live gift tray, spark icon, coin icon, language picker. Existing live gift tray remains legacy until migration; new gift UI uses `features/gifts/gift_module.dart` and the server catalog/send contract. |
 
 ---
 
@@ -67,7 +68,7 @@ Last source check: 11 Jun 2026 against repository paths, Nest controller decorat
 | `core/store.service.ts` | All DB logic — messages, rooms, economy, wallets |
 | `core/database.service.ts` | Schema init, migrations, periodic cleanup |
 | `core/rtc.service.ts` | Agora token generation |
-| `core/fcm.service.ts` | Firebase Admin — push notifications, active-session projections, custom-token claims, RTDB writes for backend-owned call/match/live gift fan-out |
+| `core/fcm.service.ts` | Firebase Admin — push notifications, active-session projections, custom-token claims, RTDB writes for backend-owned call/match/live gift fan-out, and backend-owned Firestore inbox gift card projection |
 | `core/iap.service.ts` | Apple/Google purchase verification and refund support |
 | `core/demo-for-you-simulator.service.ts` | Reversible backend-owned For you demo host simulator |
 | `core/agora-chat.service.ts` | Agora Chat REST helper; currently support integration, not the main app messaging source of truth |
@@ -93,6 +94,7 @@ Core tables:
 - `user_revenue`
 - `wallet_transactions`
 - `ledger_idempotency`
+- `gift_events`
 - `rooms`
 - `room_viewers`
 - `messages`
@@ -115,6 +117,10 @@ Key columns:
 - `sessions.session_id TEXT` + `sessions.device_id TEXT` — API token session metadata used to mint session-bound Firebase tokens
 - `user_revenue.spark_balance INTEGER` — host spark balance/revenue projection
 - `ledger_idempotency (user_id, idempotency_key)` — protects call ticks and gifts from duplicate ledger writes
+- `gift_events.id` — durable receipt id returned as `giftEventId` and used by trusted visible gift fan-out
+- `gift_events.surface` + `context_id` — inbox/live/call/premium surface target; inbox context is the canonical sorted sender/receiver chat id
+- `gift_events.sender_user_id` / `receiver_user_id` — backend-resolved gift participants
+- `gift_events.sender_coin_balance_after` / `delivery_status` — receipt balance and visible-delivery state
 - `users.call_rate_coins_per_minute INT` — receiver sets their direct call rate
 - `rooms.audience_count INT` — backend/feed projection updated by room join/leave REST calls; visible live audience presence lives in RTDB
 - `rooms.last_heartbeat TIMESTAMPTZ` — updated every 15s by host
@@ -204,10 +210,18 @@ GET  /legal/privacy
 GET  /legal/terms
 ```
 
+Gift API:
+- `GET /v1/economy/gifts/catalog` returns backend-owned paid gift items with `sectionId`, `sectionName`, `coinCost`, `thumbnailUrl`, `animationUrl`, `animationType`, `tier`, `surfaces`, and `enabled`.
+- `POST /v1/economy/gifts/send` accepts the reusable surface contract: `surface`, `contextId`, `receiverUserId` when needed, `giftId`, `quantity`, and `X-Idempotency-Key` or body `idempotencyKey`.
+- Gift send responses include receipt and visual metadata: `giftEventId`, `surface`, `contextId`, sender/receiver ids, gift id/name, section, thumbnail URL, animation URL/type, tier, quantity, coin cost, total coins, balance after, delivery status, and creation timestamp.
+- `inbox` sends require `receiverUserId`; backend derives/checks the canonical chat context, rejects self/blocked sends, commits wallet + `gift_events` in one transaction, then writes a trusted Firestore `type=gift` message with the `giftEventId` as the message id.
+- `direct_call` and `random_call` sends use the call session id as `contextId` and reject mode/surface mismatches before charging.
+- `live_room` sends use the room id as `contextId`; the generic route and `/v1/rooms/:roomId/gift` both use backend/Admin live gift fan-out after ledger commit.
+
 Firebase Chat:
 - Backend: `POST /v1/auth/firebase-token` -> session-bound custom token for Firebase Auth
 - Backend: `POST /v1/auth/logout` -> revoke current API session and clear Firebase session controls only if still matching
-- Firestore: messages + conversations (real-time listeners)
+- Firestore: messages + conversations (real-time listeners), including backend/Admin-written inbox gift cards
 - RTDB: canonical presence (connection/activity/routing/display status with onDisconnect)
 - Storage: image uploads (5MB limit, format validation)
 - FCM: push via `POST /v1/messages/push`

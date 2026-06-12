@@ -342,6 +342,7 @@ Storage rules that read Firestore are a production IAM contract, not just a rule
 | `COINS_PER_USD_RECEIVER` | No | Conversion basis for receiver revenue; default `10000` |
 | `SPARK_PER_USD` | No | Spark conversion basis; defaults to `COINS_PER_USD_RECEIVER` |
 | `GIFT_PLATFORM_FEE_BPS` | No | Parsed into economy config; current gift payout uses `RECEIVER_SHARE_BPS` |
+| `GIFT_ASSET_BASE_URL` | No | Base URL for server gift catalog thumbnail/animation URLs; defaults to `https://cdn.zephyrlive.app/gifts/v1` |
 | `COIN_PACKS_JSON` | No | Optional JSON override for coin pack catalog |
 | `ALLOW_FAKE_PURCHASES` | Dev only | `true` enables direct coin credit outside production; never enable in production |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Profile media | Required for backend avatar/cover uploads |

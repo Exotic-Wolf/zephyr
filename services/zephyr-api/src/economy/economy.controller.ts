@@ -12,17 +12,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import {
-  StoreService,
-} from '../core/store.service';
-import {
-  IapService,
-  PurchaseResult,
-} from '../core/iap.service';
-import {
-  RtcJoinTokenResult,
-  RtcService,
-} from '../core/rtc.service';
+import { StoreService } from '../core/store.service';
+import { FcmService } from '../core/fcm.service';
+import { IapService, PurchaseResult } from '../core/iap.service';
+import { RtcJoinTokenResult, RtcService } from '../core/rtc.service';
 import type {
   CoinPack,
   EconomyConfig,
@@ -46,6 +39,7 @@ export class EconomyController {
     private readonly storeService: StoreService,
     private readonly rtcService: RtcService,
     private readonly iapService: IapService,
+    private readonly fcmService: FcmService,
   ) {}
 
   @Get('config')
@@ -153,11 +147,91 @@ export class EconomyController {
     @Body() body: SendGiftDto,
   ): Promise<GiftSendResult> {
     const user = await this.storeService.getUserFromAuthHeader(authorization);
+    const idempotencyKey = idempotencyKeyHeader ?? body.idempotencyKey;
+    if (body.surface) {
+      const result = await this.storeService.sendGift(user.id, {
+        surface: body.surface,
+        contextId: body.contextId ?? body.sessionId,
+        receiverUserId: body.receiverUserId,
+        giftId: body.giftId,
+        quantity: body.quantity,
+        idempotencyKey,
+      });
+
+      if (result.surface === 'live_room') {
+        await this.fcmService.writeLiveGiftEvent(result.contextId, {
+          giftEventId: result.giftEventId,
+          senderUserId: user.id,
+          senderName: user.displayName,
+          giftId: result.giftId,
+          giftName: result.giftName,
+          quantity: result.quantity,
+          totalGiftCoins: result.totalGiftCoins,
+          idempotencyKey,
+        });
+      }
+
+      if (result.surface === 'inbox') {
+        const receiver = await this.storeService.getUserById(
+          result.receiverUserId,
+        );
+        const writeResult = await this.fcmService.writeInboxGiftMessage({
+          chatId: result.contextId,
+          giftEventId: result.giftEventId,
+          senderUserId: user.id,
+          senderDisplayName: user.displayName,
+          senderAvatarUrl: user.avatarUrl,
+          receiverUserId: receiver.id,
+          receiverDisplayName: receiver.displayName,
+          receiverAvatarUrl: receiver.avatarUrl,
+          giftId: result.giftId,
+          giftName: result.giftName,
+          sectionId: result.sectionId,
+          sectionName: result.sectionName,
+          thumbnailUrl: result.thumbnailUrl,
+          animationUrl: result.animationUrl,
+          animationType: result.animationType,
+          tier: result.tier,
+          coinCost: result.coinCost,
+          quantity: result.quantity,
+          totalGiftCoins: result.totalGiftCoins,
+          idempotencyKey,
+        });
+
+        if (writeResult.created) {
+          this.storeService
+            .getDeviceTokens(receiver.id)
+            .then((tokens) =>
+              this.fcmService.sendCommittedChatMessagePush({
+                tokens,
+                senderId: user.id,
+                senderDisplayName: user.displayName,
+                recipientId: receiver.id,
+                chatId: result.contextId,
+                messageId: result.giftEventId,
+              }),
+            )
+            .then((pushResult) =>
+              this.storeService.deleteDeviceTokensByToken(
+                pushResult.invalidTokens,
+              ),
+            )
+            .catch(() => {});
+        }
+      }
+
+      return result;
+    }
+
+    if (!body.sessionId) {
+      throw new BadRequestException('surface and contextId are required');
+    }
+
     return this.storeService.sendGiftInCall(user.id, {
       sessionId: body.sessionId,
       giftId: body.giftId,
       quantity: body.quantity,
-      idempotencyKey: idempotencyKeyHeader ?? body.idempotencyKey,
+      idempotencyKey,
     });
   }
 

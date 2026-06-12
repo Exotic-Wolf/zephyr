@@ -123,6 +123,72 @@ void main() {
     expect(find.text('Sign-in cancelled.'), findsOneWidget);
   });
 
+  testWidgets('transient API offline warning clears after retry', (
+    WidgetTester tester,
+  ) async {
+    final apiClient = _FakeApiClient(pingResults: <bool>[false, true]);
+
+    await tester.pumpWidget(
+      _localizedHost(
+        OnboardingScreen(
+          apiClient: apiClient,
+          authGateway: _FakeAuthGateway(),
+          showAppleSignIn: false,
+          brandHero: const SizedBox(key: Key('test-hero'), height: 120),
+          onLoginSuccess: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('API Offline'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+
+    expect(find.text('API Offline'), findsNothing);
+    expect(apiClient.pingCalls, 2);
+  });
+
+  testWidgets('sign-in network error rechecks API before outage copy', (
+    WidgetTester tester,
+  ) async {
+    final apiClient = _FakeApiClient(pingResults: <bool>[false, true]);
+
+    await tester.pumpWidget(
+      _localizedHost(
+        OnboardingScreen(
+          apiClient: apiClient,
+          authGateway: _FakeAuthGateway(
+            googleError: Exception('Socket closed'),
+          ),
+          showAppleSignIn: false,
+          brandHero: const SizedBox(key: Key('test-hero'), height: 120),
+          onLoginSuccess: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('API Offline'), findsOneWidget);
+
+    await tester.tap(find.text('Continue with Google'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('API Offline'), findsNothing);
+    expect(
+      find.text(
+        "We couldn't reach Zephyr. Check your connection and try again.",
+      ),
+      findsNothing,
+    );
+    expect(
+      find.text("We couldn't sign you in. Please try again."),
+      findsOneWidget,
+    );
+    expect(apiClient.pingCalls, 2);
+  });
+
   testWidgets('new OAuth user completes setup after backend and RTDB writes', (
     WidgetTester tester,
   ) async {
@@ -277,6 +343,40 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  testWidgets('presence activity observer restores away from pushed routes', (
+    WidgetTester tester,
+  ) async {
+    var awayWrites = 0;
+    var restoreWrites = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (BuildContext context, Widget? child) {
+          return zephyr_app.PresenceActivityObserver(
+            enabled: true,
+            awayTimeout: const Duration(seconds: 1),
+            setAway: () => awayWrites++,
+            restoreOnline: () => restoreWrites++,
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
+        home: const _PresenceRouteHarness(),
+      ),
+    );
+
+    await tester.tap(find.text('Open pushed route'));
+    await tester.pumpAndSettle();
+
+    await tester.pump(const Duration(milliseconds: 1100));
+    expect(awayWrites, 1);
+    expect(restoreWrites, 0);
+
+    await tester.tap(find.text('Touch pushed route'));
+    await tester.pump();
+
+    expect(restoreWrites, 1);
   });
 
   testWidgets('follow feed has a useful empty state', (
@@ -535,23 +635,67 @@ LiveFeedCard _feedCard() {
   );
 }
 
-class _FakeAuthGateway implements OnboardingAuthGateway {
-  _FakeAuthGateway({AuthSession? googleSession})
-    : _googleSession = googleSession;
-
-  final AuthSession? _googleSession;
+class _PresenceRouteHarness extends StatelessWidget {
+  const _PresenceRouteHarness();
 
   @override
-  Future<AuthSession?> continueWithGoogle() async => _googleSession;
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => Scaffold(
+                  body: Center(
+                    child: ElevatedButton(
+                      onPressed: () {},
+                      child: const Text('Touch pushed route'),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+          child: const Text('Open pushed route'),
+        ),
+      ),
+    );
+  }
+}
+
+class _FakeAuthGateway implements OnboardingAuthGateway {
+  _FakeAuthGateway({
+    AuthSession? googleSession,
+    Object? googleError,
+    Object? appleError,
+  }) : _googleSession = googleSession,
+       _googleError = googleError,
+       _appleError = appleError;
+
+  final AuthSession? _googleSession;
+  final Object? _googleError;
+  final Object? _appleError;
+
+  @override
+  Future<AuthSession?> continueWithGoogle() async {
+    final error = _googleError;
+    if (error != null) throw error;
+    return _googleSession;
+  }
 
   @override
   Future<AuthSession> continueWithApple() async {
+    final error = _appleError;
+    if (error != null) throw error;
     return AuthSession(accessToken: 'apple-token', user: _profile());
   }
 }
 
 class _FakeApiClient extends ZephyrApiClient {
-  _FakeApiClient() : super(baseUrl: 'http://localhost');
+  _FakeApiClient({List<bool> pingResults = const <bool>[true]})
+    : _pingResults = pingResults,
+      super(baseUrl: 'http://localhost');
 
   String? lastGender;
   String? lastLanguage;
@@ -559,9 +703,17 @@ class _FakeApiClient extends ZephyrApiClient {
   String? reportedSessionId;
   String? reportedUserId;
   String? endedSessionId;
+  int pingCalls = 0;
+  final List<bool> _pingResults;
 
   @override
-  Future<bool> ping() async => true;
+  Future<bool> ping() async {
+    pingCalls += 1;
+    if (_pingResults.isEmpty) return true;
+    final int index = pingCalls - 1;
+    if (index < _pingResults.length) return _pingResults[index];
+    return _pingResults.last;
+  }
 
   @override
   Future<WalletSummary> getWalletSummary(String accessToken) async {

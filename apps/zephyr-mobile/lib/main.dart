@@ -42,6 +42,110 @@ bool shouldSuppressSessionMovedNoticeForLogout({
   return until != null && (now ?? DateTime.now()).isBefore(until);
 }
 
+class PresenceActivityObserver extends StatefulWidget {
+  const PresenceActivityObserver({
+    super.key,
+    required this.enabled,
+    required this.child,
+    this.awayTimeout = const Duration(minutes: 2),
+    this.restoreOnline,
+    this.setAway,
+  });
+
+  final bool enabled;
+  final Widget child;
+  final Duration awayTimeout;
+  final VoidCallback? restoreOnline;
+  final VoidCallback? setAway;
+
+  @override
+  State<PresenceActivityObserver> createState() =>
+      _PresenceActivityObserverState();
+}
+
+class _PresenceActivityObserverState extends State<PresenceActivityObserver>
+    with WidgetsBindingObserver {
+  Timer? _idleTimer;
+  bool _isIdle = false;
+  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (widget.enabled) {
+      _markActive();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant PresenceActivityObserver oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.enabled) {
+      _idleTimer?.cancel();
+      _idleTimer = null;
+      _isIdle = false;
+      return;
+    }
+    if (!oldWidget.enabled || oldWidget.awayTimeout != widget.awayTimeout) {
+      _markActive();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleState = state;
+    if (state == AppLifecycleState.resumed && widget.enabled) {
+      _markActive();
+      return;
+    }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _idleTimer?.cancel();
+      _idleTimer = null;
+      _isIdle = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _idleTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _markActive() {
+    if (!widget.enabled || _lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    _idleTimer?.cancel();
+    if (_isIdle) {
+      _isIdle = false;
+      (widget.restoreOnline ?? FirebaseChatService.instance.restoreOnlineStatus)
+          .call();
+    }
+    _idleTimer = Timer(widget.awayTimeout, _markIdle);
+  }
+
+  void _markIdle() {
+    if (!widget.enabled || _lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    _isIdle = true;
+    (widget.setAway ?? FirebaseChatService.instance.setAwayStatus).call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => _markActive(),
+      child: widget.child,
+    );
+  }
+}
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -515,6 +619,12 @@ class _MyAppState extends State<MyApp> {
       ),
       darkTheme: ThemeData.dark(useMaterial3: true),
       themeMode: _themeMode,
+      builder: (BuildContext context, Widget? child) {
+        return PresenceActivityObserver(
+          enabled: _accessToken != null,
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: _accessToken == null
           ? setupToken != null
                 ? ProfileSetupScreen(

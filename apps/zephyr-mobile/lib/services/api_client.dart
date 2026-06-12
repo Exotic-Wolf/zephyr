@@ -556,6 +556,52 @@ class ZephyrApiClient {
     return (data['blocked'] as bool?) ?? false;
   }
 
+  Future<List<GiftCatalogItem>> listGiftCatalog() async {
+    final dynamic data = await _request(
+      method: 'GET',
+      path: '/v1/economy/gifts/catalog',
+    );
+
+    if (data is! List<dynamic>) {
+      throw Exception('Invalid gift catalog response');
+    }
+
+    return data
+        .map(
+          (dynamic item) =>
+              GiftCatalogItem.fromJson(item as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
+  Future<GiftSendResult> sendGift(
+    String accessToken, {
+    required String surface,
+    String? contextId,
+    String? receiverUserId,
+    required String giftId,
+    int quantity = 1,
+    String? idempotencyKey,
+  }) async {
+    final Map<String, dynamic> data = await _request(
+      method: 'POST',
+      path: '/v1/economy/gifts/send',
+      accessToken: accessToken,
+      body: <String, dynamic>{
+        'surface': surface,
+        if (contextId != null) 'contextId': contextId,
+        if (receiverUserId != null) 'receiverUserId': receiverUserId,
+        'giftId': giftId,
+        'quantity': quantity,
+      },
+      extraHeaders: idempotencyKey != null
+          ? <String, String>{'X-Idempotency-Key': idempotencyKey}
+          : null,
+    );
+
+    return GiftSendResult.fromJson(data);
+  }
+
   Future<WalletSummary> getWalletSummary(String accessToken) async {
     final Map<String, dynamic> data = await _request(
       method: 'GET',

@@ -51,4 +51,30 @@ void main() {
       );
     });
   });
+
+  group('giftFailureMessage', () {
+    test('maps common gift backend errors to product copy', () {
+      expect(
+        giftFailureMessage(
+          const ZephyrApiException(
+            statusCode: 400,
+            message: 'Insufficient coin balance for gift',
+            responseBody: '{}',
+          ),
+        ),
+        'Not enough coins for this gift.',
+      );
+
+      expect(
+        giftFailureMessage(
+          const ZephyrApiException(
+            statusCode: 400,
+            message: 'Gift context does not match receiver',
+            responseBody: '{}',
+          ),
+        ),
+        'This chat changed. Reopen it and try again.',
+      );
+    });
+  });
 }

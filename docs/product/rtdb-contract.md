@@ -147,13 +147,14 @@ Admin writes bypass client security rules by design. Admin-only fields are allow
       gifts/
         {giftEventId}/          Backend/Admin only
           trusted
+          giftEventId
           senderUserId
           senderName
           giftId
           giftName
           quantity
           totalGiftCoins
-          eventId
+          eventId                   same durable gift event id
           ts
 ```
 
@@ -161,7 +162,7 @@ Admin writes bypass client security rules by design. Admin-only fields are allow
 
 `presence/{userId}` is the canonical realtime availability cell. Screens must express intent through `PresenceRealtime`; they must not hand-write raw RTDB status values.
 
-Mobile writes `Away` after 2 minutes of foreground inactivity. Away is still online and direct-call reachable, but it is not eligible for random-call routing.
+Mobile writes `Away` after 2 minutes of foreground inactivity across the app navigator. Away is still online and direct-call reachable, but it is not eligible for random-call routing. The next foreground touch anywhere in the app must restore normal foreground idle presence through `PresenceRealtime`.
 
 | Intent | Required state |
 |---|---|

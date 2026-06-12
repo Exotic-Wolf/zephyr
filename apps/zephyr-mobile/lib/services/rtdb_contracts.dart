@@ -264,6 +264,7 @@ class RtdbLiveRoomContract {
       return null;
     }
     return RtdbLiveGift(
+      giftEventId: _string(map['giftEventId']) ?? _string(map['eventId']),
       senderName: _string(map['senderName'])!,
       giftName: _string(map['giftName'])!,
       quantity: (map['quantity'] as num).toInt(),
@@ -282,11 +283,13 @@ class RtdbLiveComment {
 
 class RtdbLiveGift {
   const RtdbLiveGift({
+    required this.giftEventId,
     required this.senderName,
     required this.giftName,
     required this.quantity,
   });
 
+  final String? giftEventId;
   final String senderName;
   final String giftName;
   final int quantity;

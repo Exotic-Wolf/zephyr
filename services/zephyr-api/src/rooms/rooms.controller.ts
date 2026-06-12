@@ -140,6 +140,7 @@ export class RoomsController {
     });
 
     await this.fcmService.writeLiveGiftEvent(roomId, {
+      giftEventId: result.giftEventId,
       senderUserId: user.id,
       senderName: user.displayName,
       giftId: result.giftId,

@@ -157,11 +157,33 @@ export interface WalletSummary {
   sparkBalance: number;
 }
 
+export type GiftSurface =
+  | 'inbox'
+  | 'direct_call'
+  | 'random_call'
+  | 'live_room'
+  | 'premium_live'
+  | 'premium_live_entry';
+
+export type GiftAnimationType = 'image' | 'lottie' | 'rive' | 'svga';
+
+export type GiftTier = 'small' | 'medium' | 'large' | 'huge';
+
 export interface GiftCatalogItem {
   id: string;
   name: string;
   coinCost: number;
+  sectionId: string;
+  sectionName: string;
+  thumbnailUrl: string;
+  animationUrl: string;
+  animationType: GiftAnimationType;
+  tier: GiftTier;
+  surfaces: GiftSurface[];
+  enabled: boolean;
 }
+
+export type GiftDeliveryStatus = 'committed' | 'delivery_pending' | 'delivered';
 
 export interface CallSession {
   id: string;
@@ -220,16 +242,39 @@ export interface CallSessionParticipant {
 }
 
 export interface GiftSendResult {
+  giftEventId: string;
+  surface: GiftSurface;
+  contextId: string;
+  senderUserId: string;
+  receiverUserId: string;
   sessionId: string;
   giftId: string;
   giftName: string;
+  sectionId: string;
+  sectionName: string;
+  thumbnailUrl: string;
+  animationUrl: string;
+  animationType: GiftAnimationType;
+  tier: GiftTier;
   quantity: number;
+  coinCost: number;
   totalGiftCoins: number;
   receiverCoins: number;
   receiverUsd: number;
   receiverSpark: number;
   platformCoins: number;
   senderCoinBalanceAfter: number;
+  deliveryStatus: GiftDeliveryStatus;
+  createdAt: string;
+}
+
+export interface SendGiftInput {
+  surface: GiftSurface;
+  contextId?: string | null;
+  receiverUserId?: string | null;
+  giftId: string;
+  quantity?: number;
+  idempotencyKey?: string | null;
 }
 
 export interface WalletTransaction {
@@ -299,7 +344,11 @@ interface NormalizedPresenceSync {
   updatedAtIso: string | null;
 }
 
-type LedgerOperationType = 'call_tick' | 'call_gift' | 'live_gift';
+type LedgerOperationType =
+  | 'call_tick'
+  | 'call_gift'
+  | 'live_gift'
+  | 'inbox_gift';
 
 interface LedgerIdempotencyEntry<T> {
   operationType: LedgerOperationType;
@@ -3492,7 +3541,11 @@ export class StoreService implements OnModuleInit {
     );
     const platformCoins = chargedCoins - receiverCoins;
     const receiverUsd = receiverCoins / session.coinsPerUsdReceiver;
-    const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
+    const receiverSpark = this.sparkFromReceiverCoins(
+      receiverCoins,
+      session.coinsPerUsdReceiver,
+      session.sparkPerUsd,
+    );
     const now = new Date().toISOString();
 
     const callerCurrentBalance = this.walletBalances.get(callerUserId) ?? 1200;
@@ -3689,7 +3742,11 @@ export class StoreService implements OnModuleInit {
       );
       const platformCoins = chargedCoins - receiverCoins;
       const receiverUsd = receiverCoins / session.coinsPerUsdReceiver;
-      const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
+      const receiverSpark = this.sparkFromReceiverCoins(
+        receiverCoins,
+        session.coinsPerUsdReceiver,
+        session.sparkPerUsd,
+      );
       const now = new Date().toISOString();
 
       const walletUpdate = await client.query<{ coin_balance: number }>(
@@ -3841,13 +3898,467 @@ export class StoreService implements OnModuleInit {
   }
 
   listGiftCatalog(): GiftCatalogItem[] {
-    return [
-      { id: 'rose', name: 'Rose', coinCost: 10 },
-      { id: 'heart', name: 'Heart', coinCost: 50 },
-      { id: 'rocket', name: 'Rocket', coinCost: 120 },
-      { id: 'crown', name: 'Crown', coinCost: 300 },
-      { id: 'lion', name: 'Lion', coinCost: 5000 },
+    const allSurfaces: GiftSurface[] = [
+      'inbox',
+      'direct_call',
+      'random_call',
+      'live_room',
+      'premium_live',
     ];
+    const liveAndInboxSurfaces: GiftSurface[] = [
+      'inbox',
+      'live_room',
+      'premium_live',
+    ];
+
+    return [
+      {
+        id: 'rose',
+        name: 'Rose',
+        coinCost: 10,
+        sectionId: 'classic',
+        sectionName: 'Classic',
+        thumbnailUrl: this.giftAssetUrl('classic/rose/thumb.webp'),
+        animationUrl: this.giftAssetUrl('classic/rose/animation.lottie'),
+        animationType: 'lottie',
+        tier: 'small',
+        surfaces: [...allSurfaces],
+        enabled: true,
+      },
+      {
+        id: 'heart',
+        name: 'Heart',
+        coinCost: 50,
+        sectionId: 'classic',
+        sectionName: 'Classic',
+        thumbnailUrl: this.giftAssetUrl('classic/heart/thumb.webp'),
+        animationUrl: this.giftAssetUrl('classic/heart/animation.lottie'),
+        animationType: 'lottie',
+        tier: 'small',
+        surfaces: [...allSurfaces],
+        enabled: true,
+      },
+      {
+        id: 'rocket',
+        name: 'Rocket',
+        coinCost: 120,
+        sectionId: 'party',
+        sectionName: 'Party',
+        thumbnailUrl: this.giftAssetUrl('party/rocket/thumb.webp'),
+        animationUrl: this.giftAssetUrl('party/rocket/animation.riv'),
+        animationType: 'rive',
+        tier: 'medium',
+        surfaces: [...allSurfaces],
+        enabled: true,
+      },
+      {
+        id: 'world_cup_trophy',
+        name: 'World Cup Trophy',
+        coinCost: 2500,
+        sectionId: 'world_cup',
+        sectionName: 'World Cup',
+        thumbnailUrl: this.giftAssetUrl('world_cup/trophy/thumb.webp'),
+        animationUrl: this.giftAssetUrl('world_cup/trophy/animation.riv'),
+        animationType: 'rive',
+        tier: 'large',
+        surfaces: [...liveAndInboxSurfaces],
+        enabled: true,
+      },
+      {
+        id: 'crown',
+        name: 'Crown',
+        coinCost: 300,
+        sectionId: 'luxury',
+        sectionName: 'Luxury',
+        thumbnailUrl: this.giftAssetUrl('luxury/crown/thumb.webp'),
+        animationUrl: this.giftAssetUrl('luxury/crown/animation.riv'),
+        animationType: 'rive',
+        tier: 'medium',
+        surfaces: [...allSurfaces],
+        enabled: true,
+      },
+      {
+        id: 'lion',
+        name: 'Lion',
+        coinCost: 5000,
+        sectionId: 'luxury',
+        sectionName: 'Luxury',
+        thumbnailUrl: this.giftAssetUrl('luxury/lion/thumb.webp'),
+        animationUrl: this.giftAssetUrl('luxury/lion/animation.riv'),
+        animationType: 'rive',
+        tier: 'huge',
+        surfaces: [...allSurfaces],
+        enabled: true,
+      },
+      {
+        id: 'premium_room_key',
+        name: 'Premium Room Key',
+        coinCost: 200,
+        sectionId: 'premium_live',
+        sectionName: 'Premium Live',
+        thumbnailUrl: this.giftAssetUrl('premium_live/key/thumb.webp'),
+        animationUrl: this.giftAssetUrl('premium_live/key/animation.lottie'),
+        animationType: 'lottie',
+        tier: 'medium',
+        surfaces: ['premium_live_entry'],
+        enabled: true,
+      },
+    ];
+  }
+
+  private giftAssetUrl(path: string): string {
+    const baseUrl =
+      process.env.GIFT_ASSET_BASE_URL?.trim() ||
+      'https://cdn.zephyrlive.app/gifts/v1';
+    return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+  }
+
+  private giftForSurface(
+    giftId: string,
+    surface: GiftSurface,
+  ): GiftCatalogItem {
+    const gift = this.listGiftCatalog().find((item) => item.id === giftId);
+    if (!gift || !gift.enabled) {
+      throw new BadRequestException('Unknown gift id');
+    }
+    if (!gift.surfaces.includes(surface)) {
+      throw new BadRequestException('Gift is not available on this surface');
+    }
+    return gift;
+  }
+
+  private normalizeGiftQuantity(quantity?: number): number {
+    return Number.isFinite(quantity)
+      ? Math.min(Math.max(Math.trunc(quantity ?? 1), 1), 100)
+      : 1;
+  }
+
+  private canonicalInboxGiftContextId(
+    senderUserId: string,
+    receiverUserId: string,
+  ): string {
+    return [senderUserId, receiverUserId].sort().join('_');
+  }
+
+  private assertUuid(value: string | null | undefined, field: string): string {
+    const normalized = value?.trim();
+    if (
+      !normalized ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        normalized,
+      )
+    ) {
+      throw new BadRequestException(`${field} must be a UUID`);
+    }
+    return normalized;
+  }
+
+  private sparkFromReceiverCoins(
+    receiverCoins: number,
+    coinsPerUsdReceiver: number,
+    sparkPerUsd: number,
+  ): number {
+    return Math.floor((receiverCoins * sparkPerUsd) / coinsPerUsdReceiver);
+  }
+
+  private buildGiftSendResult(input: {
+    giftEventId?: string;
+    surface: GiftSurface;
+    contextId: string;
+    senderUserId: string;
+    receiverUserId: string;
+    sessionId: string;
+    gift: GiftCatalogItem;
+    quantity: number;
+    totalGiftCoins: number;
+    receiverCoins: number;
+    receiverUsd: number;
+    receiverSpark: number;
+    platformCoins: number;
+    senderCoinBalanceAfter: number;
+    deliveryStatus?: GiftDeliveryStatus;
+    createdAt: string;
+  }): GiftSendResult {
+    return {
+      giftEventId: input.giftEventId ?? randomUUID(),
+      surface: input.surface,
+      contextId: input.contextId,
+      senderUserId: input.senderUserId,
+      receiverUserId: input.receiverUserId,
+      sessionId: input.sessionId,
+      giftId: input.gift.id,
+      giftName: input.gift.name,
+      sectionId: input.gift.sectionId,
+      sectionName: input.gift.sectionName,
+      thumbnailUrl: input.gift.thumbnailUrl,
+      animationUrl: input.gift.animationUrl,
+      animationType: input.gift.animationType,
+      tier: input.gift.tier,
+      quantity: input.quantity,
+      coinCost: input.gift.coinCost,
+      totalGiftCoins: input.totalGiftCoins,
+      receiverCoins: input.receiverCoins,
+      receiverUsd: input.receiverUsd,
+      receiverSpark: input.receiverSpark,
+      platformCoins: input.platformCoins,
+      senderCoinBalanceAfter: input.senderCoinBalanceAfter,
+      deliveryStatus: input.deliveryStatus ?? 'committed',
+      createdAt: input.createdAt,
+    };
+  }
+
+  private async writeGiftEvent(
+    client: PoolClient,
+    result: GiftSendResult,
+    idempotencyKey: string | null,
+  ): Promise<void> {
+    await client.query(
+      `
+        INSERT INTO gift_events (
+          id,
+          idempotency_key,
+          surface,
+          context_id,
+          sender_user_id,
+          receiver_user_id,
+          gift_id,
+          gift_name,
+          quantity,
+          coin_cost,
+          total_gift_coins,
+          receiver_coins,
+          receiver_usd,
+          receiver_spark,
+          platform_coins,
+          sender_coin_balance_after,
+          delivery_status,
+          created_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16, $17, $18
+        )
+      `,
+      [
+        result.giftEventId,
+        idempotencyKey,
+        result.surface,
+        result.contextId,
+        result.senderUserId,
+        result.receiverUserId,
+        result.giftId,
+        result.giftName,
+        result.quantity,
+        result.coinCost,
+        result.totalGiftCoins,
+        result.receiverCoins,
+        result.receiverUsd,
+        result.receiverSpark,
+        result.platformCoins,
+        result.senderCoinBalanceAfter,
+        result.deliveryStatus,
+        result.createdAt,
+      ],
+    );
+  }
+
+  async sendGift(
+    senderUserId: string,
+    input: SendGiftInput,
+  ): Promise<GiftSendResult> {
+    switch (input.surface) {
+      case 'inbox':
+        return this.sendGiftInInbox(senderUserId, {
+          receiverUserId: input.receiverUserId,
+          contextId: input.contextId,
+          giftId: input.giftId,
+          quantity: input.quantity,
+          idempotencyKey: input.idempotencyKey,
+        });
+      case 'direct_call':
+      case 'random_call':
+        return this.sendGiftInCall(senderUserId, {
+          sessionId: this.assertUuid(input.contextId, 'contextId'),
+          giftId: input.giftId,
+          quantity: input.quantity,
+          idempotencyKey: input.idempotencyKey,
+          expectedSurface: input.surface,
+        });
+      case 'live_room':
+        return this.sendGiftInRoom(senderUserId, {
+          roomId: this.assertUuid(input.contextId, 'contextId'),
+          giftId: input.giftId,
+          quantity: input.quantity,
+          idempotencyKey: input.idempotencyKey,
+        });
+      case 'premium_live':
+      case 'premium_live_entry':
+        throw new BadRequestException(
+          'Premium live gifts are not available yet',
+        );
+      default:
+        throw new BadRequestException('Unsupported gift surface');
+    }
+  }
+
+  async sendGiftInInbox(
+    senderUserId: string,
+    input: {
+      receiverUserId?: string | null;
+      contextId?: string | null;
+      giftId: string;
+      quantity?: number;
+      idempotencyKey?: string | null;
+    },
+  ): Promise<GiftSendResult> {
+    const receiverUserId = this.assertUuid(
+      input.receiverUserId,
+      'receiverUserId',
+    );
+    if (receiverUserId === senderUserId) {
+      throw new BadRequestException('Cannot send gifts to yourself');
+    }
+
+    const contextId = this.canonicalInboxGiftContextId(
+      senderUserId,
+      receiverUserId,
+    );
+    if (input.contextId && input.contextId.trim() !== contextId) {
+      throw new BadRequestException('Gift context does not match receiver');
+    }
+
+    const quantity = this.normalizeGiftQuantity(input.quantity);
+    const gift = this.giftForSurface(input.giftId, 'inbox');
+    const normalizedIdempotencyKey = this.normalizeIdempotencyKey(
+      input.idempotencyKey,
+    );
+    const requestHash = this.ledgerRequestHash({
+      operationType: 'inbox_gift',
+      surface: 'inbox',
+      contextId,
+      receiverUserId,
+      giftId: input.giftId,
+      quantity,
+    });
+
+    if (this.databaseService?.isEnabled()) {
+      return this.sendGiftInInboxInDatabase(
+        senderUserId,
+        { receiverUserId, contextId, gift, quantity },
+        normalizedIdempotencyKey,
+        requestHash,
+      );
+    }
+
+    const replay = this.getInMemoryLedgerReplay<GiftSendResult>(
+      senderUserId,
+      normalizedIdempotencyKey,
+      'inbox_gift',
+      requestHash,
+    );
+    if (replay) {
+      return replay;
+    }
+
+    if (!this.users.has(receiverUserId)) {
+      throw new NotFoundException('Receiver not found');
+    }
+
+    const totalGiftCoins = gift.coinCost * quantity;
+    const senderWalletBefore = await this.getWalletSummary(senderUserId);
+    if (senderWalletBefore.coinBalance < totalGiftCoins) {
+      throw new BadRequestException('Insufficient coin balance for gift');
+    }
+
+    const config = this.getEconomyConfig();
+    const receiverCoins = Math.floor(
+      (totalGiftCoins * config.receiverShareBps) / 10000,
+    );
+    const platformCoins = totalGiftCoins - receiverCoins;
+    const receiverUsd = receiverCoins / config.coinsPerUsdReceiver;
+    const receiverSpark = this.sparkFromReceiverCoins(
+      receiverCoins,
+      config.coinsPerUsdReceiver,
+      config.sparkPerUsd,
+    );
+    const now = new Date().toISOString();
+    const giftEventId = randomUUID();
+
+    const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
+    this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
+
+    const receiverRevenue = this.userRevenueUsd.get(receiverUserId) ?? 0;
+    const receiverSparkBalance =
+      this.userSparkBalances.get(receiverUserId) ?? 0;
+    this.userRevenueUsd.set(receiverUserId, receiverRevenue + receiverUsd);
+    this.userSparkBalances.set(
+      receiverUserId,
+      receiverSparkBalance + receiverSpark,
+    );
+
+    await this.writeWalletTransaction({
+      userId: senderUserId,
+      type: 'gift_spend',
+      coinsDelta: -totalGiftCoins,
+      amountUsd: null,
+      metadata: {
+        giftEventId,
+        surface: 'inbox',
+        contextId,
+        giftId: gift.id,
+        giftName: gift.name,
+        quantity,
+        receiverUserId,
+        receiverCoins,
+        platformCoins,
+      },
+      createdAt: now,
+    });
+
+    await this.writeWalletTransaction({
+      userId: receiverUserId,
+      type: 'gift_earning_spark',
+      coinsDelta: 0,
+      amountUsd: receiverUsd,
+      metadata: {
+        giftEventId,
+        surface: 'inbox',
+        contextId,
+        giftId: gift.id,
+        giftName: gift.name,
+        quantity,
+        senderUserId,
+        receiverCoinsEquivalent: receiverCoins,
+        sparkEarned: receiverSpark,
+      },
+      createdAt: now,
+    });
+
+    const senderWalletAfter = await this.getWalletSummary(senderUserId);
+
+    return this.saveInMemoryLedgerResponse(
+      senderUserId,
+      normalizedIdempotencyKey,
+      'inbox_gift',
+      requestHash,
+      this.buildGiftSendResult({
+        giftEventId,
+        surface: 'inbox',
+        contextId,
+        senderUserId,
+        receiverUserId,
+        sessionId: contextId,
+        gift,
+        quantity,
+        totalGiftCoins,
+        receiverCoins,
+        receiverUsd,
+        receiverSpark,
+        platformCoins,
+        senderCoinBalanceAfter: senderWalletAfter.coinBalance,
+        createdAt: now,
+      }),
+    );
   }
 
   async sendGiftInCall(
@@ -3857,17 +4368,17 @@ export class StoreService implements OnModuleInit {
       giftId: string;
       quantity?: number;
       idempotencyKey?: string | null;
+      expectedSurface?: GiftSurface;
     },
   ): Promise<GiftSendResult> {
-    const quantity = Number.isFinite(input.quantity)
-      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
-      : 1;
+    const quantity = this.normalizeGiftQuantity(input.quantity);
     const normalizedIdempotencyKey = this.normalizeIdempotencyKey(
       input.idempotencyKey,
     );
     const requestHash = this.ledgerRequestHash({
       operationType: 'call_gift',
       sessionId: input.sessionId,
+      expectedSurface: input.expectedSurface ?? null,
       giftId: input.giftId,
       quantity,
     });
@@ -3910,12 +4421,12 @@ export class StoreService implements OnModuleInit {
       );
     }
 
-    const gift = this.listGiftCatalog().find(
-      (item) => item.id === input.giftId,
-    );
-    if (!gift) {
-      throw new BadRequestException('Unknown gift id');
+    const surface: GiftSurface =
+      session.mode === 'random' ? 'random_call' : 'direct_call';
+    if (input.expectedSurface && input.expectedSurface !== surface) {
+      throw new BadRequestException('Gift surface does not match call context');
     }
+    const gift = this.giftForSurface(input.giftId, surface);
 
     const totalGiftCoins = gift.coinCost * quantity;
 
@@ -3929,8 +4440,13 @@ export class StoreService implements OnModuleInit {
     );
     const platformCoins = totalGiftCoins - receiverCoins;
     const receiverUsd = receiverCoins / session.coinsPerUsdReceiver;
-    const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
+    const receiverSpark = this.sparkFromReceiverCoins(
+      receiverCoins,
+      session.coinsPerUsdReceiver,
+      session.sparkPerUsd,
+    );
     const now = new Date().toISOString();
+    const giftEventId = randomUUID();
 
     const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
     this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
@@ -3954,6 +4470,9 @@ export class StoreService implements OnModuleInit {
       coinsDelta: -totalGiftCoins,
       amountUsd: null,
       metadata: {
+        giftEventId,
+        surface,
+        contextId: session.id,
         sessionId: session.id,
         mode: session.mode,
         giftId: gift.id,
@@ -3972,6 +4491,9 @@ export class StoreService implements OnModuleInit {
       coinsDelta: 0,
       amountUsd: receiverUsd,
       metadata: {
+        giftEventId,
+        surface,
+        contextId: session.id,
         sessionId: session.id,
         mode: session.mode,
         giftId: gift.id,
@@ -3991,10 +4513,14 @@ export class StoreService implements OnModuleInit {
       normalizedIdempotencyKey,
       'call_gift',
       requestHash,
-      {
+      this.buildGiftSendResult({
+        giftEventId,
+        surface,
+        contextId: session.id,
+        senderUserId,
+        receiverUserId: session.receiverUserId,
         sessionId: session.id,
-        giftId: gift.id,
-        giftName: gift.name,
+        gift,
         quantity,
         totalGiftCoins,
         receiverCoins,
@@ -4002,7 +4528,8 @@ export class StoreService implements OnModuleInit {
         receiverSpark,
         platformCoins,
         senderCoinBalanceAfter: senderWalletAfter.coinBalance,
-      },
+        createdAt: now,
+      }),
     );
   }
 
@@ -4015,9 +4542,7 @@ export class StoreService implements OnModuleInit {
       idempotencyKey?: string | null;
     },
   ): Promise<GiftSendResult> {
-    const quantity = Number.isFinite(input.quantity)
-      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
-      : 1;
+    const quantity = this.normalizeGiftQuantity(input.quantity);
     const normalizedIdempotencyKey = this.normalizeIdempotencyKey(
       input.idempotencyKey,
     );
@@ -4055,12 +4580,7 @@ export class StoreService implements OnModuleInit {
       throw new BadRequestException('Host cannot send gifts to themselves');
     }
 
-    const gift = this.listGiftCatalog().find(
-      (item) => item.id === input.giftId,
-    );
-    if (!gift) {
-      throw new BadRequestException('Unknown gift id');
-    }
+    const gift = this.giftForSurface(input.giftId, 'live_room');
 
     const totalGiftCoins = gift.coinCost * quantity;
 
@@ -4079,8 +4599,13 @@ export class StoreService implements OnModuleInit {
     );
     const platformCoins = totalGiftCoins - receiverCoins;
     const receiverUsd = receiverCoins / coinsPerUsdReceiver;
-    const receiverSpark = Math.floor(receiverUsd * sparkPerUsd);
+    const receiverSpark = this.sparkFromReceiverCoins(
+      receiverCoins,
+      coinsPerUsdReceiver,
+      sparkPerUsd,
+    );
     const now = new Date().toISOString();
+    const giftEventId = randomUUID();
 
     const senderCurrent = this.walletBalances.get(senderUserId) ?? 1200;
     this.walletBalances.set(senderUserId, senderCurrent - totalGiftCoins);
@@ -4099,6 +4624,9 @@ export class StoreService implements OnModuleInit {
       coinsDelta: -totalGiftCoins,
       amountUsd: null,
       metadata: {
+        giftEventId,
+        surface: 'live_room',
+        contextId: input.roomId,
         roomId: input.roomId,
         mode: 'live_room',
         giftId: gift.id,
@@ -4117,6 +4645,9 @@ export class StoreService implements OnModuleInit {
       coinsDelta: 0,
       amountUsd: receiverUsd,
       metadata: {
+        giftEventId,
+        surface: 'live_room',
+        contextId: input.roomId,
         roomId: input.roomId,
         mode: 'live_room',
         giftId: gift.id,
@@ -4136,10 +4667,14 @@ export class StoreService implements OnModuleInit {
       normalizedIdempotencyKey,
       'live_gift',
       requestHash,
-      {
+      this.buildGiftSendResult({
+        giftEventId,
+        surface: 'live_room',
+        contextId: input.roomId,
+        senderUserId,
+        receiverUserId: hostUserId,
         sessionId: input.roomId,
-        giftId: gift.id,
-        giftName: gift.name,
+        gift,
         quantity,
         totalGiftCoins,
         receiverCoins,
@@ -4147,8 +4682,183 @@ export class StoreService implements OnModuleInit {
         receiverSpark,
         platformCoins,
         senderCoinBalanceAfter: senderWalletAfter.coinBalance,
-      },
+        createdAt: now,
+      }),
     );
+  }
+
+  private async sendGiftInInboxInDatabase(
+    senderUserId: string,
+    input: {
+      receiverUserId: string;
+      contextId: string;
+      gift: GiftCatalogItem;
+      quantity: number;
+    },
+    idempotencyKey: string | null,
+    requestHash: string,
+  ): Promise<GiftSendResult> {
+    const totalGiftCoins = input.gift.coinCost * input.quantity;
+    const config = this.getEconomyConfig();
+
+    return this.databaseService!.transaction(async (client) => {
+      const replay = await this.getDatabaseLedgerReplay<GiftSendResult>(
+        client,
+        senderUserId,
+        idempotencyKey,
+        'inbox_gift',
+        requestHash,
+      );
+      if (replay) {
+        return replay;
+      }
+
+      const receiverResult = await client.query<{ id: string }>(
+        `
+          SELECT id
+          FROM users
+          WHERE id = $1
+          LIMIT 1
+        `,
+        [input.receiverUserId],
+      );
+      if ((receiverResult.rowCount ?? 0) === 0) {
+        throw new NotFoundException('Receiver not found');
+      }
+
+      const blockResult = await client.query<{ blocked: boolean }>(
+        `
+          SELECT EXISTS(
+            SELECT 1
+            FROM user_blocks
+            WHERE (blocker_id = $1 AND blocked_id = $2)
+               OR (blocker_id = $2 AND blocked_id = $1)
+          ) AS blocked
+        `,
+        [senderUserId, input.receiverUserId],
+      );
+      if (blockResult.rows[0]?.blocked) {
+        throw new BadRequestException('Cannot send gift to this user');
+      }
+
+      await this.ensureWalletAndRevenueRows(senderUserId, client);
+      await this.ensureWalletAndRevenueRows(input.receiverUserId, client);
+
+      const walletResult = await client.query<{ coin_balance: number }>(
+        `
+          SELECT coin_balance
+          FROM wallets
+          WHERE user_id = $1
+          FOR UPDATE
+        `,
+        [senderUserId],
+      );
+      const senderCoinBalanceBefore = walletResult.rows[0]?.coin_balance ?? 0;
+      if (senderCoinBalanceBefore < totalGiftCoins) {
+        throw new BadRequestException('Insufficient coin balance for gift');
+      }
+
+      const receiverCoins = Math.floor(
+        (totalGiftCoins * config.receiverShareBps) / 10000,
+      );
+      const platformCoins = totalGiftCoins - receiverCoins;
+      const receiverUsd = receiverCoins / config.coinsPerUsdReceiver;
+      const receiverSpark = this.sparkFromReceiverCoins(
+        receiverCoins,
+        config.coinsPerUsdReceiver,
+        config.sparkPerUsd,
+      );
+      const now = new Date().toISOString();
+
+      const walletUpdate = await client.query<{ coin_balance: number }>(
+        `
+          UPDATE wallets
+          SET coin_balance = coin_balance - $2,
+              updated_at = NOW()
+          WHERE user_id = $1
+          RETURNING coin_balance
+        `,
+        [senderUserId, totalGiftCoins],
+      );
+      const senderCoinBalanceAfter =
+        walletUpdate.rows[0]?.coin_balance ?? senderCoinBalanceBefore;
+      const giftResult = this.buildGiftSendResult({
+        surface: 'inbox',
+        contextId: input.contextId,
+        senderUserId,
+        receiverUserId: input.receiverUserId,
+        sessionId: input.contextId,
+        gift: input.gift,
+        quantity: input.quantity,
+        totalGiftCoins,
+        receiverCoins,
+        receiverUsd,
+        receiverSpark,
+        platformCoins,
+        senderCoinBalanceAfter,
+        createdAt: now,
+      });
+
+      await client.query(
+        `
+          UPDATE user_revenue
+          SET revenue_usd = revenue_usd + $2,
+              spark_balance = spark_balance + $3,
+              updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [input.receiverUserId, receiverUsd, receiverSpark],
+      );
+
+      await this.writeWalletTransaction({
+        userId: senderUserId,
+        type: 'gift_spend',
+        coinsDelta: -totalGiftCoins,
+        amountUsd: null,
+        metadata: {
+          giftEventId: giftResult.giftEventId,
+          surface: 'inbox',
+          contextId: input.contextId,
+          giftId: input.gift.id,
+          giftName: input.gift.name,
+          quantity: input.quantity,
+          receiverUserId: input.receiverUserId,
+          receiverCoins,
+          platformCoins,
+        },
+        createdAt: now,
+        client,
+      });
+
+      await this.writeWalletTransaction({
+        userId: input.receiverUserId,
+        type: 'gift_earning_spark',
+        coinsDelta: 0,
+        amountUsd: receiverUsd,
+        metadata: {
+          giftEventId: giftResult.giftEventId,
+          surface: 'inbox',
+          contextId: input.contextId,
+          giftId: input.gift.id,
+          giftName: input.gift.name,
+          quantity: input.quantity,
+          senderUserId,
+          receiverCoinsEquivalent: receiverCoins,
+          sparkEarned: receiverSpark,
+        },
+        createdAt: now,
+        client,
+      });
+
+      await this.writeGiftEvent(client, giftResult, idempotencyKey);
+
+      return this.saveDatabaseLedgerResponse(
+        client,
+        senderUserId,
+        idempotencyKey,
+        giftResult,
+      );
+    });
   }
 
   private async sendGiftInCallInDatabase(
@@ -4157,21 +4867,12 @@ export class StoreService implements OnModuleInit {
       sessionId: string;
       giftId: string;
       quantity?: number;
+      expectedSurface?: GiftSurface;
     },
     idempotencyKey: string | null,
     requestHash: string,
   ): Promise<GiftSendResult> {
-    const gift = this.listGiftCatalog().find(
-      (item) => item.id === input.giftId,
-    );
-    if (!gift) {
-      throw new BadRequestException('Unknown gift id');
-    }
-
-    const quantity = Number.isFinite(input.quantity)
-      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
-      : 1;
-    const totalGiftCoins = gift.coinCost * quantity;
+    const quantity = this.normalizeGiftQuantity(input.quantity);
 
     return this.databaseService!.transaction(async (client) => {
       const replay = await this.getDatabaseLedgerReplay<GiftSendResult>(
@@ -4215,6 +4916,16 @@ export class StoreService implements OnModuleInit {
         );
       }
 
+      const surface: GiftSurface =
+        session.mode === 'random' ? 'random_call' : 'direct_call';
+      if (input.expectedSurface && input.expectedSurface !== surface) {
+        throw new BadRequestException(
+          'Gift surface does not match call context',
+        );
+      }
+      const gift = this.giftForSurface(input.giftId, surface);
+      const totalGiftCoins = gift.coinCost * quantity;
+
       await this.ensureWalletAndRevenueRows(senderUserId, client);
       await this.ensureWalletAndRevenueRows(session.receiverUserId, client);
 
@@ -4237,7 +4948,11 @@ export class StoreService implements OnModuleInit {
       );
       const platformCoins = totalGiftCoins - receiverCoins;
       const receiverUsd = receiverCoins / session.coinsPerUsdReceiver;
-      const receiverSpark = Math.floor(receiverUsd * session.sparkPerUsd);
+      const receiverSpark = this.sparkFromReceiverCoins(
+        receiverCoins,
+        session.coinsPerUsdReceiver,
+        session.sparkPerUsd,
+      );
       const now = new Date().toISOString();
 
       const walletUpdate = await client.query<{ coin_balance: number }>(
@@ -4250,6 +4965,24 @@ export class StoreService implements OnModuleInit {
         `,
         [senderUserId, totalGiftCoins],
       );
+      const senderCoinBalanceAfter =
+        walletUpdate.rows[0]?.coin_balance ?? senderCoinBalanceBefore;
+      const giftResult = this.buildGiftSendResult({
+        surface,
+        contextId: session.id,
+        senderUserId,
+        receiverUserId: session.receiverUserId,
+        sessionId: session.id,
+        gift,
+        quantity,
+        totalGiftCoins,
+        receiverCoins,
+        receiverUsd,
+        receiverSpark,
+        platformCoins,
+        senderCoinBalanceAfter,
+        createdAt: now,
+      });
 
       await client.query(
         `
@@ -4268,6 +5001,9 @@ export class StoreService implements OnModuleInit {
         coinsDelta: -totalGiftCoins,
         amountUsd: null,
         metadata: {
+          giftEventId: giftResult.giftEventId,
+          surface,
+          contextId: session.id,
           sessionId: session.id,
           mode: session.mode,
           giftId: gift.id,
@@ -4287,6 +5023,9 @@ export class StoreService implements OnModuleInit {
         coinsDelta: 0,
         amountUsd: receiverUsd,
         metadata: {
+          giftEventId: giftResult.giftEventId,
+          surface,
+          contextId: session.id,
           sessionId: session.id,
           mode: session.mode,
           giftId: gift.id,
@@ -4300,23 +5039,13 @@ export class StoreService implements OnModuleInit {
         client,
       });
 
+      await this.writeGiftEvent(client, giftResult, idempotencyKey);
+
       return this.saveDatabaseLedgerResponse(
         client,
         senderUserId,
         idempotencyKey,
-        {
-          sessionId: session.id,
-          giftId: gift.id,
-          giftName: gift.name,
-          quantity,
-          totalGiftCoins,
-          receiverCoins,
-          receiverUsd,
-          receiverSpark,
-          platformCoins,
-          senderCoinBalanceAfter:
-            walletUpdate.rows[0]?.coin_balance ?? senderCoinBalanceBefore,
-        },
+        giftResult,
       );
     });
   }
@@ -4331,16 +5060,8 @@ export class StoreService implements OnModuleInit {
     idempotencyKey: string | null,
     requestHash: string,
   ): Promise<GiftSendResult> {
-    const gift = this.listGiftCatalog().find(
-      (item) => item.id === input.giftId,
-    );
-    if (!gift) {
-      throw new BadRequestException('Unknown gift id');
-    }
-
-    const quantity = Number.isFinite(input.quantity)
-      ? Math.min(Math.max(Math.trunc(input.quantity ?? 1), 1), 100)
-      : 1;
+    const gift = this.giftForSurface(input.giftId, 'live_room');
+    const quantity = this.normalizeGiftQuantity(input.quantity);
     const totalGiftCoins = gift.coinCost * quantity;
     const config = this.getEconomyConfig();
 
@@ -4395,7 +5116,11 @@ export class StoreService implements OnModuleInit {
       );
       const platformCoins = totalGiftCoins - receiverCoins;
       const receiverUsd = receiverCoins / config.coinsPerUsdReceiver;
-      const receiverSpark = Math.floor(receiverUsd * config.sparkPerUsd);
+      const receiverSpark = this.sparkFromReceiverCoins(
+        receiverCoins,
+        config.coinsPerUsdReceiver,
+        config.sparkPerUsd,
+      );
       const now = new Date().toISOString();
 
       const walletUpdate = await client.query<{ coin_balance: number }>(
@@ -4408,6 +5133,24 @@ export class StoreService implements OnModuleInit {
         `,
         [senderUserId, totalGiftCoins],
       );
+      const senderCoinBalanceAfter =
+        walletUpdate.rows[0]?.coin_balance ?? senderCoinBalanceBefore;
+      const giftResult = this.buildGiftSendResult({
+        surface: 'live_room',
+        contextId: input.roomId,
+        senderUserId,
+        receiverUserId: hostUserId,
+        sessionId: input.roomId,
+        gift,
+        quantity,
+        totalGiftCoins,
+        receiverCoins,
+        receiverUsd,
+        receiverSpark,
+        platformCoins,
+        senderCoinBalanceAfter,
+        createdAt: now,
+      });
 
       await client.query(
         `
@@ -4426,6 +5169,9 @@ export class StoreService implements OnModuleInit {
         coinsDelta: -totalGiftCoins,
         amountUsd: null,
         metadata: {
+          giftEventId: giftResult.giftEventId,
+          surface: 'live_room',
+          contextId: input.roomId,
           roomId: input.roomId,
           mode: 'live_room',
           giftId: gift.id,
@@ -4445,6 +5191,9 @@ export class StoreService implements OnModuleInit {
         coinsDelta: 0,
         amountUsd: receiverUsd,
         metadata: {
+          giftEventId: giftResult.giftEventId,
+          surface: 'live_room',
+          contextId: input.roomId,
           roomId: input.roomId,
           mode: 'live_room',
           giftId: gift.id,
@@ -4458,23 +5207,13 @@ export class StoreService implements OnModuleInit {
         client,
       });
 
+      await this.writeGiftEvent(client, giftResult, idempotencyKey);
+
       return this.saveDatabaseLedgerResponse(
         client,
         senderUserId,
         idempotencyKey,
-        {
-          sessionId: input.roomId,
-          giftId: gift.id,
-          giftName: gift.name,
-          quantity,
-          totalGiftCoins,
-          receiverCoins,
-          receiverUsd,
-          receiverSpark,
-          platformCoins,
-          senderCoinBalanceAfter:
-            walletUpdate.rows[0]?.coin_balance ?? senderCoinBalanceBefore,
-        },
+        giftResult,
       );
     });
   }
