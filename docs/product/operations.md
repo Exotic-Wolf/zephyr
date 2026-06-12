@@ -275,6 +275,8 @@ ls -lh apps/zephyr-mobile/build/app/outputs/bundle/release/app-release.aab
 
 Known local caveat: `flutter build appbundle` has reported native debug-symbol stripping failure on this Mac. Direct Gradle `:app:bundleRelease` succeeds and reads version metadata from `pubspec.yaml`. Current release builds still emit known non-fatal R8 Kotlin metadata and Gradle 9 deprecation warnings.
 
+Play upload caveat: if Play Console says "Version code X has already been used", that AAB cannot be reused. Bump the build number in `apps/zephyr-mobile/pubspec.yaml` above every Play-uploaded version code, rebuild with direct Gradle, then upload the newly generated AAB.
+
 Release preflight:
 
 1. Confirm `pubspec.yaml` version/build is higher than any uploaded Play build.
